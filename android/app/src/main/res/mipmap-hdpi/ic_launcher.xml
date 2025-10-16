@@ -1,0 +1,36 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    
+    <!-- Background circle -->
+    <path
+        android:fillColor="#00BFFF"
+        android:pathData="M24,24m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0"/>
+    
+    <!-- Left rectangle (main screen) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,16 L21,16 L21,32 L12,32 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"/>
+    
+    <!-- Right rectangle (rear screen) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M27,16 L36,16 L36,32 L27,32 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"/>
+    
+    <!-- Arrow pointing right -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M17,22 L20,24 L17,26 Z"/>
+    
+    <!-- Arrow pointing left -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M31,22 L28,24 L31,26 Z"/>
+</vector>
+

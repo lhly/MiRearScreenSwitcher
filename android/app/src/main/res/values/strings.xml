@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DisplaySwitcher</string>
+    <string name="bubble_description">Floating bubble to switch displays</string>
+</resources>
+
