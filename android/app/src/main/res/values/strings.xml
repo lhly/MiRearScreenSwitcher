@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DisplaySwitcher</string>
-    <string name="bubble_description">Floating bubble to switch displays</string>
+    <string name="app_name">MRSS</string>
+    <string name="tile_label">切换至背屏</string>
+    <string name="tile_screenshot_label">获取背屏截图</string>
 </resources>
 

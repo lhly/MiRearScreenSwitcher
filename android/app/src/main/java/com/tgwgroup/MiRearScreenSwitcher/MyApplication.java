@@ -1,3 +1,16 @@
+/*
+ * Author: AntiOblivionis
+ * QQ: 319641317
+ * Github: https://github.com/GoldenglowSusie/
+ * Bilibili: 罗德岛T0驭械术师澄闪
+ * 
+ * Co-developed with AI assistants:
+ * - Cursor
+ * - Claude-4.5-Sonnet
+ * - GPT-5
+ * - Gemini-2.5-Pro
+ */
+
 package com.tgwgroup.MiRearScreenSwitcher;
 
 import android.content.Context;
@@ -18,7 +31,6 @@ public class MyApplication extends FlutterApplication {
         // 关键！在静态块中初始化Sui
         try {
             isSui = Sui.init("com.tgwgroup.MiRearScreenSwitcher");
-            Log.d(TAG, "Sui initialized: " + isSui);
         } catch (Throwable e) {
             Log.e(TAG, "Sui init failed", e);
         }
@@ -34,9 +46,7 @@ public class MyApplication extends FlutterApplication {
                 Class<?> hiddenApiBypass = Class.forName("org.lsposed.hiddenapibypass.HiddenApiBypass");
                 hiddenApiBypass.getMethod("addHiddenApiExemptions", String.class)
                     .invoke(null, "L");
-                Log.d(TAG, "HiddenApiBypass enabled");
             } catch (Exception e) {
-                Log.w(TAG, "HiddenApiBypass not available: " + e.getMessage());
             }
         }
     }
@@ -44,7 +54,6 @@ public class MyApplication extends FlutterApplication {
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "Application onCreate");
     }
     
     public static boolean isSui() {
