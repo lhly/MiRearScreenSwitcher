@@ -235,7 +235,8 @@ flutter build apk --release --split-per-abi --target-platform android-arm64
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+**V3.0.0及以后版本**: GPL-3.0 License - 详见 [LICENSE](LICENSE) 文件
+**V3.0.0以前版本**: MIT License
 
 ## 👥 团队
 
