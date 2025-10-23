@@ -62,12 +62,7 @@ interface ITaskService {
      */
     boolean killLauncherProcess() = 9;
     
-    /**
-     * V12.5新增：主动点亮指定显示器
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @return 是否成功
-     */
-    boolean wakeUpDisplay(int displayId) = 10;
+    // 删除未使用的wakeUpDisplay方法声明
     
     /**
      * V14.4新增：收回状态栏/控制中心
@@ -129,5 +124,13 @@ interface ITaskService {
      * @return 旋转角度 (0-3)，-1表示失败
      */
     int getDisplayRotation(int displayId) = 19;
+    
+    /**
+     * V2.3新增：执行shell命令
+     * @param cmd 要执行的命令
+     * @return 是否成功
+     */
+    boolean executeShellCommand(String cmd) = 20;
+    String executeShellCommandWithResult(String cmd) = 21;
 }
 

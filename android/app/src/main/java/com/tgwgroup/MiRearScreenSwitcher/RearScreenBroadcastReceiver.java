@@ -83,9 +83,9 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
      */
     private void handleScreenOn(Context context) {
         if (hasActiveTask()) {
-            // V8.3: 移除Activity机制 - 完全依靠Service
+            // 移除Activity机制 - 完全依靠Service
             // Activity的透明窗口会干扰锁屏时的触摸事件，导致滑动卡住
-            // V8.3: 不需要发送恢复广播，Service会持续禁用Launcher
+            // 不需要发送恢复广播，Service会持续禁用Launcher
         } else {
         }
     }

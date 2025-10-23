@@ -16,9 +16,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:io';
+// 删除未使用的dart:io导入
 import 'dart:ui';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   // 设置沉浸式状态栏（透明状态栏）
@@ -71,24 +73,32 @@ class _HomePageState extends State<HomePage> {
   bool _dpiLoading = true;  // DPI加载状态
   final TextEditingController _dpiController = TextEditingController();
   final FocusNode _dpiFocusNode = FocusNode();
-  bool _isInputFocused = false;
   
   // V2.1: 显示控制相关
   int _currentRotation = 0;  // 当前旋转方向 (0=0°, 1=90°, 2=180°, 3=270°)
+  
+  // V2.2: 接近传感器开关
+  bool _proximitySensorEnabled = true;  // 默认打开
+  
+  // V2.3: 充电动画开关
+  bool _chargingAnimationEnabled = true;  // 默认打开
+  
+  // V2.5: 背屏常亮开关
+  bool _keepScreenOnEnabled = true;  // 默认打开
+  
+  // V2.4: 通知功能
+  bool _notificationEnabled = false;  // 默认关闭（需要授权）
+  bool _notificationDarkMode = false;  // 通知暗夜模式（默认关闭）
   
   @override
   void initState() {
     super.initState();
     _checkShizuku();
+    _loadSettings();  // 加载所有设置
     _setupMethodCallHandler();
-    _requestNotificationPermission();  // 请求通知权限
+    _loadProximitySensorSetting();  // 加载接近传感器设置
     
-    // 监听输入框焦点状态
-    _dpiFocusNode.addListener(() {
-      setState(() {
-        _isInputFocused = _dpiFocusNode.hasFocus;
-      });
-    });
+    // 通知权限会在Shizuku授权完成后自动请求（见_checkShizuku）
     
     // 延迟获取DPI和旋转，等待TaskService连接
     Future.delayed(const Duration(seconds: 2), () {
@@ -111,19 +121,23 @@ class _HomePageState extends State<HomePage> {
         print('Shizuku permission changed: $granted');
         // 刷新状态
         await _checkShizuku();
+        
+        // Shizuku授权完成后，立即请求通知权限
+        if (granted) {
+          print('✓ Shizuku已授权，立即请求通知权限');
+          _requestNotificationPermission();
+        }
       }
     });
   }
   
   Future<void> _requestNotificationPermission() async {
     // Android 13+ 需要请求通知权限
-    if (Platform.isAndroid) {
-      try {
-        await platform.invokeMethod('requestNotificationPermission');
-        print('通知权限请求已发送');
-      } catch (e) {
-        print('请求通知权限失败: $e');
-      }
+    try {
+      await platform.invokeMethod('requestNotificationPermission');
+      print('通知权限请求已发送');
+    } catch (e) {
+      print('请求通知权限失败: $e');
     }
   }
   
@@ -256,6 +270,10 @@ class _HomePageState extends State<HomePage> {
         
         if (_shizukuRunning) {
           _statusMessage = '一切就绪';
+          
+          // Shizuku已授权，立即请求通知权限
+          print('✓ Shizuku已授权，立即请求通知权限');
+          _requestNotificationPermission();
         } else {
           _hasError = true;
           _statusMessage = '权限不足';
@@ -302,61 +320,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
   
-  Future<void> _requestShizukuPermission() async {
-    setState(() {
-      _statusMessage = '正在请求Shizuku权限...\n\n请在弹出的对话框中点击"允许"';
-    });
-    
-    try {
-      await platform.invokeMethod('requestShizukuPermission');
-      
-      // 等待用户操作
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // 重新检查
-      await _checkShizuku();
-    } catch (e) {
-      setState(() {
-        _statusMessage = '❌ 请求失败: $e';
-      });
-    }
-  }
   
-  Future<void> _switchApp(String package, String name) async {
-    if (!_shizukuRunning) {
-      _showMessage('请先启动Shizuku！');
-      return;
-    }
-    
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '正在切换$name...';
-    });
-    
-    try {
-      final success = await platform.invokeMethod('toggleAppDisplay', {
-        'package': package,
-      });
-      
-      setState(() {
-        _isLoading = false;
-        _statusMessage = success 
-            ? '🎉 $name 已切换！\n\n如果移到了背屏，请翻转手机查看！'
-            : '❌ 切换失败\n\n可能原因：\n1. 应用未运行\n2. 权限不足\n\n提示：请先打开$name';
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _statusMessage = '❌ 错误: $e';
-      });
-    }
-  }
-  
-  void _showMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
-  }
   
   // V2.1: 重启应用
   Future<void> _restartApp() async {
@@ -384,6 +348,180 @@ class _HomePageState extends State<HomePage> {
       SystemNavigator.pop();
     }
   }
+  
+  // V2.2: 加载所有设置
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _proximitySensorEnabled = prefs.getBool('proximity_sensor_enabled') ?? true;
+        _chargingAnimationEnabled = prefs.getBool('charging_animation_enabled') ?? true;
+        _keepScreenOnEnabled = prefs.getBool('keep_screen_on_enabled') ?? true;
+        _notificationDarkMode = prefs.getBool('notification_dark_mode') ?? false;
+      });
+      
+      // 启动充电服务（如果开关打开）
+      if (_chargingAnimationEnabled) {
+        _startChargingService();
+      }
+      
+      // 检查通知监听权限
+      _checkNotificationPermission();
+    } catch (e) {
+      print('加载设置失败: $e');
+    }
+  }
+  
+  // V2.2: 加载接近传感器设置
+  Future<void> _loadProximitySensorSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _proximitySensorEnabled = prefs.getBool('proximity_sensor_enabled') ?? true;
+      });
+    } catch (e) {
+      print('加载接近传感器设置失败: $e');
+    }
+  }
+  
+  
+  // V2.4: 检查通知监听权限
+  Future<void> _checkNotificationPermission() async {
+    try {
+      final bool hasPermission = await platform.invokeMethod('checkNotificationListenerPermission');
+      setState(() {
+        _notificationEnabled = hasPermission;
+      });
+    } catch (e) {
+      print('检查通知权限失败: $e');
+    }
+  }
+  
+  // V2.4: 切换通知服务
+  Future<void> _toggleNotificationService(bool enabled) async {
+    if (enabled) {
+      // 先检查权限
+      final bool hasPermission = await platform.invokeMethod('checkNotificationListenerPermission');
+      if (!hasPermission) {
+        // 打开设置页面授权
+        await platform.invokeMethod('openNotificationListenerSettings');
+        return;
+      }
+    }
+    
+    await platform.invokeMethod('toggleNotificationService', {'enabled': enabled});
+    setState(() {
+      _notificationEnabled = enabled;
+    });
+  }
+  
+  
+  // V2.4: 打开应用选择页面
+  Future<void> _openAppSelectionPage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AppSelectionPage()),
+    );
+  }
+  
+  // V2.2: 切换接近传感器开关
+  Future<void> _toggleProximitySensor(bool enabled) async {
+    try {
+      // 先保存到SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('proximity_sensor_enabled', enabled);
+      
+      // 通知Service更新状态
+      await platform.invokeMethod('setProximitySensorEnabled', {'enabled': enabled});
+      
+      setState(() {
+        _proximitySensorEnabled = enabled;
+      });
+      print('接近传感器已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换接近传感器失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _proximitySensorEnabled = !enabled;
+      });
+    }
+  }
+  
+  // V2.3: 切换充电动画开关
+  Future<void> _toggleChargingAnimation(bool enabled) async {
+    try {
+      // 先保存到SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('charging_animation_enabled', enabled);
+      
+      // 启动或停止充电服务
+      await platform.invokeMethod('toggleChargingService', {'enabled': enabled});
+      
+      setState(() {
+        _chargingAnimationEnabled = enabled;
+      });
+      print('充电动画已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换充电动画失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _chargingAnimationEnabled = !enabled;
+      });
+    }
+  }
+  
+  // V2.3: 启动充电服务
+  Future<void> _startChargingService() async {
+    try {
+      await platform.invokeMethod('toggleChargingService', {'enabled': true});
+    } catch (e) {
+      print('启动充电服务失败: $e');
+    }
+  }
+  
+  // V2.5: 切换背屏常亮开关
+  Future<void> _toggleKeepScreenOn(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('keep_screen_on_enabled', enabled);
+      
+      // 通过Intent通知RearScreenKeeperService
+      await platform.invokeMethod('setKeepScreenOnEnabled', {'enabled': enabled});
+      
+      setState(() {
+        _keepScreenOnEnabled = enabled;
+      });
+      print('背屏常亮已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换背屏常亮失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _keepScreenOnEnabled = !enabled;
+      });
+    }
+  }
+  
+  // V3.1: 通知暗夜模式开关
+  Future<void> _toggleNotificationDarkMode(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_dark_mode', enabled);
+      
+      // 通过Intent通知NotificationService
+      await platform.invokeMethod('setNotificationDarkMode', {'enabled': enabled});
+      
+      setState(() {
+        _notificationDarkMode = enabled;
+      });
+      print('通知暗夜模式已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换通知暗夜模式失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _notificationDarkMode = !enabled;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -393,6 +531,9 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         title: const Text('MRSS', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
@@ -420,82 +561,84 @@ class _HomePageState extends State<HomePage> {
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(20),
-            physics: _isInputFocused ? const BouncingScrollPhysics() : const NeverScrollableScrollPhysics(),
+            physics: const BouncingScrollPhysics(), // 始终允许滑动
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
             // 整合后的状态和权限卡片（毛玻璃效果）
                 CustomPaint(
                   painter: _SquircleBorderPainter(
-                    radius: 32,
+                    radius: _SquircleRadii.large,
                     color: Colors.white.withOpacity(0.5),
                     strokeWidth: 1.5,
                   ),
                   child: ClipPath(
-                    clipper: _SquircleClipper(cornerRadius: 32),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.3),
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                child: Container(
+                  decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
                         ),
                         padding: const EdgeInsets.all(16),
-                      child: Column(
+                  child: Column(
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
+                    children: [
+                      Icon(
                                 _shizukuRunning ? Icons.check_circle : (_hasError ? Icons.error_outline : Icons.warning_rounded),
                                 size: 28,
                                 color: _shizukuRunning ? Colors.green : (_hasError ? Colors.red : Colors.orange),
                               ),
                               const SizedBox(width: 10),
-                              Text(
+                      Text(
                                 _shizukuRunning ? 'Shizuku 运行中' : _statusMessage,
                                 style: const TextStyle(
                                   fontSize: 16,
-                                  color: Colors.black87,
+                          color: Colors.black87,
                                   fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                        ),
+                      ),
                             ],
                           ),
                           if (_hasError && _errorDetail.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            Text(
+                      Text(
                               _errorDetail,
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: Colors.black54,
                                 height: 1.3,
                               ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ],
+                        textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ],
                       ),
-                    ),
                   ),
                 ),
               ),
+            ),
                   
                 const SizedBox(height: 20),
                   
                   // V15: 背屏DPI调整卡片
-                CustomPaint(
-                  painter: _SquircleBorderPainter(
-                    radius: 32,
-                    color: Colors.white.withOpacity(0.5),
-                    strokeWidth: 1.5,
-                  ),
-                  child: ClipPath(
-                    clipper: _SquircleClipper(cornerRadius: 32),
+                Stack(
+                  children: [
+                    CustomPaint(
+                      painter: _SquircleBorderPainter(
+                        radius: _SquircleRadii.large,
+                        color: Colors.white.withOpacity(0.5),
+                        strokeWidth: 1.5,
+                      ),
+                      child: ClipPath(
+                        clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withOpacity(0.25),
                         ),
                         padding: const EdgeInsets.all(20),
                         child: Column(
@@ -547,15 +690,15 @@ class _HomePageState extends State<HomePage> {
                                       hintText: '输入数字',
                                       hintStyle: TextStyle(color: Colors.black38),
                                       border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.all(Radius.circular(12)),
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
                                         borderSide: BorderSide(color: Colors.black26),
                                       ),
                                       enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.all(Radius.circular(12)),
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
                                         borderSide: BorderSide(color: Colors.black26),
                                       ),
                                       focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.all(Radius.circular(12)),
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
                                         borderSide: BorderSide(color: Colors.black54, width: 2),
                                       ),
                                     ),
@@ -563,7 +706,7 @@ class _HomePageState extends State<HomePage> {
                                 ),
                                 const SizedBox(width: 12),
                                 ClipPath(
-                                  clipper: _SquircleClipper(cornerRadius: 12),
+                                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
                                   child: Container(
                                     decoration: const BoxDecoration(
                                       gradient: LinearGradient(
@@ -594,7 +737,7 @@ class _HomePageState extends State<HomePage> {
                                         shadowColor: Colors.transparent,
                                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(_SquircleRadii.small),
                                         ),
                                   ),
                                   child: const Text('设置'),
@@ -608,12 +751,12 @@ class _HomePageState extends State<HomePage> {
                               width: double.infinity,
                               child: CustomPaint(
                                 painter: _SquircleBorderPainter(
-                                  radius: 12,
+                                  radius: _SquircleRadii.small,
                                   color: Colors.black26,
                                   strokeWidth: 1,
                                 ),
                                 child: ClipPath(
-                                  clipper: _SquircleClipper(cornerRadius: 12),
+                                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
                                   child: Material(
                                     color: Colors.transparent,
                                     child: InkWell(
@@ -666,32 +809,199 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+              ],
+            ),
+                  
+                const SizedBox(height: 20),
+                
+                // V2.2: 背屏遮盖检测卡片（独立）
+                Stack(
+                  children: [
+                    CustomPaint(
+                      painter: _SquircleBorderPainter(
+                        radius: _SquircleRadii.large,
+                        color: Colors.white.withOpacity(0.5),
+                        strokeWidth: 1.5,
+                      ),
+                      child: ClipPath(
+                        clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.25),
+                            ),
+                            child: Row(
+                          children: [
+                            const Text(
+                              '🤚 背屏遮盖检测',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                            ),
+                            const Spacer(),
+                            _GradientToggle(
+                              value: _proximitySensorEnabled,
+                              onChanged: _toggleProximitySensor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                  ],
+                ),
+                  
+                const SizedBox(height: 20),
+                
+                // V2.5: 背屏常亮卡片
+                CustomPaint(
+                  painter: _SquircleBorderPainter(
+                    radius: _SquircleRadii.large,
+                    color: Colors.white.withOpacity(0.5),
+                    strokeWidth: 1.5,
+                  ),
+                  child: ClipPath(
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '🔆 背屏常亮',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                            ),
+                            const Spacer(),
+                            _GradientToggle(
+                              value: _keepScreenOnEnabled,
+                              onChanged: _toggleKeepScreenOn,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                  
+                const SizedBox(height: 20),
+                
+                // V2.3: 充电动画卡片（独立）
+                CustomPaint(
+                  painter: _SquircleBorderPainter(
+                    radius: _SquircleRadii.large,
+                    color: Colors.white.withOpacity(0.5),
+                    strokeWidth: 1.5,
+                  ),
+                  child: ClipPath(
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '⚡ 充电动画',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                            ),
+                            const Spacer(),
+                            _GradientToggle(
+                              value: _chargingAnimationEnabled,
+                              onChanged: _toggleChargingAnimation,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                  
+                const SizedBox(height: 20),
+                
+                // V2.4: 通知功能卡片
+                CustomPaint(
+                  painter: _SquircleBorderPainter(
+                    radius: _SquircleRadii.large,
+                    color: Colors.white.withOpacity(0.5),
+                    strokeWidth: 1.5,
+                  ),
+                  child: ClipPath(
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 标题行
+                            Row(
+                              children: [
+                                const Text(
+                                  '📢 背屏通知',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                                const Spacer(),
+                                // 三条杠按钮（选择应用）
+                                IconButton(
+                                  icon: const Icon(Icons.menu, size: 24),
+                                  color: Colors.black87,
+                                  onPressed: _openAppSelectionPage,
+                                  tooltip: '选择应用',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                                const SizedBox(width: 8),
+                                _GradientToggle(
+                                  value: _notificationEnabled,
+                                  onChanged: _toggleNotificationService,
+                                ),
+                              ],
+                            ),
+                            
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                   
                 const SizedBox(height: 20),
                 
                 // 使用教程 - 可点击跳转到酷安帖子
                 CustomPaint(
                   painter: _SquircleBorderPainter(
-                    radius: 32,
+                    radius: _SquircleRadii.large,
                     color: Colors.white.withOpacity(0.5),
                     strokeWidth: 1.5,
                   ),
                   child: ClipPath(
-                    clipper: _SquircleClipper(cornerRadius: 32),
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: () async {
-                            // 跳转到酷安使用教程帖子
+                            // 跳转到腾讯文档使用教程
                             try {
-                              await platform.invokeMethod('openCoolApkTutorial');
+                              await platform.invokeMethod('openTutorial');
                             } catch (e) {
                               print('打开教程失败: $e');
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('请先安装酷安应用')),
+                                  const SnackBar(content: Text('打开失败')),
                                 );
                               }
                             }
@@ -700,7 +1010,7 @@ class _HomePageState extends State<HomePage> {
                           highlightColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withOpacity(0.25),
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           child: Row(
@@ -709,15 +1019,6 @@ class _HomePageState extends State<HomePage> {
                               const Text(
                                 '📖',
                                 style: TextStyle(fontSize: 20),
-                              ),
-                              const SizedBox(width: 6),
-                              Image.asset(
-                                'assets/kuan.png',
-                                width: 24,
-                                height: 24,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const Icon(Icons.book, size: 24, color: Colors.black87);
-                                },
                               ),
                               const SizedBox(width: 8),
                               const Text(
@@ -748,14 +1049,14 @@ class _HomePageState extends State<HomePage> {
                 // 底部作者信息 - 可点击跳转到酷安
                 CustomPaint(
                   painter: _SquircleBorderPainter(
-                    radius: 32,
+                    radius: _SquircleRadii.large,
                     color: Colors.white.withOpacity(0.5),
                     strokeWidth: 1.5,
                   ),
                   child: ClipPath(
-                    clipper: _SquircleClipper(cornerRadius: 32),
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -776,7 +1077,7 @@ class _HomePageState extends State<HomePage> {
                           highlightColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withOpacity(0.25),
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           child: Row(
@@ -824,14 +1125,14 @@ class _HomePageState extends State<HomePage> {
                 // 测试人员信息 - 可点击跳转到酷安
                 CustomPaint(
                   painter: _SquircleBorderPainter(
-                    radius: 32,
+                    radius: _SquircleRadii.large,
                     color: Colors.white.withOpacity(0.5),
                     strokeWidth: 1.5,
                   ),
                   child: ClipPath(
-                    clipper: _SquircleClipper(cornerRadius: 32),
+                    clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -852,7 +1153,7 @@ class _HomePageState extends State<HomePage> {
                         highlightColor: Colors.white.withOpacity(0.2),
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.3),
+                            color: Colors.white.withOpacity(0.25),
                           ),
                           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           child: Row(
@@ -895,6 +1196,139 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
                   
+                const SizedBox(height: 16),
+                
+                // 打赏和交流群 - 两列布局
+                Row(
+                  children: [
+                    // 请作者喝咖啡
+                    Expanded(
+                      child: CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: _SquircleRadii.large,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  // 打开打赏页面
+                                  try {
+                                    await platform.invokeMethod('openDonationPage');
+                                  } catch (e) {
+                                    print('打开打赏页面失败: $e');
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('打开失败')),
+                                      );
+                                    }
+                                  }
+                                },
+                                splashColor: Colors.white.withOpacity(0.3),
+                                highlightColor: Colors.white.withOpacity(0.2),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                  child: const Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '☕',
+                                        style: TextStyle(fontSize: 24),
+                                      ),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        '请作者喝咖啡',
+                                        style: TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(width: 16),
+                    
+                    // MRSS交流群
+                    Expanded(
+                      child: CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: _SquircleRadii.large,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  // 打开交流群页面
+                                  try {
+                                    await platform.invokeMethod('openQQGroup');
+                                  } catch (e) {
+                                    print('打开交流群页面失败: $e');
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('打开失败')),
+                                      );
+                                    }
+                                  }
+                                },
+                                splashColor: Colors.white.withOpacity(0.3),
+                                highlightColor: Colors.white.withOpacity(0.2),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                  child: const Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '💬',
+                                        style: TextStyle(fontSize: 24),
+                                      ),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        'MRSS交流群',
+                                        style: TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                  
                 const SizedBox(height: 20),
               ],
             ),
@@ -904,61 +1338,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
   
-  Future<void> _toggleCurrentApp() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '正在获取当前应用...';
-    });
-    
-    try {
-      final currentApp = await platform.invokeMethod('getCurrentApp');
-      
-      if (currentApp != null && currentApp.toString().contains(':')) {
-        List<String> parts = currentApp.toString().split(':');
-        String packageName = parts[0];
-        int taskId = int.parse(parts[1]);
-        
-        if (taskId > 0) {
-          // 有有效的taskId，尝试切换
-          setState(() {
-            _statusMessage = '找到应用: $packageName\n正在切换...';
-          });
-          
-          int currentDisplay = await platform.invokeMethod('getTaskDisplay', {'taskId': taskId});
-          int targetDisplay = (currentDisplay == 0) ? 1 : 0;
-          
-          bool success = await platform.invokeMethod('moveTaskToDisplay', {
-            'taskId': taskId,
-            'displayId': targetDisplay
-          });
-          
-          setState(() {
-            _isLoading = false;
-            if (success) {
-              _statusMessage = '🎉 应用已切换到${targetDisplay == 1 ? "背屏" : "主屏"}！\n\n包名: $packageName\n\n${targetDisplay == 1 ? "请翻转手机查看！" : ""}';
-            } else {
-              _statusMessage = '❌ 切换失败\n\n可能应用已被系统关闭';
-            }
-          });
-        } else {
-          setState(() {
-            _isLoading = false;
-            _statusMessage = '❌ 无法获取taskId\n\n请使用下方的应用按钮';
-          });
-        }
-      } else {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '❌ 未找到最近使用的应用\n\n请先打开其他应用再试';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _statusMessage = '❌ 错误: $e';
-      });
-    }
-  }
   
   // V2.1: 构建旋转按钮（精确超椭圆，统一12px圆角）
   Widget _buildRotationButton(String label, int rotation) {
@@ -967,8 +1346,8 @@ class _HomePageState extends State<HomePage> {
     return SizedBox(
       width: 50,
       height: 32,
-      child: ClipPath(
-        clipper: _SquircleClipper(cornerRadius: 12),
+       child: ClipPath(
+         clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
         child: Container(
           decoration: BoxDecoration(
             gradient: isSelected ? const LinearGradient(
@@ -1076,6 +1455,346 @@ class _HomePageState extends State<HomePage> {
     }
   }
   
+}
+
+// 渐变开关，统一四段渐变样式，替代系统绿色Switch
+class _GradientToggle extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _GradientToggle({required this.value, required this.onChanged});
+
+  @override
+  State<_GradientToggle> createState() => _GradientToggleState();
+}
+
+class _GradientToggleState extends State<_GradientToggle> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => widget.onChanged(!widget.value),
+        onHighlightChanged: (h) => setState(() => _pressed = h),
+        customBorder: _SquircleShapeBorder(cornerRadius: _SquircleRadii.tiny),
+        splashColor: Colors.white.withOpacity(0.2),
+        highlightColor: Colors.white.withOpacity(0.1),
+        child: ClipPath(
+          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.tiny),
+          child: SizedBox(
+            width: 52,
+            height: 30,
+            child: Stack(
+              children: [
+                // Base background
+                Container(color: Colors.white.withOpacity(0.25)),
+                // Gradient overlay with fade
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  opacity: widget.value ? 1.0 : 0.0,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFFF9D88),
+                          Color(0xFFFFB5C5),
+                          Color(0xFFE0B5DC),
+                          Color(0xFFA8C5E5),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // Knob
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: AnimatedAlign(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    alignment: widget.value ? Alignment.centerRight : Alignment.centerLeft,
+                    child: AnimatedScale(
+                      duration: const Duration(milliseconds: 120),
+                      scale: _pressed ? 0.95 : 1.0,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(11),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 3,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 应用列表项优化组件（减少重建）
+class _AppListItem extends StatelessWidget {
+  final String appName;
+  final String packageName;
+  final Uint8List? iconBytes;
+  final bool isSelected;
+  final VoidCallback onToggle;
+
+  const _AppListItem({
+    required this.appName,
+    required this.packageName,
+    required this.iconBytes,
+    required this.isSelected,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onToggle,
+        splashColor: const Color(0x20FFB5C5), // 浅浅的粉红色（四色渐变中间色）
+        highlightColor: const Color(0x10E0B5DC), // 浅浅的紫色高光
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Row(
+            children: [
+              // 图标（全分辨率，不压缩不受损）
+              if (iconBytes != null)
+                Image.memory(
+                  iconBytes!,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.high,
+                  isAntiAlias: true,
+                )
+              else
+                const Icon(Icons.android, size: 48, color: Colors.white),
+              const SizedBox(width: 12),
+              // 文本
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      appName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      packageName,
+                      style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // 渐变复选框
+              _GradientCheckbox(value: isSelected, onChanged: (_) => onToggle()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 渐变复选框（替代绿色Checkbox）- 带过渡动画
+class _GradientCheckbox extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _GradientCheckbox({required this.value, required this.onChanged});
+
+  @override
+  State<_GradientCheckbox> createState() => _GradientCheckboxState();
+}
+
+class _GradientCheckboxState extends State<_GradientCheckbox> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: () => widget.onChanged(!widget.value),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 120),
+        scale: _pressed ? 0.9 : 1.0,
+        child: ClipPath(
+          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.checkbox),
+          child: Container(
+            width: 24,
+            height: 24,
+            child: Stack(
+              children: [
+                // 底层半透明背景
+                Container(
+                  color: Colors.white.withOpacity(0.25),
+                ),
+                // 渐变层（淡入淡出）
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: widget.value ? 1.0 : 0.0,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFFF9D88),
+                          Color(0xFFFFB5C5),
+                          Color(0xFFE0B5DC),
+                          Color(0xFFA8C5E5),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // 边框（渐隐）- 使用CustomPaint绘制超椭圆边框
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: widget.value ? 0.0 : 1.0,
+                  child: CustomPaint(
+                    painter: _SquircleBorderPainter(
+                      radius: _SquircleRadii.checkbox,
+                      color: Colors.white.withOpacity(0.4),
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ),
+                // 对勾（缩放弹出）
+                Center(
+                  child: AnimatedScale(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutBack,
+                    scale: widget.value ? 1.0 : 0.0,
+                    child: const Icon(Icons.check, size: 18, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 超椭圆圆角半径
+/// 基于屏幕物理圆角半径16.4mm，超椭圆指数n=2.84
+/// 使用固定值确保视觉一致性（基于标准DPI 420计算）
+class _SquircleRadii {
+  // 16.4mm @ 420dpi ≈ 27dp，实际屏幕略大，取32dp
+  static const double large = 32.0;  // 大卡片圆角
+  static const double small = 12.0;  // 小组件圆角 (large * 0.375)
+  static const double tiny = 16.0;   // 开关圆角
+  static const double checkbox = 6.0; // 复选框圆角
+}
+
+/// 精确的超椭圆（Squircle）形状边框 - 用于InkWell水波纹
+/// 使用2.84指数实现与屏幕圆角一致的平滑曲线
+class _SquircleShapeBorder extends ShapeBorder {
+  final double cornerRadius;
+  static const double n = 2.84; // 超椭圆指数
+  
+  const _SquircleShapeBorder({required this.cornerRadius});
+  
+  @override
+  EdgeInsetsGeometry get dimensions => EdgeInsets.zero;
+  
+  @override
+  Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
+    return _createSquirclePath(rect.size, cornerRadius);
+  }
+  
+  @override
+  Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
+    return _createSquirclePath(rect.size, cornerRadius);
+  }
+  
+  @override
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {}
+  
+  @override
+  ShapeBorder scale(double t) => _SquircleShapeBorder(cornerRadius: cornerRadius * t);
+  
+  static Path _createSquirclePath(Size size, double radius) {
+    final double width = size.width;
+    final double height = size.height;
+    final double effectiveRadius = radius.clamp(0.0, math.min(width, height) / 2);
+    
+    final path = Path();
+    
+    // 顶部左侧圆角
+    path.moveTo(0, effectiveRadius);
+    for (double t = 0; t <= 1.0; t += 0.02) {
+      final angle = (1 - t) * math.pi / 2;
+      final x = effectiveRadius * (1 - math.pow(math.cos(angle).abs(), 2 / n) * (math.cos(angle) >= 0 ? 1 : -1));
+      final y = effectiveRadius * (1 - math.pow(math.sin(angle).abs(), 2 / n) * (math.sin(angle) >= 0 ? 1 : -1));
+      path.lineTo(x, y);
+    }
+    
+    // 顶边
+    path.lineTo(width - effectiveRadius, 0);
+    
+    // 顶部右侧圆角
+    for (double t = 0; t <= 1.0; t += 0.02) {
+      final angle = t * math.pi / 2;
+      final x = width - effectiveRadius * (1 - math.pow(math.cos(angle).abs(), 2 / n) * (math.cos(angle) >= 0 ? 1 : -1));
+      final y = effectiveRadius * (1 - math.pow(math.sin(angle).abs(), 2 / n) * (math.sin(angle) >= 0 ? 1 : -1));
+      path.lineTo(x, y);
+    }
+    
+    // 右边
+    path.lineTo(width, height - effectiveRadius);
+    
+    // 底部右侧圆角
+    for (double t = 0; t <= 1.0; t += 0.02) {
+      final angle = (1 - t) * math.pi / 2 + math.pi / 2;
+      final x = width - effectiveRadius * (1 - math.pow(math.cos(angle).abs(), 2 / n) * (math.cos(angle) >= 0 ? 1 : -1));
+      final y = height - effectiveRadius * (1 - math.pow(math.sin(angle).abs(), 2 / n) * (math.sin(angle) >= 0 ? 1 : -1));
+      path.lineTo(x, y);
+    }
+    
+    // 底边
+    path.lineTo(effectiveRadius, height);
+    
+    // 底部左侧圆角
+    for (double t = 0; t <= 1.0; t += 0.02) {
+      final angle = t * math.pi / 2 + math.pi;
+      final x = effectiveRadius * (1 - math.pow(math.cos(angle).abs(), 2 / n) * (math.cos(angle) >= 0 ? 1 : -1));
+      final y = height - effectiveRadius * (1 - math.pow(math.sin(angle).abs(), 2 / n) * (math.sin(angle) >= 0 ? 1 : -1));
+      path.lineTo(x, y);
+    }
+    
+    path.close();
+    return path;
+  }
 }
 
 /// 精确的超椭圆（Squircle）裁剪器
@@ -1221,6 +1940,755 @@ class _SquircleBorderPainter extends CustomPainter {
     return oldDelegate.radius != radius ||
            oldDelegate.color != color ||
            oldDelegate.strokeWidth != strokeWidth;
+  }
+}
+
+/// V2.4: 应用选择页面
+class AppSelectionPage extends StatefulWidget {
+  const AppSelectionPage({Key? key}) : super(key: key);
+  
+  @override
+  State<AppSelectionPage> createState() => _AppSelectionPageState();
+}
+
+class _AppSelectionPageState extends State<AppSelectionPage> {
+  static const platform = MethodChannel('com.display.switcher/task');  // ✅ 修正channel名称
+  
+  List<Map<String, dynamic>> _apps = [];
+  List<Map<String, dynamic>> _visibleApps = [];
+  Set<String> _selectedApps = {};
+  bool _isLoading = true;
+  bool _privacyMode = false; // 隐私模式
+  bool _followDndMode = true; // 跟随系统勿扰模式（默认开启）
+  bool _onlyWhenLocked = false; // 仅在锁屏时通知（默认关闭）
+  bool _notificationDarkMode = false; // 通知暗夜模式（默认关闭）
+  bool _includeSystemApps = false; // 是否显示系统应用
+  bool _settingsExpanded = true; // 设置区域是否展开（默认展开）
+  final TextEditingController _searchController = TextEditingController();
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadApps();
+    _loadPrivacyMode();
+    _loadFollowDndMode();
+    _loadOnlyWhenLockedMode();
+    _loadNotificationDarkMode();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+  
+  // 启动权限检查循环（后台异步）
+  void _startPermissionCheckLoop() async {
+    print('→ 启动权限检查循环');
+    int checkAttempts = 0;
+    
+    while (checkAttempts < 30 && mounted) { // 最多检查30次（30秒）
+      await Future.delayed(const Duration(seconds: 1));
+      
+      if (!mounted) break; // 页面已销毁，退出循环
+      
+      try {
+        final bool granted = await platform.invokeMethod('checkQueryAllPackagesPermission');
+        if (granted) {
+          print('✓ 权限已授予，自动刷新应用列表');
+          
+          // 权限已授予，刷新列表
+          if (mounted) {
+            setState(() {
+              _isLoading = true;
+            });
+            
+            await _loadAppsInternal();
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('权限已授予，应用列表已刷新')),
+            );
+          }
+          return; // 成功，退出循环
+        }
+      } catch (e) {
+        print('权限检查失败: $e');
+      }
+      
+      checkAttempts++;
+    }
+    
+    print('⚠ 权限检查超时（30秒），用户可能未授予权限');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请在设置中授予权限后手动刷新')),
+      );
+    }
+  }
+  
+  // 内部加载方法（不检查权限，直接加载）
+  Future<void> _loadAppsInternal() async {
+    try {
+      // 加载已选择的应用
+      final List<dynamic> selectedApps = await platform.invokeMethod('getSelectedNotificationApps');
+      _selectedApps = selectedApps.cast<String>().toSet();
+      
+      // 加载所有应用
+      final List<dynamic> apps = await platform.invokeMethod('getInstalledApps');
+      
+      setState(() {
+        _apps = apps.map((app) => Map<String, dynamic>.from(app)).toList();
+        _isLoading = false;
+      });
+      
+      _applyFilters();
+      
+      print('已加载 ${_apps.length} 个应用');
+    } catch (e) {
+      print('加载应用列表失败: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _applyFilters() {
+    final String q = _searchController.text.trim().toLowerCase();
+    List<Map<String, dynamic>> filtered = _apps.where((app) {
+      final String name = (app['appName'] ?? '').toString().toLowerCase();
+      final String pkg = (app['packageName'] ?? '').toString().toLowerCase();
+      final bool matchesQuery = q.isEmpty || name.contains(q) || pkg.contains(q);
+      if (!_includeSystemApps && _isSystemApp(app)) {
+        return false;
+      }
+      return matchesQuery;
+    }).toList();
+    setState(() {
+      _visibleApps = filtered;
+    });
+  }
+
+  bool _isSystemApp(Map<String, dynamic> app) {
+    final pkg = (app['packageName'] ?? '').toString();
+    final dynamic flag1 = app['isSystem'];
+    final dynamic flag2 = app['isSystemApp'];
+    if (flag1 == true || flag2 == true) return true;
+    return pkg.startsWith('com.android.') || pkg.startsWith('com.google.android.') || pkg.startsWith('android');
+  }
+
+  Future<void> _selectAllVisible() async {
+    setState(() {
+      for (final app in _visibleApps) {
+        final String pkg = app['packageName'];
+        _selectedApps.add(pkg);
+      }
+    });
+    try {
+      await platform.invokeMethod('setSelectedNotificationApps', _selectedApps.toList());
+    } catch (e) {
+      print('批量全选保存失败: $e');
+    }
+  }
+
+  Future<void> _deselectAllVisible() async {
+    setState(() {
+      for (final app in _visibleApps) {
+        final String pkg = app['packageName'];
+        _selectedApps.remove(pkg);
+      }
+    });
+    try {
+      await platform.invokeMethod('setSelectedNotificationApps', _selectedApps.toList());
+    } catch (e) {
+      print('批量全不选保存失败: $e');
+    }
+  }
+  
+  Future<void> _loadPrivacyMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _privacyMode = prefs.getBool('notification_privacy_mode') ?? false;
+      });
+    } catch (e) {
+      print('加载隐私模式设置失败: $e');
+    }
+  }
+  
+  Future<void> _togglePrivacyMode(bool enabled) async {
+    try {
+      await platform.invokeMethod('setNotificationPrivacyMode', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_privacy_mode', enabled);
+      setState(() {
+        _privacyMode = enabled;
+      });
+    } catch (e) {
+      print('切换隐私模式失败: $e');
+    }
+  }
+  
+  Future<void> _loadFollowDndMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _followDndMode = prefs.getBool('notification_follow_dnd_mode') ?? true;
+      });
+    } catch (e) {
+      print('加载勿扰模式设置失败: $e');
+    }
+  }
+  
+  Future<void> _toggleFollowDndMode(bool enabled) async {
+    try {
+      await platform.invokeMethod('setFollowDndMode', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_follow_dnd_mode', enabled);
+      setState(() {
+        _followDndMode = enabled;
+      });
+    } catch (e) {
+      print('切换勿扰模式设置失败: $e');
+    }
+  }
+  
+  Future<void> _loadOnlyWhenLockedMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _onlyWhenLocked = prefs.getBool('notification_only_when_locked') ?? false;
+      });
+    } catch (e) {
+      print('加载锁屏通知设置失败: $e');
+    }
+  }
+  
+  Future<void> _loadNotificationDarkMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _notificationDarkMode = prefs.getBool('notification_dark_mode') ?? false;
+      });
+    } catch (e) {
+      print('加载通知暗夜模式设置失败: $e');
+    }
+  }
+  
+  Future<void> _toggleNotificationDarkMode(bool enabled) async {
+    try {
+      await platform.invokeMethod('setNotificationDarkMode', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_dark_mode', enabled);
+      
+      setState(() {
+        _notificationDarkMode = enabled;
+      });
+      print('通知暗夜模式已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换通知暗夜模式失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _notificationDarkMode = !enabled;
+      });
+    }
+  }
+  
+  Future<void> _toggleOnlyWhenLocked(bool enabled) async {
+    try {
+      await platform.invokeMethod('setOnlyWhenLocked', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_only_when_locked', enabled);
+      setState(() {
+        _onlyWhenLocked = enabled;
+      });
+    } catch (e) {
+      print('切换锁屏通知设置失败: $e');
+    }
+  }
+  
+  Future<void> _loadApps() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      // ✅ 主动检查QUERY_ALL_PACKAGES权限
+      print('🔍 开始检查QUERY_ALL_PACKAGES权限...');
+      final bool hasPermission = await platform.invokeMethod('checkQueryAllPackagesPermission');
+      print('🔍 权限检查结果: $hasPermission');
+      
+      if (!hasPermission) {
+        print('❌ 没有QUERY_ALL_PACKAGES权限，显示弹窗');
+        // 没有权限，弹窗提示并跳转到设置
+        setState(() => _isLoading = false);
+        
+        if (mounted) {
+          final shouldOpenSettings = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('需要权限'),
+              content: const Text(
+                '为了显示完整的应用列表，需要授予"获取所有应用列表"权限。\n\n'
+                '点击"去设置"后，请在应用信息页面向下滚动，找到并授予此权限。'
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('去设置'),
+                ),
+              ],
+            ),
+          );
+          
+          if (shouldOpenSettings == true) {
+            await platform.invokeMethod('requestQueryAllPackagesPermission');
+            
+            // 启动后台检查任务（不阻塞UI）
+            _startPermissionCheckLoop();
+          }
+        }
+        return;
+      }
+      
+      // ✅ 有权限，继续加载
+      await _loadAppsInternal();
+    } catch (e) {
+      print('加载应用列表失败: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  Future<void> _toggleApp(String packageName, bool selected) async {
+    setState(() {
+      if (selected) {
+        _selectedApps.add(packageName);
+      } else {
+        _selectedApps.remove(packageName);
+      }
+    });
+    
+    // 保存到后台
+    try {
+      await platform.invokeMethod('setSelectedNotificationApps', _selectedApps.toList());
+    } catch (e) {
+      print('保存选择失败: $e');
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('选择应用 (${_selectedApps.length})'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+      ),
+      extendBodyBehindAppBar: true,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFFF9D88),  // 珊瑚橙
+              Color(0xFFFFB5C5),  // 粉红
+              Color(0xFFE0B5DC),  // 紫色
+              Color(0xFFA8C5E5),  // 蓝色
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Colors.white))
+              : Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      // 设置区域标题栏（带展开/收起箭头）
+                      CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: 32,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _settingsExpanded = !_settingsExpanded;
+                                  });
+                                },
+                                splashColor: Colors.white.withOpacity(0.3),
+                                highlightColor: Colors.white.withOpacity(0.2),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.settings, size: 20, color: Colors.black54),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        '通知设置',
+                                        style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                      ),
+                                      const Spacer(),
+                                      AnimatedRotation(
+                                        turns: _settingsExpanded ? 0.25 : 0,
+                                        duration: const Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                        child: const Icon(Icons.keyboard_arrow_right, size: 24, color: Colors.black54),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      // 可展开/收起的设置卡片区域
+                      ClipRect(
+                        child: AnimatedAlign(
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeInOutCubic,
+                          alignment: _settingsExpanded ? Alignment.topCenter : Alignment.bottomCenter,
+                          heightFactor: _settingsExpanded ? 1.0 : 0.0,
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 300),
+                            opacity: _settingsExpanded ? 1.0 : 0.0,
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 20),
+                            
+                            // 隐私模式卡片
+                            CustomPaint(
+                              painter: _SquircleBorderPainter(
+                                radius: 32,
+                                color: Colors.white.withOpacity(0.5),
+                                strokeWidth: 1.5,
+                              ),
+                              child: ClipPath(
+                                clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.25),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.lock_outline, size: 20, color: Colors.black54),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          '隐私模式',
+                                          style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Text(
+                                          '(隐藏通知内容)',
+                                          style: TextStyle(fontSize: 12, color: Colors.black45),
+                                        ),
+                                        const Spacer(),
+                                        _GradientToggle(
+                                          value: _privacyMode,
+                                          onChanged: _togglePrivacyMode,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                      
+                      // 跟随系统勿扰模式卡片
+                      CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: 32,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.do_not_disturb_on_outlined, size: 20, color: Colors.black54),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    '跟随系统勿扰模式',
+                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                  ),
+                                  const Spacer(),
+                                  _GradientToggle(
+                                    value: _followDndMode,
+                                    onChanged: _toggleFollowDndMode,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      
+                      // 仅在锁屏时通知卡片
+                      CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: 32,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.lock_clock, size: 20, color: Colors.black54),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    '仅在锁屏时通知',
+                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                  ),
+                                  const Spacer(),
+                                  _GradientToggle(
+                                    value: _onlyWhenLocked,
+                                    onChanged: _toggleOnlyWhenLocked,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      // 通知暗夜模式卡片
+                      CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: 32,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.dark_mode, size: 20, color: Colors.black54),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    '通知暗夜模式',
+                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                                  ),
+                                  const Spacer(),
+                                  _GradientToggle(
+                                    value: _notificationDarkMode,
+                                    onChanged: _toggleNotificationDarkMode,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 20),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      // 筛选与批量操作卡片
+                      CustomPaint(
+                        painter: _SquircleBorderPainter(
+                          radius: 32,
+                          color: Colors.white.withOpacity(0.5),
+                          strokeWidth: 1.5,
+                        ),
+                        child: ClipPath(
+                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                              ),
+                              child: Column(
+                                children: [
+                                  TextField(
+                                    controller: _searchController,
+                                    onChanged: (_) => _applyFilters(),
+                                    style: const TextStyle(color: Colors.black87),
+                                    decoration: const InputDecoration(
+                                      hintText: '搜索应用或包名',
+                                      hintStyle: TextStyle(color: Colors.black45),
+                                      prefixIcon: Icon(Icons.search, color: Colors.black54),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                        borderSide: BorderSide(color: Colors.black26),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                        borderSide: BorderSide(color: Colors.black26),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                        borderSide: BorderSide(color: Colors.black54, width: 2),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      // 全选/全不选
+                                      ClipPath(
+                                         clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
+                                        child: Container(
+                                          decoration: const BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Color(0xFFFF9D88),
+                                                Color(0xFFFFB5C5),
+                                                Color(0xFFE0B5DC),
+                                                Color(0xFFA8C5E5),
+                                              ],
+                                            ),
+                                          ),
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              onTap: _selectAllVisible,
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                child: Text('全选', style: TextStyle(color: Colors.white)),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ClipPath(
+                                         clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
+                                        child: Container(
+                                          decoration: const BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Color(0xFFFF9D88),
+                                                Color(0xFFFFB5C5),
+                                                Color(0xFFE0B5DC),
+                                                Color(0xFFA8C5E5),
+                                              ],
+                                            ),
+                                          ),
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              onTap: _deselectAllVisible,
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                child: Text('全不选', style: TextStyle(color: Colors.white)),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      const Text('显示系统应用', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                                      const SizedBox(width: 6),
+                                      _GradientToggle(
+                                        value: _includeSystemApps,
+                                        onChanged: (v) {
+                                          setState(() => _includeSystemApps = v);
+                                          _applyFilters();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // 应用列表
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _visibleApps.length,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemExtent: 72,
+                          cacheExtent: 500,
+                          addAutomaticKeepAlives: false,
+                          addRepaintBoundaries: true,
+                          physics: const ClampingScrollPhysics(),
+                          itemBuilder: (context, index) {
+                            final app = _visibleApps[index];
+                            final String appName = app['appName'];
+                            final String packageName = app['packageName'];
+                            final Uint8List? iconBytes = app['icon'];
+                            final bool isSelected = _selectedApps.contains(packageName);
+                            return _AppListItem(
+                              appName: appName,
+                              packageName: packageName,
+                              iconBytes: iconBytes,
+                              isSelected: isSelected,
+                              onToggle: () => _toggleApp(packageName, !isSelected),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
   }
 }
 

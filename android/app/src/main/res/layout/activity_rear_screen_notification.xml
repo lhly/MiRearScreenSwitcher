@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_gradient_rear_screen">
+    
+    <!-- 渐变背景全屏显示，不受安全区影响 -->
+    
+    <!-- 暗夜模式黑色背景层 -->
+    <View
+        android:id="@+id/dark_mode_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone" />
+    
+    <RelativeLayout
+        android:id="@+id/notification_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true">
+        
+        <!-- 中心大图标（动画起点） -->
+        <ImageView
+            android:id="@+id/app_icon_center"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_centerInParent="true"
+            android:scaleType="fitCenter"/>
+        
+        <!-- 整体通知容器（垂直居中） -->
+        <LinearLayout
+            android:id="@+id/notification_wrapper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginRight="28dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:alpha="1">
+            
+            <!-- 应用名和图标容器（无背景） -->
+            <LinearLayout
+                android:id="@+id/app_name_container"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start"
+                android:layout_marginBottom="6dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                
+                <!-- 左上角小图标 -->
+                <ImageView
+                    android:id="@+id/app_icon_small"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:scaleType="fitCenter"/>
+                
+                <!-- 应用名字（与icon对齐） -->
+                <TextView
+                    android:id="@+id/app_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:shadowColor="#40000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"/>
+            </LinearLayout>
+            
+            <!-- 通知内容毛玻璃容器（自适应高度） -->
+            <LinearLayout
+                android:id="@+id/notification_content_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_frosted_glass"
+                android:paddingRight="16dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="14dp">
+            
+            <!-- 通知标题（单行，加粗，白色阴影） -->
+            <TextView
+                android:id="@+id/notification_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:shadowColor="#40000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"/>
+            
+            <!-- 通知内容（最多6行，白色阴影） -->
+            <TextView
+                android:id="@+id/notification_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:maxLines="6"
+                android:ellipsize="end"
+                android:shadowColor="#40000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"/>
+            </LinearLayout>
+            
+        </LinearLayout>
+    </RelativeLayout>
+</FrameLayout>
+

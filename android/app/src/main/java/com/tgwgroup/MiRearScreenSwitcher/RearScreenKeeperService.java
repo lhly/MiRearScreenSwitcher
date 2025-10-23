@@ -72,9 +72,47 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private long lastProximityTime = 0;
     private static final long PROXIMITY_DEBOUNCE_MS = 1500; // 防抖动：1500ms内连续覆盖才触发（降低灵敏度）
     
+    // V2.2: 接近传感器开关状态
+    private boolean proximitySensorEnabled = true; // 默认启用
+    
     // V14.5: 监听应用是否手动移回主屏
     private static final long CHECK_TASK_INTERVAL_MS = 2000; // 每2秒检查一次
     private String monitoredTaskInfo = null; // 格式: "packageName:taskId"
+    
+    // V2.3: 临时暂停监控（充电动画显示期间）
+    private boolean monitoringPaused = false;
+    
+    // V2.4: 持续唤醒背屏（防止自动熄屏）
+    private static final long WAKEUP_INTERVAL_MS = 100; // 持续发送，每0.1秒唤醒一次（对熄屏几乎无感）
+    private boolean keepScreenOnEnabled = true; // 默认启用背屏常亮
+    
+    public static void pauseMonitoring() {
+        if (instance != null) {
+            instance.monitoringPaused = true;
+            
+            // ✅ 取消所有pending的检查任务
+            if (instance.handler != null) {
+                instance.handler.removeCallbacks(instance.checkTaskRunnable);
+                Log.d(TAG, "⏸️ Monitoring paused, all checks cancelled");
+            } else {
+                Log.d(TAG, "⏸️ Monitoring paused");
+            }
+        }
+    }
+    
+    public static void resumeMonitoring() {
+        if (instance != null) {
+            instance.monitoringPaused = false;
+            Log.d(TAG, "▶️ Monitoring resumed");
+            
+            // ✅ 延迟5秒后才开始检查，给投送app足够时间恢复到前台
+            if (instance.handler != null) {
+                instance.handler.removeCallbacks(instance.checkTaskRunnable);
+                instance.handler.postDelayed(instance.checkTaskRunnable, 5000);
+                Log.d(TAG, "⏰ Next check scheduled in 5 seconds");
+            }
+        }
+    }
     
     @Override
     public void onCreate() {
@@ -124,6 +162,44 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             }
         }
         
+        // V2.2: 处理接近传感器开关设置
+        if (intent != null && "ACTION_SET_PROXIMITY_ENABLED".equals(intent.getAction())) {
+            boolean enabled = intent.getBooleanExtra("enabled", true);
+            proximitySensorEnabled = enabled;
+            
+            // 如果关闭了传感器，且当前正在监听，则注销监听
+            if (!enabled && sensorManager != null && proximitySensor != null) {
+                sensorManager.unregisterListener(this);
+            }
+            // 如果打开了传感器，且当前没有监听，则注册监听
+            else if (enabled && sensorManager != null && proximitySensor != null) {
+                sensorManager.registerListener(this, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+            }
+            
+            return START_STICKY;
+        }
+        
+        // V2.5: 处理背屏常亮开关设置
+        if (intent != null && "ACTION_SET_KEEP_SCREEN_ON_ENABLED".equals(intent.getAction())) {
+            boolean enabled = intent.getBooleanExtra("enabled", true);
+            keepScreenOnEnabled = enabled;
+            
+            Log.d(TAG, "🔆 背屏常亮开关已" + (enabled ? "开启" : "关闭"));
+            
+            // 如果关闭了常亮，停止发送WAKEUP
+            if (!enabled && handler != null) {
+                handler.removeCallbacks(wakeupRearScreenRunnable);
+                Log.d(TAG, "⏸️ 背屏WAKEUP发送已停止");
+            }
+            // 如果打开了常亮，启动发送WAKEUP
+            else if (enabled && handler != null) {
+                handler.removeCallbacks(wakeupRearScreenRunnable);
+                startRearScreenWakeup();
+            }
+            
+            return START_STICKY;
+        }
+        
         try {
             // V14.7: 先从Intent获取要监控的任务信息
             if (intent != null) {
@@ -131,6 +207,12 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 if (newMonitoredTask != null) {
                     monitoredTaskInfo = newMonitoredTask;
                 }
+            }
+            
+            // V2.5: 从Intent获取背屏常亮开关状态
+            if (intent != null) {
+                keepScreenOnEnabled = intent.getBooleanExtra("keepScreenOnEnabled", true);
+                Log.d(TAG, "🔆 背屏常亮开关状态: " + (keepScreenOnEnabled ? "开启" : "关闭"));
             }
             
             // V15.1: 立即显示通知，不等待其他操作
@@ -153,7 +235,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 // 使用SCREEN_BRIGHT_WAKE_LOCK保持屏幕亮起
                 // 注意：这会让屏幕保持亮起，但可能无法指定是哪个display
                 wakeLock = pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK, // 移除ACQUIRE_CAUSES_WAKEUP避免唤醒主屏
                     "MRSS::RearScreenKeeper"
                 );
                 
@@ -171,6 +253,9 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 startTaskMonitoring();
             }
             
+            // 5. V2.5: 启动持续唤醒背屏（每0.5秒，根据开关状态）
+            startRearScreenWakeup();
+            
         } catch (Exception e) {
             Log.e(TAG, "✗ Error starting service", e);
         }
@@ -187,10 +272,23 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private final Runnable checkTaskRunnable = new Runnable() {
         @Override
         public void run() {
+            // V2.3: 如果监控已暂停（充电动画显示中），跳过本次检查
+            if (monitoringPaused) {
+                handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
+                return;
+            }
+            
             if (monitoredTaskInfo != null && taskService != null) {
                 try {
                     // V15.2: 检查背屏(displayId=1)的前台应用是否还是我们监控的应用
                     String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                    
+                    // V2.3: 排除充电动画/通知动画（临时占用背屏，不应导致Service销毁）
+                    if (rearForegroundApp != null && (rearForegroundApp.contains("RearScreenChargingActivity") || rearForegroundApp.contains("RearScreenNotificationActivity"))) {
+                        // 充电动画正在显示，跳过本次检查
+                        handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
+                        return;
+                    }
                     
                     // 如果背屏前台应用不是我们监控的应用，说明它被关闭或切换了
                     if (rearForegroundApp == null || !rearForegroundApp.equals(monitoredTaskInfo)) {
@@ -216,6 +314,38 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private void startTaskMonitoring() {
         if (monitoredTaskInfo != null && handler != null) {
             handler.postDelayed(checkTaskRunnable, CHECK_TASK_INTERVAL_MS);
+        }
+    }
+    
+    /**
+     * V2.5: 持续唤醒背屏任务 - 每0.5秒发送WAKEUP，防止背屏自动熄屏
+     */
+    private final Runnable wakeupRearScreenRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // 检查开关状态
+            if (keepScreenOnEnabled && taskService != null) {
+                try {
+                    // 向背屏(displayId=1)发送WAKEUP唤醒信号
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    // Log.d(TAG, "✨ 背屏保活唤醒已发送");  // 注释掉以减少日志
+                } catch (Exception e) {
+                    Log.w(TAG, "背屏唤醒失败: " + e.getMessage());
+                }
+            }
+            
+            // 持续发送，每0.5秒执行一次
+            if (keepScreenOnEnabled) {
+                handler.postDelayed(this, WAKEUP_INTERVAL_MS);
+            }
+        }
+    };
+    
+    private void startRearScreenWakeup() {
+        if (handler != null && keepScreenOnEnabled) {
+            // 立即执行第一次唤醒，然后开始持续发送
+            handler.post(wakeupRearScreenRunnable);
+            Log.d(TAG, "⏰ 背屏持续唤醒已启动 (0.5秒间隔)");
         }
     }
     
@@ -409,7 +539,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "背屏漫游服务",
+                "MRSS内核服务",
                 NotificationManager.IMPORTANCE_LOW  // 低重要性，减少干扰
             );
             channel.setDescription("com.xiaomi.subscreencenter.SubScreenLauncher真是高高在上呢");
@@ -438,6 +568,35 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             Log.w(TAG, "Failed to get app name: " + e.getMessage());
         }
         return packageName; // 失败时返回包名
+    }
+    
+    /**
+     * V2.4: 创建通用的Service前台通知（供多个Service共用）
+     */
+    public static Notification createServiceNotification(Context context) {
+        // 创建通知渠道
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "MRSS内核服务",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("com.xiaomi.subscreencenter.SubScreenLauncher真是高高在上呢");
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+        
+        return new NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("MRSS内核服务")
+            .setContentText("MRSS目前正在运行")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build();
     }
     
     /**
@@ -576,6 +735,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
      */
     @Override
     public void onSensorChanged(SensorEvent event) {
+        // V2.2: 如果传感器已关闭，不处理事件
+        if (!proximitySensorEnabled) {
+            return;
+        }
+        
         // 检查是否是我们的背屏接近传感器
         if (event.sensor == proximitySensor) {
             float distance = event.values[0];

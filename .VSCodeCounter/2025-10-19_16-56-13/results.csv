@@ -1,0 +1,28 @@
+"filename", "language", "Markdown", "YAML", "XML", "Java Properties", "Dart", "Java", "comment", "blank", "total"
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\README.md", "Markdown", 152, 0, 0, 0, 0, 0, 0, 46, 198
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\analysis_options.yaml", "YAML", 0, 3, 0, 0, 0, 0, 22, 4, 29
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\debug\AndroidManifest.xml", "XML", 0, 0, 3, 0, 0, 0, 4, 1, 8
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\AndroidManifest.xml", "XML", 0, 0, 115, 0, 0, 0, 27, 11, 153
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\MainActivity.java", "Java", 0, 0, 0, 0, 0, 364, 38, 48, 450
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\MyApplication.java", "Java", 0, 0, 0, 0, 0, 36, 17, 11, 64
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\RearScreenBroadcastReceiver.java", "Java", 0, 0, 0, 0, 0, 75, 50, 14, 139
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\RearScreenKeeperService.java", "Java", 0, 0, 0, 0, 0, 433, 145, 108, 686
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\RearScreenWakeActivity.java", "Java", 0, 0, 0, 0, 0, 144, 60, 34, 238
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\RearScreenWakeupActivity.java", "Java", 0, 0, 0, 0, 0, 76, 34, 15, 125
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\RearScreenshotTileService.java", "Java", 0, 0, 0, 0, 0, 142, 28, 27, 197
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\SwitchToRearTileService.java", "Java", 0, 0, 0, 0, 0, 263, 59, 50, 372
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\java\com\tgwgroup\MiRearScreenSwitcher\TaskService.java", "Java", 0, 0, 0, 0, 0, 667, 125, 259, 1051
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\drawable-v21\launch_background.xml", "XML", 0, 0, 4, 0, 0, 0, 7, 2, 13
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\drawable\launch_background.xml", "XML", 0, 0, 4, 0, 0, 0, 7, 2, 13
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\mipmap-anydpi-v26\ic_launcher.xml", "XML", 0, 0, 9, 0, 0, 0, 0, 1, 10
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\values-night\styles.xml", "XML", 0, 0, 13, 0, 0, 0, 9, 1, 23
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\values\colors.xml", "XML", 0, 0, 4, 0, 0, 0, 0, 0, 4
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\values\strings.xml", "XML", 0, 0, 6, 0, 0, 0, 0, 2, 8
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\main\res\values\styles.xml", "XML", 0, 0, 21, 0, 0, 0, 3, 3, 27
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\app\src\profile\AndroidManifest.xml", "XML", 0, 0, 3, 0, 0, 0, 4, 1, 8
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\gradle.properties", "Java Properties", 0, 0, 0, 3, 0, 0, 0, 1, 4
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\android\gradle\wrapper\gradle-wrapper.properties", "Java Properties", 0, 0, 0, 5, 0, 0, 0, 1, 6
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\lib\main.dart", "Dart", 0, 0, 0, 0, 1030, 0, 75, 122, 1227
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\pic_res\6i(1).xml", "XML", 0, 0, 7, 0, 0, 0, 0, 1, 8
+"c:\Users\16094\Documents\GitHub\MiRearScreenSwitcher\pubspec.yaml", "YAML", 0, 18, 0, 0, 0, 0, 57, 14, 89
+"Total", "-", 152, 21, 189, 8, 1030, 2200, 771, 779, 5150

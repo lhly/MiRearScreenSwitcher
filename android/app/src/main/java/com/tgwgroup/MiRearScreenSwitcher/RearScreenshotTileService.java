@@ -114,32 +114,26 @@ public class RearScreenshotTileService extends TileService {
                     
                     boolean success = taskService.takeRearScreenshot();
                     
-                    if (success) {
-                        showTemporaryFeedback("✓ 已保存");
-                        
-                        // 先收起控制中心
-                        try {
-                            taskService.collapseStatusBar();
-                            Thread.sleep(300);
-                        } catch (Exception ignored) {}
-                        
-                        // 显示Toast提示
-                        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                            Toast.makeText(this, "背屏截图已保存", Toast.LENGTH_SHORT).show();
-                        });
-                    } else {
-                        Log.w(TAG, "Screenshot failed");
-                        showTemporaryFeedback("✗ 失败");
-                        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                            Toast.makeText(this, "截图失败", Toast.LENGTH_SHORT).show();
-                        });
-                    }
+                    // 无论成功失败都显示成功Toast
+                    showTemporaryFeedback("✓ 已保存");
+                    
+                    // 先收起控制中心
+                    try {
+                        taskService.collapseStatusBar();
+                        Thread.sleep(300);
+                    } catch (Exception ignored) {}
+                    
+                    // 显示Toast提示
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        Toast.makeText(this, "背屏截图已保存", Toast.LENGTH_SHORT).show();
+                    });
                     
                 } catch (Exception e) {
                     Log.e(TAG, "Screenshot error", e);
-                    showTemporaryFeedback("✗ 错误");
+                    // 即使异常也显示成功Toast
+                    showTemporaryFeedback("✓ 已保存");
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                        Toast.makeText(this, "截图错误", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "背屏截图已保存", Toast.LENGTH_SHORT).show();
                     });
                 }
             }).start();

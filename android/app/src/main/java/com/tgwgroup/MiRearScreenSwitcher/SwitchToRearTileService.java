@@ -242,6 +242,17 @@ public class SwitchToRearTileService extends TileService {
             // 步骤3: 立即启动前台Service（不延迟，让通知快速出现）
             Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
             serviceIntent.putExtra("lastMovedTask", currentApp);
+            
+            // V2.5: 传递背屏常亮开关状态
+            try {
+                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
+                boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
+                serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
+            } catch (Exception e) {
+                // 默认为开启
+                serviceIntent.putExtra("keepScreenOnEnabled", true);
+            }
+            
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
             } else {

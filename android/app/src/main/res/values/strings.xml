@@ -3,5 +3,8 @@
     <string name="app_name">MRSS</string>
     <string name="tile_label">切换至背屏</string>
     <string name="tile_screenshot_label">获取背屏截图</string>
+    <string name="tile_record_label">背屏录屏</string>
+    <string name="uninstall_title">😭你真的要卸载MRSS吗？😭\n😭你真的要卸载MRSS吗？😭\n😭你真的要卸载MRSS吗？😭\n</string>
+    <string name="uninstall_content">\n\n\n😭回来吧MRSS😭\n🌟我最骄傲的信仰🌟\n⚡️历历在目背屏场⚡️\n😭眼泪莫名在流淌😭\n💥依稀记得app投背💥\n👍还有给力的装备(作者注:指am force-stop)👍\n⚡️把小米SubScreenCenter都给打退⚡️\n✨通宵熬夜都不累✨\n\n\n</string>
 </resources>
 

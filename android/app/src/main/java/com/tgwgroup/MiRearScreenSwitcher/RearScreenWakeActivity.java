@@ -28,9 +28,9 @@ import android.view.WindowManager;
  * 3. 全屏尺寸 + 完全透明（alpha=0），用户完全看不到但系统认为可见
  * 
  * 关键发现（3次迭代）：
- * V1: FLAG_NOT_FOCUSABLE → 立即onPause/onStop（218ms）
+ * V1: FLAG_NOT_FOCUSABLE → 立即onPause/onStop（18ms）
  * V2: 移除FLAG_NOT_FOCUSABLE + 屏幕外(-1000,-1000) → 依然onStop（109ms）
- * V3: 窗口必须在屏幕内(0,0) + alpha=0透明 → 最终方案 ✅
+ * V3: 窗口必须在屏幕内(0,0) + alpha=0透明 → 最终方案✅
  */
 public class RearScreenWakeActivity extends Activity {
     private static final String TAG = "RearScreenWakeActivity";

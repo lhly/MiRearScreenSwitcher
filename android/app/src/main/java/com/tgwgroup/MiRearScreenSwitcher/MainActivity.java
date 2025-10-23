@@ -17,9 +17,12 @@ package com.tgwgroup.MiRearScreenSwitcher;
 
 import android.Manifest;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -36,6 +39,13 @@ public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "com.display.switcher/task";
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
+    
+    // 静态实例，供其他类访问
+    private static MainActivity currentInstance;
+    
+    public static MainActivity getCurrentInstance() {
+        return currentInstance;
+    }
     
     private ITaskService taskService;
     private MethodChannel methodChannel;
@@ -142,6 +152,9 @@ public class MainActivity extends FlutterActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
+        // 保存实例
+        currentInstance = this;
+        
         // 添加Shizuku监听器（关键！使用Sticky版本）
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
         Shizuku.addBinderDeadListener(binderDeadListener);
@@ -149,6 +162,121 @@ public class MainActivity extends FlutterActivity {
         
         // 自动检查并请求Shizuku权限
         checkAndRequestShizukuPermission();
+        
+        // 处理通知Intent
+        handleIncomingIntent(getIntent());
+    }
+    
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleIncomingIntent(intent);
+    }
+    
+    /**
+     * 处理来自Service的通知Intent
+     */
+    private void handleIncomingIntent(Intent intent) {
+        if (intent == null) return;
+        
+        String action = intent.getAction();
+        
+        // 处理通知Intent
+        if ("SHOW_NOTIFICATION_ON_REAR_SCREEN".equals(action)) {
+            String packageName = intent.getStringExtra("packageName");
+            String title = intent.getStringExtra("title");
+            String text = intent.getStringExtra("text");
+            long when = intent.getLongExtra("when", System.currentTimeMillis());
+            
+            Log.d(TAG, "Received notification intent for: " + packageName);
+            startNotificationOnRearScreen(packageName, title, text, when);
+        }
+    }
+    
+    /**
+     * 在背屏启动通知显示Activity
+     */
+    private void startNotificationOnRearScreen(String packageName, String title, String text, long when) {
+        if (taskService == null) {
+            Log.w(TAG, "TaskService not available for notification");
+            return;
+        }
+        
+        new Thread(() -> {
+            try {
+                // 步骤1: 禁用官方Launcher
+                taskService.disableSubScreenLauncher();
+                
+                // 步骤2: 唤醒背屏
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Thread.sleep(50);
+                
+                // 步骤3: 在主屏启动Activity
+                String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
+                String mainCmd = String.format(
+                    "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d",
+                    componentName, packageName,
+                    title != null ? title.replace("\"", "'") : "",
+                    text != null ? text.replace("\"", "'") : "",
+                    when
+                );
+                taskService.executeShellCommand(mainCmd);
+                
+                // 步骤4: 轮询获取taskId
+                String notifTaskId = null;
+                int attempts = 0;
+                int maxAttempts = 20;
+                
+                while (notifTaskId == null && attempts < maxAttempts) {
+                    Thread.sleep(30);
+                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
+                    if (result != null && !result.trim().isEmpty()) {
+                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
+                        java.util.regex.Matcher matcher = pattern.matcher(result);
+                        if (matcher.find()) {
+                            notifTaskId = matcher.group(1);
+                            Log.d(TAG, "Found notification taskId=" + notifTaskId);
+                            break;
+                        }
+                    }
+                    attempts++;
+                }
+                
+                if (notifTaskId != null) {
+                    // 步骤5: 移动到背屏
+                    String moveCmd = "service call activity_task 50 i32 " + notifTaskId + " i32 1";
+                    taskService.executeShellCommand(moveCmd);
+                    Thread.sleep(40);
+                    
+                    // 步骤6: 检查是否锁屏，决定是否关闭主屏
+                    android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                    if (km != null && km.isKeyguardLocked()) {
+                        // 主屏休眠功能已移除
+                        Log.d(TAG, "🔒 锁屏状态，主屏已关闭");
+                    }
+                    
+                    Log.d(TAG, "✅ Notification animation started on rear screen");
+                } else {
+                    Log.e(TAG, "❌ Failed to find notification taskId");
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to show notification on rear screen", e);
+            }
+        }).start();
+    }
+    
+    /**
+     * 执行Shell命令（供RearScreenChargingActivity调用）
+     */
+    public void executeShellCommand(String cmd) {
+        if (taskService != null) {
+            try {
+                taskService.executeShellCommand(cmd);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to execute command: " + cmd, e);
+            }
+        }
     }
     
     private void checkAndRequestShizukuPermission() {
@@ -169,6 +297,10 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        
+        // 清除静态实例
+        currentInstance = null;
+        
         Shizuku.removeBinderReceivedListener(binderReceivedListener);
         Shizuku.removeBinderDeadListener(binderDeadListener);
         Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener);
@@ -329,17 +461,47 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
-                    case "openCoolApkTutorial": {
+                    case "openTutorial": {
+                        // 打开腾讯文档使用教程
                         try {
-                            Intent intent = new Intent();
-                            intent.setClassName("com.coolapk.market", "com.coolapk.market.view.AppLinkActivity");
-                            intent.setAction(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("coolmarket://feed/67979666"));
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setData(android.net.Uri.parse("https://docs.qq.com/doc/DVWxpT3hQdHNPR3Zy?dver="));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             startActivity(intent);
                             result.success(null);
                         } catch (Exception e) {
-                            Log.e(TAG, "Failed to open CoolApk tutorial", e);
-                            result.error("ERROR", "请先安装酷安应用", null);
+                            Log.e(TAG, "Failed to open tutorial", e);
+                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "openDonationPage": {
+                        // 打开打赏页面
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/19/%e5%85%b3%e4%ba%8e%e6%89%93%e8%b5%8f/"));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                            result.success(null);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to open donation page", e);
+                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "openQQGroup": {
+                        // 打开MRSS交流群页面
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/21/%e5%85%b3%e4%ba%8emrss%e4%ba%a4%e6%b5%81%e7%be%a4/"));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                            result.success(null);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to open QQ group page", e);
+                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
                         }
                         break;
                     }
@@ -430,6 +592,242 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
+                    case "setProximitySensorEnabled": {
+                        // V2.2: 设置接近传感器开关
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        // 通知RearScreenKeeperService更新状态
+                        Intent intent = new Intent(this, RearScreenKeeperService.class);
+                        intent.setAction("ACTION_SET_PROXIMITY_ENABLED");
+                        intent.putExtra("enabled", enabled);
+                        startService(intent);
+                        
+                        result.success(true);
+                        break;
+                    }
+                    
+                    case "setKeepScreenOnEnabled": {
+                        // V2.5: 设置背屏常亮开关
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        // 通知RearScreenKeeperService更新状态
+                        Intent intent = new Intent(this, RearScreenKeeperService.class);
+                        intent.setAction("ACTION_SET_KEEP_SCREEN_ON_ENABLED");
+                        intent.putExtra("enabled", enabled);
+                        startService(intent);
+                        
+                        result.success(true);
+                        break;
+                    }
+                    
+                    case "toggleChargingService": {
+                        // V2.3: 切换充电动画服务
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        Intent intent = new Intent(this, ChargingService.class);
+                        if (enabled) {
+                            startService(intent);
+                            Log.d(TAG, "ChargingService started");
+                        } else {
+                            stopService(intent);
+                            Log.d(TAG, "ChargingService stopped");
+                        }
+                        
+                        result.success(true);
+                        break;
+                    }
+                    
+                    case "toggleNotificationService": {
+                        // V2.4: 切换通知服务（只保存设置，NotificationListenerService由系统管理）
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                        prefs.edit()
+                            .putBoolean("notification_service_enabled", enabled)
+                            .apply();
+                        
+                        // 如果服务已运行，通知它重新加载设置
+                        if (enabled) {
+                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                        }
+                        
+                        Log.d(TAG, "Notification service enabled: " + enabled);
+                        result.success(true);
+                        break;
+                    }
+                    
+                    case "checkNotificationListenerPermission": {
+                        // V2.4: 检查通知监听权限
+                        boolean hasPermission = isNotificationListenerEnabled();
+                        result.success(hasPermission);
+                        break;
+                    }
+                    
+                    case "openNotificationListenerSettings": {
+                        // V2.4: 打开通知监听设置
+                        try {
+                            Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to open notification settings", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "checkQueryAllPackagesPermission": {
+                        // V2.4: 检查QUERY_ALL_PACKAGES权限
+                        boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
+                        Log.d(TAG, "🔍 QUERY_ALL_PACKAGES permission check: " + hasPermission);
+                        
+                        // 再测试一下实际能获取多少包
+                        try {
+                            int packageCount = getPackageManager().getInstalledApplications(0).size();
+                            Log.d(TAG, "🔍 Can actually query " + packageCount + " packages");
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to test package query", e);
+                        }
+                        
+                        result.success(hasPermission);
+                        break;
+                    }
+                    
+                    case "requestQueryAllPackagesPermission": {
+                        // V2.4: 请求QUERY_ALL_PACKAGES权限（跳转到应用详情页）
+                        try {
+                            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to open app settings", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "getInstalledApps": {
+                        // V2.4: 获取已安装应用列表（异步）
+                        new Thread(() -> {
+                            try {
+                                // 先检查权限
+                                boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
+                                if (!hasPermission) {
+                                    Log.w(TAG, "⚠️ 没有QUERY_ALL_PACKAGES权限，应用列表可能不完整");
+                                }
+                                
+                                java.util.List<java.util.Map<String, Object>> apps = getInstalledApps();
+                                runOnUiThread(() -> result.success(apps));
+                            } catch (Exception e) {
+                                Log.e(TAG, "Failed to get installed apps", e);
+                                runOnUiThread(() -> result.error("ERROR", e.getMessage(), null));
+                            }
+                        }).start();
+                        break;
+                    }
+                    
+                    case "getSelectedNotificationApps": {
+                        // V2.4: 获取已选择的通知应用
+                        try {
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            java.util.Set<String> selectedApps = prefs.getStringSet("notification_selected_apps", new java.util.HashSet<>());
+                            result.success(new java.util.ArrayList<>(selectedApps));
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to get selected apps", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setSelectedNotificationApps": {
+                        // V2.4: 保存选择的通知应用
+                        try {
+                            @SuppressWarnings("unchecked")
+                            java.util.List<String> selectedApps = (java.util.List<String>) call.arguments;
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putStringSet("notification_selected_apps", new java.util.HashSet<>(selectedApps))
+                                .apply();
+                            Log.d(TAG, "Saved " + selectedApps.size() + " selected apps");
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to save selected apps", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setNotificationPrivacyMode": {
+                        // V2.4: 设置隐私模式
+                        try {
+                            boolean enabled = (boolean) call.argument("enabled");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putBoolean("notification_privacy_mode", enabled)
+                                .apply();
+                            Log.d(TAG, "Privacy mode set to: " + enabled);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set privacy mode", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setFollowDndMode": {
+                        // V3.0: 设置跟随系统勿扰模式
+                        try {
+                            boolean enabled = (boolean) call.argument("enabled");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putBoolean("notification_follow_dnd_mode", enabled)
+                                .apply();
+                            Log.d(TAG, "Follow DND mode set to: " + enabled);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set follow DND mode", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setOnlyWhenLocked": {
+                        // V3.0: 设置仅在锁屏时通知
+                        try {
+                            boolean enabled = (boolean) call.argument("enabled");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putBoolean("notification_only_when_locked", enabled)
+                                .apply();
+                            Log.d(TAG, "Only when locked mode set to: " + enabled);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set only when locked mode", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setNotificationDarkMode": {
+                        // V3.1: 设置通知暗夜模式
+                        try {
+                            boolean enabled = (boolean) call.argument("enabled");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putBoolean("notification_dark_mode", enabled)
+                                .apply();
+                            Log.d(TAG, "Notification dark mode set to: " + enabled);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set notification dark mode", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
                     default:
                         result.notImplemented();
                 }
@@ -445,5 +843,116 @@ public class MainActivity extends FlutterActivity {
             } else {
             }
         }
+    }
+    
+    /**
+     * V2.4: 检查通知监听服务是否已启用
+     */
+    private boolean isNotificationListenerEnabled() {
+        String packageName = getPackageName();
+        String flat = android.provider.Settings.Secure.getString(
+            getContentResolver(),
+            "enabled_notification_listeners"
+        );
+        
+        if (flat == null || flat.isEmpty()) {
+            return false;
+        }
+        
+        String[] names = flat.split(":");
+        for (String name : names) {
+            android.content.ComponentName cn = android.content.ComponentName.unflattenFromString(name);
+            if (cn != null && packageName.equals(cn.getPackageName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * V2.4: 获取已安装应用列表
+     */
+    private java.util.List<java.util.Map<String, Object>> getInstalledApps() {
+        java.util.List<java.util.Map<String, Object>> apps = new java.util.ArrayList<>();
+        
+        try {
+            PackageManager pm = getPackageManager();
+            java.util.List<android.content.pm.ApplicationInfo> packages = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+            
+            Log.d(TAG, "Total packages found: " + packages.size());
+            
+            // 使用白名单策略（用户应用 + 重要系统应用）
+            java.util.Set<String> importantSystemApps = new java.util.HashSet<>();
+            importantSystemApps.add("com.tencent.mm"); // 微信
+            importantSystemApps.add("com.tencent.mobileqq"); // QQ
+            importantSystemApps.add("com.coolapk.market"); // 酷安
+            importantSystemApps.add("com.sina.weibo"); // 微博
+            importantSystemApps.add("com.taobao.taobao"); // 淘宝
+            importantSystemApps.add("com.eg.android.AlipayGphone"); // 支付宝
+            importantSystemApps.add("com.netease.cloudmusic"); // 网易云
+            importantSystemApps.add("com.ss.android.ugc.aweme"); // 抖音
+            importantSystemApps.add("com.bilibili.app.in"); // 哔哩哔哩
+            importantSystemApps.add("com.android.mms"); // 短信
+            importantSystemApps.add("com.android.contacts"); // 联系人
+            
+            for (android.content.pm.ApplicationInfo appInfo : packages) {
+                // 跳过自己
+                if (appInfo.packageName.equals(getPackageName())) {
+                    continue;
+                }
+                
+                boolean isSystemApp = (appInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0;
+                boolean isUserApp = !isSystemApp;
+                boolean isImportantSystemApp = importantSystemApps.contains(appInfo.packageName);
+                
+                // 只包含用户应用或重要系统应用
+                if (!isUserApp && !isImportantSystemApp) {
+                    continue;
+                }
+                
+                java.util.Map<String, Object> app = new java.util.HashMap<>();
+                app.put("appName", pm.getApplicationLabel(appInfo).toString());
+                app.put("packageName", appInfo.packageName);
+                
+                // 获取应用图标（全分辨率，不压缩不受损）
+                try {
+                    Drawable icon = pm.getApplicationIcon(appInfo);
+                    // 使用原始图标尺寸，不限制大小
+                    int iconSize = Math.max(icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
+                    if (iconSize <= 0) iconSize = 192; // 如果无法获取，使用默认高分辨率
+                    
+                    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(
+                        iconSize, iconSize, android.graphics.Bitmap.Config.ARGB_8888
+                    );
+                    android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+                    icon.setBounds(0, 0, iconSize, iconSize);
+                    icon.draw(canvas);
+                    
+                    java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream); // 100%质量，无损压缩
+                    app.put("icon", stream.toByteArray());
+                    
+                    bitmap.recycle();
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to get icon for " + appInfo.packageName);
+                }
+                
+                apps.add(app);
+            }
+            
+            // 按应用名排序
+            apps.sort((a, b) -> {
+                String nameA = (String) a.get("appName");
+                String nameB = (String) b.get("appName");
+                return nameA.compareToIgnoreCase(nameB);
+            });
+            
+            Log.d(TAG, "Found " + apps.size() + " user apps");
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get installed apps", e);
+        }
+        
+        return apps;
     }
 }

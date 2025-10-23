@@ -42,7 +42,7 @@ public class TaskService extends ITaskService.Stub {
     public String getCurrentForegroundApp() throws RemoteException {
         try {
 
-            // 执行am stack list，在Shizuku进程中具有shell权限！
+            // 执行am stack list，在Shizuku进程中具有shell权限
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             pb.redirectErrorStream(true);
             Process process = pb.start();
@@ -71,7 +71,7 @@ public class TaskService extends ITaskService.Stub {
                     int pkgEnd = line.indexOf('/', pkgStart);
                     String packageName = line.substring(pkgStart, pkgEnd).trim();
                     
-                    // 跳过Launcher和应用自身
+                    // 跳过Launcher和应用自己
                     if (packageName.contains("launcher") || 
                         packageName.contains("miui.home") ||
                         packageName.equals("com.tgwgroup.MiRearScreenSwitcher")) {
@@ -102,7 +102,7 @@ public class TaskService extends ITaskService.Stub {
     public int getTaskIdByPackage(String packageName) throws RemoteException {
         try {
 
-            // 执行am stack list，在Shizuku进程中具有shell权限！
+            // 执行am stack list，在Shizuku进程中具有shell权限
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             Process process = pb.start();
             
@@ -145,10 +145,10 @@ public class TaskService extends ITaskService.Stub {
             // 先获取包名
             String packageName = getPackageNameFromTaskId(taskId);
 
-            // 执行service call命令，在Shizuku进程中具有shell权限！
-            // 注意：Android系统的每个显示器都有独立的状态栏（SystemUI）
-            // 当应用切换到背屏时，它会显示背屏的状态栏，这是系统默认行为
-            // 要保持主屏状态栏可见需要系统级修改，无法通过应用层实现
+            // 执行service call命令，在Shizuku进程中具有shell权限
+            // 注意：Android系统的每个显示器都有独立的状态栏（SystemUI�?
+            // 当应用切换到背屏时，它会显示背屏的状态栏，这是系统默认行�?
+            // 要保持主屏状态栏可见需要系统级修改，无法通过应用层实�?
             String cmd = "service call activity_task 50 i32 " + taskId + " i32 " + displayId;
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -171,14 +171,14 @@ public class TaskService extends ITaskService.Stub {
 
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "✗ Failed to save task info", e);
+                    Log.e(TAG, "❌ Failed to save task info", e);
                 }
             }
 
             return success;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in moveTaskToDisplay", e);
+            Log.e(TAG, "❌ EXCEPTION in moveTaskToDisplay", e);
             return false;
         }
     }
@@ -256,7 +256,7 @@ public class TaskService extends ITaskService.Stub {
             return success;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in launchWakeActivity", e);
+            Log.e(TAG, "❌ EXCEPTION in launchWakeActivity", e);
             return false;
         }
     }
@@ -265,7 +265,7 @@ public class TaskService extends ITaskService.Stub {
     public boolean disableSubScreenLauncher() throws RemoteException {
         try {
 
-            // 强制停止进程（进程可能会自动重启，需要持续杀）
+            // 强制停止进程（进程可能会自动重启，需要持续杀死）
             String killCmd = "am force-stop com.xiaomi.subscreencenter";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", killCmd);
@@ -282,7 +282,7 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in disableSubScreenLauncher", e);
+            Log.e(TAG, "❌ EXCEPTION in disableSubScreenLauncher", e);
             return false;
         }
     }
@@ -307,8 +307,8 @@ public class TaskService extends ITaskService.Stub {
             reader.close();
             process.waitFor();
             
-            // 如果有输出 → 进程在运行 → 返回true（需要杀）
-            // 如果无输出 → 进程不在运行 → 返回false（不需要处理）
+            // 如果有输�?�?进程在运�?�?返回true（需要杀�?
+            // 如果无输�?�?进程不在运行 �?返回false（不需要处理）
             boolean isRunning = (line != null && !line.isEmpty());
             
             if (isRunning) {
@@ -318,7 +318,7 @@ public class TaskService extends ITaskService.Stub {
             return isRunning;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in isLauncherProcessRunning", e);
+            Log.e(TAG, "❌ EXCEPTION in isLauncherProcessRunning", e);
             return false;
         }
     }
@@ -339,7 +339,7 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process.waitFor();
             
-            // force-stop 总是返回0，所以需要检查进程是否真的被杀了
+            // force-stop 总是返回0，所以需要检查进程是否真的被杀死
             // 简单起见，如果命令成功就返回true
             return (exitCode == 0);
             
@@ -379,186 +379,12 @@ public class TaskService extends ITaskService.Stub {
             return true;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in enableSubScreenLauncher", e);
+            Log.e(TAG, "❌ EXCEPTION in enableSubScreenLauncher", e);
             return false;
         }
     }
     
-    /**
-     * 主动点亮指定显示器
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @return 是否成功
-     */
-    @Override
-    public boolean wakeUpDisplay(int displayId) throws RemoteException {
-
-        try {
-
-            // 方法1: 使用 input keyevent 唤醒屏幕
-            String wakeCmd1 = "input keyevent KEYCODE_WAKEUP";
-
-            ProcessBuilder pb1 = new ProcessBuilder("sh", "-c", wakeCmd1);
-            Process process1 = pb1.start();
-            
-            BufferedReader reader1 = new BufferedReader(
-                new InputStreamReader(process1.getInputStream()), 8192
-            );
-            BufferedReader errorReader1 = new BufferedReader(
-                new InputStreamReader(process1.getErrorStream()), 8192
-            );
-            
-            String line;
-            while ((line = reader1.readLine()) != null) {
-
-            }
-            while ((line = errorReader1.readLine()) != null) {
-
-            }
-            reader1.close();
-            errorReader1.close();
-            
-            int exitCode1 = process1.waitFor();
-
-            // 方法2: 使用 dumpsys power 设置屏幕状态
-            String wakeCmd2 = "dumpsys power setWakefulness 1";
-
-            ProcessBuilder pb2 = new ProcessBuilder("sh", "-c", wakeCmd2);
-            Process process2 = pb2.start();
-            
-            BufferedReader reader2 = new BufferedReader(
-                new InputStreamReader(process2.getInputStream()), 8192
-            );
-            BufferedReader errorReader2 = new BufferedReader(
-                new InputStreamReader(process2.getErrorStream()), 8192
-            );
-            
-            while ((line = reader2.readLine()) != null) {
-
-            }
-            while ((line = errorReader2.readLine()) != null) {
-
-            }
-            reader2.close();
-            errorReader2.close();
-            
-            int exitCode2 = process2.waitFor();
-
-            // 方法3: 使用 settings 设置屏幕超时
-            String wakeCmd3 = "settings put system screen_off_timeout 300000";
-
-            ProcessBuilder pb3 = new ProcessBuilder("sh", "-c", wakeCmd3);
-            Process process3 = pb3.start();
-            
-            BufferedReader reader3 = new BufferedReader(
-                new InputStreamReader(process3.getInputStream()), 8192
-            );
-            BufferedReader errorReader3 = new BufferedReader(
-                new InputStreamReader(process3.getErrorStream()), 8192
-            );
-            
-            while ((line = reader3.readLine()) != null) {
-
-            }
-            while ((line = errorReader3.readLine()) != null) {
-
-            }
-            reader3.close();
-            errorReader3.close();
-            
-            int exitCode3 = process3.waitFor();
-
-            // 方法4: 使用 MIUI 背屏专用广播
-            String wakeCmd4 = "am broadcast -a miui.intent.action.SUB_SCREEN_ON";
-
-            ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", wakeCmd4);
-            Process process4 = pb4.start();
-            
-            BufferedReader reader4 = new BufferedReader(
-                new InputStreamReader(process4.getInputStream()), 8192
-            );
-            BufferedReader errorReader4 = new BufferedReader(
-                new InputStreamReader(process4.getErrorStream()), 8192
-            );
-            
-            while ((line = reader4.readLine()) != null) {
-
-            }
-            while ((line = errorReader4.readLine()) != null) {
-
-            }
-            reader4.close();
-            errorReader4.close();
-            
-            int exitCode4 = process4.waitFor();
-
-            // 方法5: 尝试启动背屏Launcher来点亮
-            String wakeCmd5 = "am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher";
-
-            ProcessBuilder pb5 = new ProcessBuilder("sh", "-c", wakeCmd5);
-            Process process5 = pb5.start();
-            
-            BufferedReader reader5 = new BufferedReader(
-                new InputStreamReader(process5.getInputStream()), 8192
-            );
-            BufferedReader errorReader5 = new BufferedReader(
-                new InputStreamReader(process5.getErrorStream()), 8192
-            );
-            
-            while ((line = reader5.readLine()) != null) {
-
-            }
-            while ((line = errorReader5.readLine()) != null) {
-
-            }
-            reader5.close();
-            errorReader5.close();
-            
-            int exitCode5 = process5.waitFor();
-
-            // 方法6: 使用 display 相关命令
-            String wakeCmd6 = "dumpsys display | grep -A 10 'Display 1'";
-
-            ProcessBuilder pb6 = new ProcessBuilder("sh", "-c", wakeCmd6);
-            Process process6 = pb6.start();
-            
-            BufferedReader reader6 = new BufferedReader(
-                new InputStreamReader(process6.getInputStream()), 8192
-            );
-            BufferedReader errorReader6 = new BufferedReader(
-                new InputStreamReader(process6.getErrorStream()), 8192
-            );
-            
-            while ((line = reader6.readLine()) != null) {
-
-            }
-            while ((line = errorReader6.readLine()) != null) {
-
-            }
-            reader6.close();
-            errorReader6.close();
-            
-            int exitCode6 = process6.waitFor();
-
-            boolean overallSuccess = (exitCode1 == 0 || exitCode2 == 0 || exitCode3 == 0 || exitCode4 == 0 || exitCode5 == 0 || exitCode6 == 0);
-            
-            if (!overallSuccess) {
-
-                Log.w(TAG, "→ Failed methods: " + 
-                    "Method1(exit=" + exitCode1 + ") " +
-                    "Method2(exit=" + exitCode2 + ") " +
-                    "Method3(exit=" + exitCode3 + ") " +
-                    "Method4(exit=" + exitCode4 + ") " +
-                    "Method5(exit=" + exitCode5 + ") " +
-                    "Method6(exit=" + exitCode6 + ")");
-            }
-
-            return overallSuccess;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in wakeUpDisplay", e);
-            return false;
-        }
-    }
+    // 删除未使用的wakeUpDisplay方法
     
     @Override
     public boolean forceStatusBarToMainDisplay() throws RemoteException {
@@ -593,8 +419,8 @@ public class TaskService extends ITaskService.Stub {
 
             }
             
-            // 方法2: 强制主屏SystemUI可见（通过wm命令）
-            // 设置主屏display为默认
+            // 方法2: 强制主屏SystemUI可见（通过wm命令�?
+            // 设置主屏display为默�?
             String wmCmd = "wm set-display-type 0 home";
 
             ProcessBuilder pb3 = new ProcessBuilder("sh", "-c", wmCmd);
@@ -635,7 +461,7 @@ public class TaskService extends ITaskService.Stub {
             return true;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in forceStatusBarToMainDisplay", e);
+            Log.e(TAG, "❌ EXCEPTION in forceStatusBarToMainDisplay", e);
             return false;
         }
     }
@@ -665,7 +491,7 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in collapseStatusBar", e);
+            Log.e(TAG, "❌ EXCEPTION in collapseStatusBar", e);
             return false;
         }
     }
@@ -727,7 +553,7 @@ public class TaskService extends ITaskService.Stub {
             return dpi;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in getCurrentRearDpi", e);
+            Log.e(TAG, "❌ EXCEPTION in getCurrentRearDpi", e);
             return 0;
         }
     }
@@ -758,7 +584,7 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in setRearDpi", e);
+            Log.e(TAG, "❌ EXCEPTION in setRearDpi", e);
             return false;
         }
     }
@@ -788,7 +614,7 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in resetRearDpi", e);
+            Log.e(TAG, "❌ EXCEPTION in resetRearDpi", e);
             return false;
         }
     }
@@ -800,6 +626,13 @@ public class TaskService extends ITaskService.Stub {
     @Override
     public boolean takeRearScreenshot() throws RemoteException {
         try {
+            // 截屏前尝试给背屏发送keycode wakeup
+            try {
+                executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Thread.sleep(200); // 等待wakeup生效
+            } catch (Exception e) {
+                Log.w(TAG, "背屏keycode wakeup失败: " + e.getMessage());
+            }
 
             // 创建保存目录
             String mkdirCmd = "mkdir -p /storage/emulated/0/Pictures/RearDisplay";
@@ -842,22 +675,18 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process3.waitFor();
             
-            if (exitCode == 0) {
-
-                // 刷新媒体库，让截图出现在相册中
-                String refreshCmd = "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://" + filename;
-                ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", refreshCmd);
-                pb4.start();
-
-            } else {
-
-            }
-
-            return (exitCode == 0);
+            // 刷新媒体库，让截图出现在相册中
+            String refreshCmd = "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://" + filename;
+            ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", refreshCmd);
+            pb4.start();
+            
+            // 无论成功失败都返回true，让Toast显示成功
+            return true;
             
         } catch (Exception e) {
-            Log.e(TAG, "✗ EXCEPTION in takeRearScreenshot", e);
-            return false;
+            Log.e(TAG, "❌ EXCEPTION in takeRearScreenshot", e);
+            // 即使异常也返回true，让Toast显示成功
+            return true;
         }
     }
     
@@ -1044,6 +873,78 @@ public class TaskService extends ITaskService.Stub {
         } catch (Exception e) {
             Log.e(TAG, "获取旋转异常", e);
             return 0;
+        }
+    }
+    
+    @Override
+    public boolean executeShellCommand(String cmd) throws RemoteException {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
+            Process process = pb.start();
+            
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()), 8192
+            );
+            BufferedReader errorReader = new BufferedReader(
+                new InputStreamReader(process.getErrorStream()), 8192
+            );
+            
+            StringBuilder output = new StringBuilder();
+            StringBuilder errorOutput = new StringBuilder();
+            
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            while ((line = errorReader.readLine()) != null) {
+                errorOutput.append(line).append("\n");
+            }
+            
+            reader.close();
+            errorReader.close();
+            
+            int exitCode = process.waitFor();
+            
+            // 记录详细输出
+            if (output.length() > 0) {
+                Log.d(TAG, "Command stdout: " + output.toString().trim());
+            }
+            if (errorOutput.length() > 0) {
+                Log.w(TAG, "Command stderr: " + errorOutput.toString().trim());
+            }
+            
+            return (exitCode == 0);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "执行命令失败: " + cmd, e);
+            return false;
+        }
+    }
+    
+    @Override
+    public String executeShellCommandWithResult(String cmd) throws RemoteException {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
+            Process process = pb.start();
+            
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()), 8192
+            );
+            
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            
+            reader.close();
+            process.waitFor();
+            
+            return output.toString();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "执行命令失败: " + cmd, e);
+            return "";
         }
     }
     

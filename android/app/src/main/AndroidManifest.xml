@@ -4,17 +4,20 @@
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <!-- 唤醒锁权限 -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- Overlay权限（用于保持背屏常亮Activity可见） -->
+    <!-- Overlay权限（用于保持背屏常亮Activity可见 + 录屏悬浮窗） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <!-- 录屏权限（Android 10+可能需要） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- 前台服务权限 (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- 前台服务类型：特殊用途 (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- 通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- 查询所有应用包权限 (Android 11+，用于获取应用名称) -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission"/>
+    <!-- 查询所有应用包权限 (Android 11+，用于通知功能选择应用) -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     
     <application
         android:label="MRSS"
@@ -64,6 +67,18 @@
             </intent-filter>
         </service>
         
+        <!-- V2.7: Quick Settings Tile - 背屏录屏 -->
+        <service
+            android:name=".RearScreenRecordTileService"
+            android:icon="@drawable/ic_tile_record"
+            android:label="@string/tile_record_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        
         <!-- 监听背屏状态和系统屏幕状态广播接收器 -->
         <receiver
             android:name=".RearScreenBroadcastReceiver"
@@ -87,6 +102,50 @@
                 android:value="背屏漫游服务"/>
         </service>
         
+        <!-- V2.3: 充电动画服务 -->
+        <service
+            android:name=".ChargingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="充电动画服务"/>
+        </service>
+        
+        <!-- V2.4: 通知监听服务 -->
+        <service
+            android:name=".NotificationService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="背屏通知服务"/>
+        </service>
+        
+        <!-- V2.6: URI命令处理服务（后台执行） -->
+        <service
+            android:name=".UriCommandService"
+            android:enabled="true"
+            android:exported="false"/>
+        
+        <!-- V2.7: 背屏录屏服务（前台Service+悬浮窗） -->
+        <service
+            android:name=".ScreenRecordService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="背屏录屏服务"/>
+        </service>
+
+        
         <!-- 背屏唤醒Activity（已废弃，改用Service） -->
         <activity
             android:name=".RearScreenWakeActivity"
@@ -108,7 +167,53 @@
             android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.wakeup">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
+        
+        <!-- V2.3: 背屏充电动画Activity -->
+        <activity
+            android:name=".RearScreenChargingActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.charging"
+            android:theme="@style/Theme.Transparent"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
+            android:directBootAware="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <meta-data android:name="miui.rear.policy" android:value="miui"/>
+        </activity>
+        
+        <!-- V2.4: 背屏通知显示Activity -->
+        <activity
+            android:name=".RearScreenNotificationActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.notification"
+            android:theme="@style/Theme.Transparent"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
+            android:directBootAware="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <meta-data android:name="miui.rear.policy" android:value="miui"/>
+        </activity>
             
+        <!-- V2.6: URI接收Activity（透明，立即转发） -->
+        <activity
+            android:name=".UriReceiverActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.uri">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="mrss"/>
+            </intent-filter>
+        </activity>
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -137,6 +242,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        
+        <!-- 卸载确认对话框的标题和内容 -->
+        <meta-data
+            android:name="app_description_title"
+            android:value="@string/uninstall_title" />
+        <meta-data
+            android:name="app_description_content"
+            android:value="@string/uninstall_content" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

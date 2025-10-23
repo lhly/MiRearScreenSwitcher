@@ -32,7 +32,7 @@ import android.view.WindowManager;
 public class RearScreenWakeupActivity extends Activity {
     private static final String TAG = "RearScreenWakeup";
     
-    // V2.1: 静态变量存储背屏旋转方向
+    // 静态变量存储背屏旋转方向
     private static int sRearDisplayRotation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     
     /**
@@ -64,7 +64,7 @@ public class RearScreenWakeupActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // V2.1: 应用旋转设置
+        // 应用旋转设置
         if (sRearDisplayRotation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             setRequestedOrientation(sRearDisplayRotation);
         }
