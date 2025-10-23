@@ -215,7 +215,7 @@ flutter build apk --release --split-per-abi --target-platform android-arm64
    - mrss://switch?packageName=xxx - 切换指定应用
    - mrss://return?current=1 - 返回主屏
    - mrss://screenshot - 截图
-   - mrss://config?dpi=xxx&rotation=x - 配置
+   - mrss://config?dpi=xxx&rotation=x - 配置，rotation传入的旋转应为0-3，与adb shell相同
 
 ### V3.0 新增特性
 
