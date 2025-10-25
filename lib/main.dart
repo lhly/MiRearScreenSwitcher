@@ -23,6 +23,12 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  // 设置错误处理，防止Dart编译器异常退出
+  FlutterError.onError = (FlutterErrorDetails details) {
+    print('Flutter错误: ${details.exception}');
+    print('堆栈跟踪: ${details.stack}');
+  };
+  
   // 设置沉浸式状态栏（透明状态栏）
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -32,6 +38,13 @@ void main() {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  
+  // 添加异常捕获
+  PlatformDispatcher.instance.onError = (error, stack) {
+    print('平台错误: $error');
+    print('堆栈跟踪: $stack');
+    return true;
+  };
   
   runApp(const DisplaySwitcherApp());
 }
@@ -322,13 +335,23 @@ class _HomePageState extends State<HomePage> {
   
   
   
-  // V2.1: 重启应用
+  // V2.1: 重启应用（实际是返回背屏应用到主屏）
   Future<void> _restartApp() async {
     if (_isLoading) return;
     
     setState(() => _isLoading = true);
     
     try {
+      // 检查Shizuku是否可用
+      if (!_shizukuRunning) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Shizuku未运行，无法操作')),
+          );
+        }
+        return;
+      }
+      
       // 确保TaskService连接
       await platform.invokeMethod('ensureTaskServiceConnected');
       await Future.delayed(const Duration(milliseconds: 500));
@@ -337,15 +360,32 @@ class _HomePageState extends State<HomePage> {
       final result = await platform.invokeMethod('returnRearAppAndRestart');
       
       if (result == true) {
-        // 成功返回主屏，退出应用
-        SystemNavigator.pop();
+        // 成功返回主屏
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('应用已返回主屏')),
+          );
+        }
       } else {
-        // 没有应用在背屏，直接退出
-        SystemNavigator.pop();
+        // 没有应用在背屏
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('背屏没有应用需要返回')),
+          );
+        }
       }
     } catch (e) {
-      // 出错也退出
-      SystemNavigator.pop();
+      print('返回背屏应用时出错: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('操作失败: $e')),
+        );
+      }
+    } finally {
+      // 重置加载状态
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
   
@@ -538,8 +578,8 @@ class _HomePageState extends State<HomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.restart_alt),
-            onPressed: _restartApp,
-            tooltip: '重启软件',
+            onPressed: _isLoading ? null : _restartApp,
+            tooltip: '返回背屏应用到主屏',
           ),
         ],
       ),

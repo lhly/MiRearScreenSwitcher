@@ -298,12 +298,37 @@ public class MainActivity extends FlutterActivity {
     protected void onDestroy() {
         super.onDestroy();
         
-        // 清除静态实例
-        currentInstance = null;
-        
-        Shizuku.removeBinderReceivedListener(binderReceivedListener);
-        Shizuku.removeBinderDeadListener(binderDeadListener);
-        Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener);
+        try {
+            // 先断开TaskService连接
+            if (taskService != null) {
+                try {
+                    Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
+                } catch (Exception e) {
+                    Log.w(TAG, "Error unbinding TaskService during destroy", e);
+                }
+                taskService = null;
+            }
+            
+            // 清除静态实例
+            currentInstance = null;
+            
+            // 移除Shizuku监听器
+            try {
+                Shizuku.removeBinderReceivedListener(binderReceivedListener);
+                Shizuku.removeBinderDeadListener(binderDeadListener);
+                Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener);
+            } catch (Exception e) {
+                Log.w(TAG, "Error removing Shizuku listeners", e);
+            }
+            
+            // 清理MethodChannel
+            if (methodChannel != null) {
+                methodChannel.setMethodCallHandler(null);
+                methodChannel = null;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error during onDestroy", e);
+        }
     }
     
     @Override
@@ -554,12 +579,26 @@ public class MainActivity extends FlutterActivity {
                     
                     case "returnRearAppAndRestart": {
                         // 重启前先拉回背屏应用
-                        if (taskService != null) {
-                            try {
-                                // 获取最后移动的任务信息
-                                String lastTask = SwitchToRearTileService.getLastMovedTask();
-                                
-                                if (lastTask != null && lastTask.contains(":")) {
+                        try {
+                            // 首先确保TaskService可用
+                            if (taskService == null) {
+                                Log.w(TAG, "TaskService not available, trying to reconnect...");
+                                bindTaskService();
+                                // 等待连接
+                                Thread.sleep(500);
+                            }
+                            
+                            if (taskService == null) {
+                                Log.w(TAG, "TaskService still not available, skipping app return");
+                                result.success(false);
+                                break;
+                            }
+                            
+                            // 获取最后移动的任务信息
+                            String lastTask = SwitchToRearTileService.getLastMovedTask();
+                            
+                            if (lastTask != null && lastTask.contains(":")) {
+                                try {
                                     String[] parts = lastTask.split(":");
                                     int taskId = Integer.parseInt(parts[1]);
                                     
@@ -578,16 +617,20 @@ public class MainActivity extends FlutterActivity {
                                         // 没有应用在背屏
                                         result.success(false);
                                     }
-                                } else {
-                                    // 没有记录
+                                } catch (NumberFormatException e) {
+                                    Log.e(TAG, "Invalid taskId format in lastTask: " + lastTask, e);
                                     result.success(false);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Failed to return rear app to main display", e);
+                                    result.success(false); // 返回false而不是error，避免崩溃
                                 }
-                            } catch (Exception e) {
-                                Log.e(TAG, "Failed to return rear app", e);
-                                result.error("ERROR", e.getMessage(), null);
+                            } else {
+                                // 没有记录
+                                result.success(false);
                             }
-                        } else {
-                            result.error("ERROR", "TaskService not available", null);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Unexpected error in returnRearAppAndRestart", e);
+                            result.success(false); // 返回false而不是error，避免崩溃
                         }
                         break;
                     }
