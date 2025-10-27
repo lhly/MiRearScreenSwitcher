@@ -1053,7 +1053,6 @@ public class MainActivity extends FlutterActivity {
                 java.util.Map<String, Object> app = new java.util.HashMap<>();
                 app.put("appName", pm.getApplicationLabel(appInfo).toString());
                 app.put("packageName", appInfo.packageName);
-                app.put("isSystemApp", isSystemApp);  // V3.3: 添加系统应用标志
                 
                 // 添加系统应用标识，供Flutter端过滤使用
                 boolean isSystemApp = (appInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0;
