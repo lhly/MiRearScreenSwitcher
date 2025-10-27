@@ -1,0 +1,82 @@
+name: Build APK and Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - '**.metadata'
+      - '.vscode/**'
+      - '.VSCodeCounter/**'
+      - '.gitignore'
+    branches:
+      - '*'
+    tags:
+      - '*'
+
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "17.x"
+          cache: "gradle"
+
+      - name: Setup flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
+
+      - name: Prepare keystore for signing
+        shell: bash
+        run: |
+          echo "storeFile=keystore.jks" >> android/key.properties
+          echo "keyAlias=${KEY_ALIAS}" >> android/key.properties
+          echo "storePassword=${KEYSTORE_PASSWORD}" >> android/key.properties
+          echo "keyPassword=${KEY_PASSWORD}" >> android/key.properties
+          if [ -n "${KEYSTORE_FILE}" ]; then
+            echo "${KEYSTORE_FILE}" | base64 --decode > android/app/keystore.jks || \
+              (echo "Keystore file error, use debug signature.";rm -f android/key.properties)
+          else
+            echo "No keystore file provided, use debug signature."
+            rm -f android/key.properties
+          fi
+        env:
+          # https://github.com/GoldenglowSusie/MiRearScreenSwitcher/settings/secrets/actions/new
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Build Release APK
+        shell: bash
+        run: |
+          flutter pub get
+          flutter build apk --release --split-per-abi --target-platform android-arm64
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk MRSS-${{ github.ref_name }}-release.apk
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v5
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+
+      - name: Release to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: "${{ github.ref_name }}"
+          # https://github.com/settings/personal-access-tokens/new
+          token: ${{ secrets.PAT }}
+          files: |
+            MRSS-${{ github.ref_name }}-release.apk
