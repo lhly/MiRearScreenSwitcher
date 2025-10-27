@@ -39,7 +39,14 @@ public class RearScreenChargingActivity extends Activity {
     private static volatile RearScreenChargingActivity currentInstance = null;
     private static volatile long currentInstanceCreateTime = 0;
     
-    // 广播接收器：接收立即结束的命令
+    // 静态电量更新方法，供ChargingService直接调用
+    public static void updateBatteryLevelStatic(int newLevel) {
+        if (currentInstance != null) {
+            currentInstance.updateBatteryLevel(newLevel);
+        }
+    }
+    
+    // 广播接收器：接收立即结束的命令和电量更新
     private android.content.BroadcastReceiver finishReceiver = new android.content.BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
@@ -51,6 +58,13 @@ public class RearScreenChargingActivity extends Activity {
                 Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
                 // 标记为被打断，onDestroy不恢复Launcher
                 finish();
+            } else if ("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY".equals(action)) {
+                // V3.5: 接收电量更新
+                int newLevel = intent.getIntExtra("batteryLevel", -1);
+                Log.d(TAG, "📡 收到电量更新广播: " + newLevel + "%");
+                if (newLevel >= 0) {
+                    updateBatteryLevel(newLevel);
+                }
             }
         }
     };
@@ -88,19 +102,24 @@ public class RearScreenChargingActivity extends Activity {
         // --- 以下代码只在背屏(displayId == 1)执行 ---
         Log.d(TAG, String.format("[%tT.%tL] 🎯 在背屏执行，开始设置内容", onCreateStartTime, onCreateStartTime));
         
-        // 在背屏时点亮屏幕并保持常亮
+        // V3.3: 保持常亮 + 锁屏显示
         getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         );
         
-        // 适配新API（Android 8.1+）
+        // 适配新API：锁屏时显示
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
-            setTurnScreenOn(true);
         }
+        
+        // V3.5: 优化渲染性能（解决DequeueBuffer超时）
+        getWindow().setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        );
+        
+        // V3.16: 移除120Hz重新设置，系统自动管理刷新率
         
         // ⚠️ 关键：在 setContentView 之前强制使用背屏DPI！
         forceRearScreenDensityBeforeInflate();
@@ -111,54 +130,73 @@ public class RearScreenChargingActivity extends Activity {
         Log.d(TAG, String.format("[%tT.%tL] 🟠 setContentView完成", 
             afterSetContentViewTime, afterSetContentViewTime));
         
-        // 获取背屏信息并应用安全区域适配
-        applySafeAreaPadding();
         
         long afterGetIntentTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ⚡ Intent数据: Battery=%d%%, rearTaskId=%d", 
             afterGetIntentTime, afterGetIntentTime, level, rearTaskId));
         
-        // 获取视图
-        LightningShapeView lightningLiquid = findViewById(R.id.lightning_liquid);
+        // V3.5: 获取全屏液体视图
+        LightningShapeView fullScreenLiquid = findViewById(R.id.full_screen_liquid);
         TextView batteryText = findViewById(R.id.battery_text);
-        View batteryPercentageContainer = findViewById(R.id.battery_percentage_container);
         View chargingContainer = findViewById(R.id.charging_container);
         
+        // 设置全屏液体模式
+        fullScreenLiquid.setFullScreenMode(true);
+        
+        // 应用安全区域margin到电量数字
+        applySafeAreaToText(batteryText);
+        
         // 设置电量文字
-        batteryText.setText(String.valueOf(level));
+        batteryText.setText(level + "%");
         
-        // 启动闪电液体填充动画（非线性，从0到电量百分比）
-        startLightningLiquidAnimation(lightningLiquid, level);
+        // 启动全屏液体填充动画（非线性，从0到电量百分比）
+        startFullScreenLiquidAnimation(fullScreenLiquid, level);
         
-        // 启动电量数值淡入动画
-        startPercentageAnimation(batteryPercentageContainer);
+        // 启动电量数字淡入动画
+        startCenterTextAnimation(batteryText);
         
         long animationStartTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🎬 动画已启动，5秒后自动关闭", 
-            animationStartTime, animationStartTime));
         
-        // 5秒后自动关闭
-        chargingContainer.postDelayed(this::finish, 8000);
+        // V3.5: 检查充电常亮开关
+        boolean chargingAlwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
+            .getBoolean("charging_always_on_enabled", false);
+        
+        if (chargingAlwaysOn) {
+            Log.d(TAG, String.format("[%tT.%tL] 🎬 动画已启动，充电常亮模式，不自动关闭", 
+                animationStartTime, animationStartTime));
+        } else {
+            Log.d(TAG, String.format("[%tT.%tL] 🎬 动画已启动，8秒后自动关闭", 
+                animationStartTime, animationStartTime));
+            // 8秒后自动关闭
+            chargingContainer.postDelayed(this::finish, 8000);
+        }
         autoFinishScheduled = true;
         
         long onCreateEndTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ✅ onCreate完成 (总耗时%dms)", 
             onCreateEndTime, onCreateEndTime, onCreateEndTime - onCreateStartTime));
         
-        // 注册广播接收器（监听拔电和打断事件）
+        // 注册广播接收器（监听拔电、打断和电量更新事件）
         android.content.IntentFilter finishFilter = new android.content.IntentFilter();
         finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION");
         finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION");
+        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY");  // V3.5: 监听电量更新
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(finishReceiver, finishFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(finishReceiver, finishFilter);
         }
+        
+        // 注册LocalBroadcastManager接收器（监听电量更新）
+        // androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(finishReceiver, finishFilter);
         Log.d(TAG, String.format("[%tT.%tL] ✅ 已注册充电动画广播接收器", onCreateEndTime, onCreateEndTime));
+        Log.d(TAG, "📡 广播接收器已注册，监听: FINISH_CHARGING_ANIMATION, INTERRUPT_CHARGING_ANIMATION, UPDATE_CHARGING_BATTERY");
         
         // 设置为当前实例
         currentInstance = this;
         currentInstanceCreateTime = onCreateEndTime;
+        
+        // 测试代码已移除
     }
     
     @Override
@@ -167,24 +205,31 @@ public class RearScreenChargingActivity extends Activity {
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
         
-        // 再次确保Window flags（防止被清除）
+        // V3.3: 再次确保Window flags（保持常亮 + 锁屏显示）
+        getWindow().addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+        );
+        
+        // 确保锁屏显示设置持续生效
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
-            setTurnScreenOn(true);
         }
-        getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-        );
 
         // 补偿：若因主屏占位未安排自动销毁，则在背屏resume时安排
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             int displayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
             if (displayId == 1 && !autoFinishScheduled) {
-                Log.d(TAG, "⏱️ 未安排自动销毁，补偿安排5秒后finish");
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::finish, 5000);
+                // V3.5: 检查充电常亮开关
+                boolean chargingAlwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
+                    .getBoolean("charging_always_on_enabled", false);
+                
+                if (!chargingAlwaysOn) {
+                    Log.d(TAG, "⏱️ 未安排自动销毁，补偿安排5秒后finish");
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::finish, 5000);
+                } else {
+                    Log.d(TAG, "💡 充电常亮模式，不自动销毁");
+                }
                 autoFinishScheduled = true;
             }
         }
@@ -202,6 +247,14 @@ public class RearScreenChargingActivity extends Activity {
         } catch (Exception e) {
             Log.w(TAG, "Failed to unregister finish receiver: " + e.getMessage());
         }
+        
+        // 注销LocalBroadcastManager接收器
+        // try {
+        //     androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(finishReceiver);
+        //     Log.d(TAG, String.format("[%tT.%tL] ✅ 已注销LocalBroadcastManager接收器", destroyTime, destroyTime));
+        // } catch (Exception e) {
+        //     Log.w(TAG, "Failed to unregister LocalBroadcastManager receiver: " + e.getMessage());
+        // }
         
         super.onDestroy();
         
@@ -430,97 +483,99 @@ public class RearScreenChargingActivity extends Activity {
     }
     
     /**
-     * 闪电液体填充动画（非线性，从0到目标电量）
+     * V3.5: 全屏液体填充动画（非线性，从0到目标电量）
      */
-    private void startLightningLiquidAnimation(LightningShapeView lightningView, int targetLevel) {
+    private void startFullScreenLiquidAnimation(LightningShapeView liquidView, int targetLevel) {
         // 目标填充比例
         float targetFillLevel = targetLevel / 100f;
         
         // 创建非线性填充动画（DecelerateInterpolator - 减速效果）
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, targetFillLevel);
-        animator.setDuration(1800); // 1.8秒填充动画
+        animator.setDuration(2000); // 2秒填充动画
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator(2.5f));
         
         animator.addUpdateListener(animation -> {
             float animatedValue = (float) animation.getAnimatedValue();
-            lightningView.setFillLevel(animatedValue);
+            liquidView.setFillLevel(animatedValue);
         });
         
-        // 添加轻微的缩放动画（呼吸效果）
-        lightningView.setScaleX(0.95f);
-        lightningView.setScaleY(0.95f);
-        lightningView.animate()
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(800)
-            .setInterpolator(new android.view.animation.OvershootInterpolator(1.2f))
-            .start();
-        
         animator.start();
-        Log.d(TAG, String.format("⚡ 闪电液体填充动画已启动: 0%% → %d%%", targetLevel));
+        Log.d(TAG, String.format("🌊 全屏液体填充动画已启动: 0%% → %d%%", targetLevel));
     }
     
     /**
-     * 电量数值淡入动画（从右上角淡入+放大）
+     * V3.5: 中央电量数字淡入动画
      */
-    private void startPercentageAnimation(View container) {
-        container.setAlpha(0f);
-        container.setScaleX(0.6f);
-        container.setScaleY(0.6f);
-        container.setTranslationY(-30f); // 从上方稍微滑入
+    private void startCenterTextAnimation(TextView textView) {
+        textView.setAlpha(0f);
+        textView.setScaleX(0.8f);
+        textView.setScaleY(0.8f);
         
-        container.animate()
+        textView.animate()
             .alpha(1f)
             .scaleX(1f)
             .scaleY(1f)
-            .translationY(0f)
-            .setDuration(700)
-            .setStartDelay(500) // 液体开始填充时显示
+            .setDuration(800)
+            .setStartDelay(600) // 液体填充开始后显示
             .setInterpolator(new android.view.animation.DecelerateInterpolator(2.0f))
             .start();
     }
     
     /**
-     * 应用安全区域适配（避开Cutout）
-     * 照抄通知动画的实现
+     * V3.5: 更新电量显示（充电常亮模式下实时更新）
      */
-    private void applySafeAreaPadding() {
+    private void updateBatteryLevel(int newLevel) {
+        try {
+            Log.d(TAG, "🔋 开始更新电量: " + newLevel + "%");
+            LightningShapeView liquidView = findViewById(R.id.full_screen_liquid);
+            TextView batteryText = findViewById(R.id.battery_text);
+            
+            if (liquidView != null && batteryText != null) {
+                // 平滑更新液体填充
+                liquidView.setFillLevel(newLevel / 100f);
+                // 更新数字
+                batteryText.setText(newLevel + "%");
+                Log.d(TAG, "🔋 电量已更新: " + newLevel + "%");
+            } else {
+                Log.w(TAG, "⚠️ 视图未找到，无法更新电量 - liquidView=" + (liquidView != null) + ", batteryText=" + (batteryText != null));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "更新电量失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * V3.5: 应用安全区域到电量数字（确保数字显示在安全区域中央）
+     */
+    private void applySafeAreaToText(TextView textView) {
         try {
             // 从缓存获取背屏信息
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
             
-            // 如果没有cutout，不需要额外处理
-            if (!info.hasCutout()) {
-                Log.d(TAG, "ℹ️ 背屏无Cutout，无需调整布局");
+            if (info == null) {
+                Log.w(TAG, "⚠️ 背屏信息缓存为空");
                 return;
             }
             
-            // 获取内容布局的根容器（RelativeLayout with id=charging_container）
-            android.view.View contentLayout = findViewById(R.id.charging_container);
-            if (contentLayout != null && contentLayout.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
-                android.view.ViewGroup.MarginLayoutParams params = 
-                    (android.view.ViewGroup.MarginLayoutParams) contentLayout.getLayoutParams();
+            if (!info.hasCutout()) {
+                Log.d(TAG, "ℹ️ 背屏无Cutout，数字自动居中");
+                return;
+            }
+            
+            // 设置margin让数字居中在安全区域
+            if (textView.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
+                android.widget.FrameLayout.LayoutParams params = 
+                    (android.widget.FrameLayout.LayoutParams) textView.getLayoutParams();
                 
-                // 检查是否已经设置过margin（避免重复设置）
-                if (params.leftMargin == info.cutout.left && 
-                    params.topMargin == info.cutout.top && 
-                    params.rightMargin == info.cutout.right && 
-                    params.bottomMargin == info.cutout.bottom) {
-                    Log.d(TAG, "ℹ️ 安全区域margin已设置，跳过");
-                    return;
-                }
-                
-                // 设置margin（避开cutout区域），背景渐变色会填充cutout区域
                 params.leftMargin = info.cutout.left;
                 params.topMargin = info.cutout.top;
                 params.rightMargin = info.cutout.right;
                 params.bottomMargin = info.cutout.bottom;
-                contentLayout.setLayoutParams(params);
+                textView.setLayoutParams(params);
                 
-                Log.d(TAG, String.format("✅ 已应用安全区域margin: left=%d, top=%d, right=%d, bottom=%d",
+                Log.d(TAG, String.format("✅ 电量数字已应用安全区域: left=%d, top=%d, right=%d, bottom=%d",
                     info.cutout.left, info.cutout.top, info.cutout.right, info.cutout.bottom));
             }
-            
         } catch (Exception e) {
             Log.e(TAG, "❌ 应用安全区域失败", e);
         }

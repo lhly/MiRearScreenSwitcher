@@ -36,6 +36,9 @@ public class RearAnimationManager {
     // 当前动画是否应该恢复官方Launcher（被新动画打断则不恢复）
     private static volatile boolean shouldRestoreOnDestroy = true;
     
+    // V3.5: 被打断的充电动画是否是常亮模式
+    private static volatile boolean interruptedChargingWasAlwaysOn = false;
+    
     /**
      * 开始播放动画
      * @param type 动画类型
@@ -62,6 +65,28 @@ public class RearAnimationManager {
         shouldRestoreOnDestroy = true;  // 新动画默认需要恢复
         
         return oldAnimation;  // 返回被打断的旧动画
+    }
+    
+    /**
+     * V3.5: 标记被打断的充电动画是常亮模式
+     */
+    public static synchronized void markInterruptedChargingAsAlwaysOn(boolean alwaysOn) {
+        interruptedChargingWasAlwaysOn = alwaysOn;
+        Log.d(TAG, "🔖 被打断的充电动画常亮标记: " + alwaysOn);
+    }
+    
+    /**
+     * V3.5: 检查被打断的充电动画是否需要恢复
+     */
+    public static synchronized boolean shouldResumeChargingAnimation() {
+        return interruptedChargingWasAlwaysOn;
+    }
+    
+    /**
+     * V3.5: 清除充电动画常亮标记
+     */
+    public static synchronized void clearChargingAlwaysOnFlag() {
+        interruptedChargingWasAlwaysOn = false;
     }
     
     /**

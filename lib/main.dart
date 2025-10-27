@@ -16,7 +16,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-// 删除未使用的dart:io导入
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -85,6 +84,12 @@ class _HomePageState extends State<HomePage> {
   
   // V2.5: 背屏常亮开关
   bool _keepScreenOnEnabled = true;  // 默认打开
+  
+  // V3.5: 未投放应用时常亮开关（与背屏常亮互斥）
+  bool _alwaysWakeUpEnabled = false;  // 默认关闭
+  
+  // V3.5: 充电动画常亮开关
+  bool _chargingAlwaysOnEnabled = false;  // 默认关闭
   
   // V2.4: 通知功能
   bool _notificationEnabled = false;  // 默认关闭（需要授权）
@@ -356,8 +361,11 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _proximitySensorEnabled = prefs.getBool('proximity_sensor_enabled') ?? true;
         _chargingAnimationEnabled = prefs.getBool('charging_animation_enabled') ?? true;
+        _chargingAlwaysOnEnabled = prefs.getBool('charging_always_on_enabled') ?? false;  // V3.5: 加载充电动画常亮开关状态
         _keepScreenOnEnabled = prefs.getBool('keep_screen_on_enabled') ?? true;
+        _alwaysWakeUpEnabled = prefs.getBool('always_wakeup_enabled') ?? false;  // V3.5: 加载未投放应用时常亮开关状态
         _notificationDarkMode = prefs.getBool('notification_dark_mode') ?? false;
+        _notificationEnabled = prefs.getBool('notification_service_enabled') ?? false;  // V2.4: 加载背屏通知开关状态
       });
       
       // 启动充电服务（如果开关打开）
@@ -365,8 +373,13 @@ class _HomePageState extends State<HomePage> {
         _startChargingService();
       }
       
-      // 检查通知监听权限
+      // 检查通知监听权限（但不覆盖开关状态）
       _checkNotificationPermission();
+      
+      // V2.4: 如果通知开关开启，启动NotificationService
+      if (_notificationEnabled) {
+        _startNotificationService();
+      }
     } catch (e) {
       print('加载设置失败: $e');
     }
@@ -389,11 +402,21 @@ class _HomePageState extends State<HomePage> {
   Future<void> _checkNotificationPermission() async {
     try {
       final bool hasPermission = await platform.invokeMethod('checkNotificationListenerPermission');
-      setState(() {
-        _notificationEnabled = hasPermission;
-      });
+      // 只更新权限状态，不覆盖开关状态
+      // _notificationEnabled 现在由 SharedPreferences 中的开关状态控制
+      print('通知监听权限状态: $hasPermission');
     } catch (e) {
       print('检查通知权限失败: $e');
+    }
+  }
+  
+  // V2.4: 启动通知服务
+  Future<void> _startNotificationService() async {
+    try {
+      await platform.invokeMethod('startNotificationService');
+      print('NotificationService已启动');
+    } catch (e) {
+      print('启动NotificationService失败: $e');
     }
   }
   
@@ -409,10 +432,30 @@ class _HomePageState extends State<HomePage> {
       }
     }
     
-    await platform.invokeMethod('toggleNotificationService', {'enabled': enabled});
-    setState(() {
-      _notificationEnabled = enabled;
-    });
+    try {
+      // 先保存到SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_service_enabled', enabled);
+      
+      // 通知Service更新状态
+      await platform.invokeMethod('toggleNotificationService', {'enabled': enabled});
+      
+      // 如果开启，启动NotificationService
+      if (enabled) {
+        await _startNotificationService();
+      }
+      
+      setState(() {
+        _notificationEnabled = enabled;
+      });
+      print('背屏通知服务已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换背屏通知服务失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _notificationEnabled = !enabled;
+      });
+    }
   }
   
   
@@ -423,6 +466,7 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(builder: (context) => const AppSelectionPage()),
     );
   }
+  
   
   // V2.2: 切换接近传感器开关
   Future<void> _toggleProximitySensor(bool enabled) async {
@@ -485,11 +529,18 @@ class _HomePageState extends State<HomePage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('keep_screen_on_enabled', enabled);
       
+      // V3.5: 如果开启，则关闭未投放应用时常亮
+      if (enabled && _alwaysWakeUpEnabled) {
+        await prefs.setBool('always_wakeup_enabled', false);
+        await platform.invokeMethod('setAlwaysWakeUpEnabled', {'enabled': false});
+      }
+      
       // 通过Intent通知RearScreenKeeperService
       await platform.invokeMethod('setKeepScreenOnEnabled', {'enabled': enabled});
       
       setState(() {
         _keepScreenOnEnabled = enabled;
+        if (enabled) _alwaysWakeUpEnabled = false;  // V3.5: 互斥关闭
       });
       print('背屏常亮已${enabled ? "启用" : "禁用"}');
     } catch (e) {
@@ -497,6 +548,57 @@ class _HomePageState extends State<HomePage> {
       // 切换失败，恢复原状态
       setState(() {
         _keepScreenOnEnabled = !enabled;
+      });
+    }
+  }
+  
+  // V3.5: 切换未投放应用时常亮开关
+  Future<void> _toggleAlwaysWakeUp(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('always_wakeup_enabled', enabled);
+      
+      // V3.5: 如果开启，则关闭背屏常亮
+      if (enabled && _keepScreenOnEnabled) {
+        await prefs.setBool('keep_screen_on_enabled', false);
+        await platform.invokeMethod('setKeepScreenOnEnabled', {'enabled': false});
+      }
+      
+      // 通过Intent通知AlwaysWakeUpService
+      await platform.invokeMethod('setAlwaysWakeUpEnabled', {'enabled': enabled});
+      
+      setState(() {
+        _alwaysWakeUpEnabled = enabled;
+        if (enabled) _keepScreenOnEnabled = false;  // V3.5: 互斥关闭
+      });
+      print('未投放应用时常亮已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换未投放应用时常亮失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _alwaysWakeUpEnabled = !enabled;
+      });
+    }
+  }
+  
+  // V3.5: 切换充电动画常亮开关
+  Future<void> _toggleChargingAlwaysOn(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('charging_always_on_enabled', enabled);
+      
+      // 通过Intent通知ChargingAlwaysOnService
+      await platform.invokeMethod('setChargingAlwaysOnEnabled', {'enabled': enabled});
+      
+      setState(() {
+        _chargingAlwaysOnEnabled = enabled;
+      });
+      print('充电动画常亮已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换充电动画常亮失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _chargingAlwaysOnEnabled = !enabled;
       });
     }
   }
@@ -870,17 +972,61 @@ class _HomePageState extends State<HomePage> {
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.25),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '🔆 背屏常亮',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                            // 背屏常亮开关
+                            Row(
+                              children: [
+                                const Text(
+                                  '🔆 背屏常亮',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _keepScreenOnEnabled,
+                                  onChanged: _toggleKeepScreenOn,
+                                ),
+                              ],
                             ),
-                            const Spacer(),
-                            _GradientToggle(
-                              value: _keepScreenOnEnabled,
-                              onChanged: _toggleKeepScreenOn,
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.black26, height: 1),
+                            const SizedBox(height: 12),
+                            // 未投放应用时常亮开关
+                            Row(
+                              children: [
+                                const Text(
+                                  '💡 未投放应用时常亮',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _alwaysWakeUpEnabled,
+                                  onChanged: _toggleAlwaysWakeUp,
+                                ),
+                              ],
                             ),
+                            if (_alwaysWakeUpEnabled) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(_SquircleRadii.small),
+                                  border: Border.all(color: Colors.orange.withOpacity(0.4), width: 1),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '警告：可能导致烧屏和额外耗电',
+                                        style: TextStyle(fontSize: 12, color: Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -906,17 +1052,61 @@ class _HomePageState extends State<HomePage> {
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.25),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '⚡ 充电动画',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                            // 充电动画开关
+                            Row(
+                              children: [
+                                const Text(
+                                  '⚡ 充电动画',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _chargingAnimationEnabled,
+                                  onChanged: _toggleChargingAnimation,
+                                ),
+                              ],
                             ),
-                            const Spacer(),
-                            _GradientToggle(
-                              value: _chargingAnimationEnabled,
-                              onChanged: _toggleChargingAnimation,
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.black26, height: 1),
+                            const SizedBox(height: 12),
+                            // 充电动画常亮开关
+                            Row(
+                              children: [
+                                const Text(
+                                  '💡 充电动画常亮',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _chargingAlwaysOnEnabled,
+                                  onChanged: _toggleChargingAlwaysOn,
+                                ),
+                              ],
                             ),
+                            if (_chargingAlwaysOnEnabled) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(_SquircleRadii.small),
+                                  border: Border.all(color: Colors.orange.withOpacity(0.4), width: 1),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '警告：可能导致烧屏和额外耗电',
+                                        style: TextStyle(fontSize: 12, color: Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -1122,7 +1312,7 @@ class _HomePageState extends State<HomePage> {
                   
                 const SizedBox(height: 16),
                 
-                // 测试人员信息 - 可点击跳转到酷安
+                // 团队信息 - 可点击跳转到酷安
                 CustomPaint(
                   painter: _SquircleBorderPainter(
                     radius: _SquircleRadii.large,
@@ -1963,7 +2153,6 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
   bool _onlyWhenLocked = false; // 仅在锁屏时通知（默认关闭）
   bool _notificationDarkMode = false; // 通知暗夜模式（默认关闭）
   bool _includeSystemApps = false; // 是否显示系统应用
-  bool _settingsExpanded = true; // 设置区域是否展开（默认展开）
   final TextEditingController _searchController = TextEditingController();
   
   @override
@@ -2289,6 +2478,18 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotificationSettingsPage()),
+              );
+            },
+            tooltip: '通知设置',
+          ),
+        ],
       ),
       extendBodyBehindAppBar: true,
       body: Container(
@@ -2313,231 +2514,6 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      // 设置区域标题栏（带展开/收起箭头）
-                      CustomPaint(
-                        painter: _SquircleBorderPainter(
-                          radius: 32,
-                          color: Colors.white.withOpacity(0.5),
-                          strokeWidth: 1.5,
-                        ),
-                        child: ClipPath(
-                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _settingsExpanded = !_settingsExpanded;
-                                  });
-                                },
-                                splashColor: Colors.white.withOpacity(0.3),
-                                highlightColor: Colors.white.withOpacity(0.2),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.25),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.settings, size: 20, color: Colors.black54),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        '通知设置',
-                                        style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
-                                      ),
-                                      const Spacer(),
-                                      AnimatedRotation(
-                                        turns: _settingsExpanded ? 0.25 : 0,
-                                        duration: const Duration(milliseconds: 300),
-                                        curve: Curves.easeInOut,
-                                        child: const Icon(Icons.keyboard_arrow_right, size: 24, color: Colors.black54),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      // 可展开/收起的设置卡片区域
-                      ClipRect(
-                        child: AnimatedAlign(
-                          duration: const Duration(milliseconds: 400),
-                          curve: Curves.easeInOutCubic,
-                          alignment: _settingsExpanded ? Alignment.topCenter : Alignment.bottomCenter,
-                          heightFactor: _settingsExpanded ? 1.0 : 0.0,
-                          child: AnimatedOpacity(
-                            duration: const Duration(milliseconds: 300),
-                            opacity: _settingsExpanded ? 1.0 : 0.0,
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 20),
-                            
-                            // 隐私模式卡片
-                            CustomPaint(
-                              painter: _SquircleBorderPainter(
-                                radius: 32,
-                                color: Colors.white.withOpacity(0.5),
-                                strokeWidth: 1.5,
-                              ),
-                              child: ClipPath(
-                                clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
-                                child: BackdropFilter(
-                                  filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.25),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.lock_outline, size: 20, color: Colors.black54),
-                                        const SizedBox(width: 8),
-                                        const Text(
-                                          '隐私模式',
-                                          style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        const Text(
-                                          '(隐藏通知内容)',
-                                          style: TextStyle(fontSize: 12, color: Colors.black45),
-                                        ),
-                                        const Spacer(),
-                                        _GradientToggle(
-                                          value: _privacyMode,
-                                          onChanged: _togglePrivacyMode,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                      
-                      // 跟随系统勿扰模式卡片
-                      CustomPaint(
-                        painter: _SquircleBorderPainter(
-                          radius: 32,
-                          color: Colors.white.withOpacity(0.5),
-                          strokeWidth: 1.5,
-                        ),
-                        child: ClipPath(
-                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.do_not_disturb_on_outlined, size: 20, color: Colors.black54),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    '跟随系统勿扰模式',
-                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
-                                  ),
-                                  const Spacer(),
-                                  _GradientToggle(
-                                    value: _followDndMode,
-                                    onChanged: _toggleFollowDndMode,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      
-                      // 仅在锁屏时通知卡片
-                      CustomPaint(
-                        painter: _SquircleBorderPainter(
-                          radius: 32,
-                          color: Colors.white.withOpacity(0.5),
-                          strokeWidth: 1.5,
-                        ),
-                        child: ClipPath(
-                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.lock_clock, size: 20, color: Colors.black54),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    '仅在锁屏时通知',
-                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
-                                  ),
-                                  const Spacer(),
-                                  _GradientToggle(
-                                    value: _onlyWhenLocked,
-                                    onChanged: _toggleOnlyWhenLocked,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 20),
-                      
-                      // 通知暗夜模式卡片
-                      CustomPaint(
-                        painter: _SquircleBorderPainter(
-                          radius: 32,
-                          color: Colors.white.withOpacity(0.5),
-                          strokeWidth: 1.5,
-                        ),
-                        child: ClipPath(
-                          clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.dark_mode, size: 20, color: Colors.black54),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    '通知暗夜模式',
-                                    style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
-                                  ),
-                                  const Spacer(),
-                                  _GradientToggle(
-                                    value: _notificationDarkMode,
-                                    onChanged: _toggleNotificationDarkMode,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 20),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 20),
                       
                       // 筛选与批量操作卡片
                       CustomPaint(
@@ -2686,6 +2662,456 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
                     ],
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// V3.4: 通知设置页面
+class NotificationSettingsPage extends StatefulWidget {
+  const NotificationSettingsPage({Key? key}) : super(key: key);
+  
+  @override
+  State<NotificationSettingsPage> createState() => _NotificationSettingsPageState();
+}
+
+class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
+  static const platform = MethodChannel('com.display.switcher/task');
+  
+  bool _privacyHideTitle = false;
+  bool _privacyHideContent = false;
+  bool _followDndMode = true;
+  bool _onlyWhenLocked = false;
+  bool _notificationDarkMode = false;
+  int _notificationDuration = 10;
+  final TextEditingController _durationController = TextEditingController();
+  final FocusNode _durationFocusNode = FocusNode();
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadAllSettings();
+  }
+  
+  @override
+  void dispose() {
+    _durationController.dispose();
+    _durationFocusNode.dispose();
+    super.dispose();
+  }
+  
+  Future<void> _loadAllSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _privacyHideTitle = prefs.getBool('notification_privacy_hide_title') ?? false;
+        _privacyHideContent = prefs.getBool('notification_privacy_hide_content') ?? false;
+        _followDndMode = prefs.getBool('notification_follow_dnd_mode') ?? true;
+        _onlyWhenLocked = prefs.getBool('notification_only_when_locked') ?? false;
+        _notificationDarkMode = prefs.getBool('notification_dark_mode') ?? false;
+        _notificationDuration = prefs.getInt('notification_duration') ?? 10;
+        _durationController.text = _notificationDuration.toString();
+      });
+    } catch (e) {
+      print('加载通知设置失败: $e');
+    }
+  }
+  
+  Future<void> _togglePrivacyHideTitle(bool enabled) async {
+    try {
+      await platform.invokeMethod('setNotificationPrivacyHideTitle', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_privacy_hide_title', enabled);
+      setState(() {
+        _privacyHideTitle = enabled;
+      });
+    } catch (e) {
+      print('切换隐藏标题失败: $e');
+    }
+  }
+  
+  Future<void> _togglePrivacyHideContent(bool enabled) async {
+    try {
+      await platform.invokeMethod('setNotificationPrivacyHideContent', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_privacy_hide_content', enabled);
+      setState(() {
+        _privacyHideContent = enabled;
+      });
+    } catch (e) {
+      print('切换隐藏内容失败: $e');
+    }
+  }
+  
+  Future<void> _toggleFollowDndMode(bool enabled) async {
+    try {
+      await platform.invokeMethod('setFollowDndMode', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_follow_dnd_mode', enabled);
+      setState(() {
+        _followDndMode = enabled;
+      });
+    } catch (e) {
+      print('切换勿扰模式设置失败: $e');
+    }
+  }
+  
+  Future<void> _toggleOnlyWhenLocked(bool enabled) async {
+    try {
+      await platform.invokeMethod('setOnlyWhenLocked', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_only_when_locked', enabled);
+      setState(() {
+        _onlyWhenLocked = enabled;
+      });
+    } catch (e) {
+      print('切换锁屏通知设置失败: $e');
+    }
+  }
+  
+  Future<void> _toggleNotificationDarkMode(bool enabled) async {
+    try {
+      await platform.invokeMethod('setNotificationDarkMode', {'enabled': enabled});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notification_dark_mode', enabled);
+      setState(() {
+        _notificationDarkMode = enabled;
+      });
+    } catch (e) {
+      print('切换通知暗夜模式失败: $e');
+    }
+  }
+  
+  Future<void> _setNotificationDuration(int seconds) async {
+    try {
+      await platform.invokeMethod('setNotificationDuration', {'duration': seconds});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('notification_duration', seconds);
+      setState(() {
+        _notificationDuration = seconds;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已设置为 $seconds 秒')),
+        );
+      }
+    } catch (e) {
+      print('设置通知销毁时间失败: $e');
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('通知设置'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+      ),
+      extendBodyBehindAppBar: true,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFFF9D88),
+              Color(0xFFFFB5C5),
+              Color(0xFFE0B5DC),
+              Color(0xFFA8C5E5),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              // 隐私模式卡片
+              CustomPaint(
+                painter: _SquircleBorderPainter(
+                  radius: 32,
+                  color: Colors.white.withOpacity(0.5),
+                  strokeWidth: 1.5,
+                ),
+                child: ClipPath(
+                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.lock_outline, size: 20, color: Colors.black54),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '隐藏通知标题',
+                                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                              ),
+                              const Spacer(),
+                              _GradientToggle(
+                                value: _privacyHideTitle,
+                                onChanged: _togglePrivacyHideTitle,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Divider(color: Colors.black26, height: 1),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              const Icon(Icons.lock_outline, size: 20, color: Colors.black54),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '隐藏通知内容',
+                                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                              ),
+                              const Spacer(),
+                              _GradientToggle(
+                                value: _privacyHideContent,
+                                onChanged: _togglePrivacyHideContent,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // 跟随系统勿扰模式
+              CustomPaint(
+                painter: _SquircleBorderPainter(
+                  radius: 32,
+                  color: Colors.white.withOpacity(0.5),
+                  strokeWidth: 1.5,
+                ),
+                child: ClipPath(
+                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.notifications_paused, size: 20, color: Colors.black54),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '跟随系统勿扰模式',
+                            style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                          ),
+                          const Spacer(),
+                          _GradientToggle(
+                            value: _followDndMode,
+                            onChanged: _toggleFollowDndMode,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // 仅在锁屏时通知
+              CustomPaint(
+                painter: _SquircleBorderPainter(
+                  radius: 32,
+                  color: Colors.white.withOpacity(0.5),
+                  strokeWidth: 1.5,
+                ),
+                child: ClipPath(
+                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.screen_lock_portrait, size: 20, color: Colors.black54),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '仅在锁屏时通知',
+                            style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                          ),
+                          const Spacer(),
+                          _GradientToggle(
+                            value: _onlyWhenLocked,
+                            onChanged: _toggleOnlyWhenLocked,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // 通知暗夜模式
+              CustomPaint(
+                painter: _SquircleBorderPainter(
+                  radius: 32,
+                  color: Colors.white.withOpacity(0.5),
+                  strokeWidth: 1.5,
+                ),
+                child: ClipPath(
+                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.dark_mode, size: 20, color: Colors.black54),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '通知暗夜模式',
+                            style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                          ),
+                          const Spacer(),
+                          _GradientToggle(
+                            value: _notificationDarkMode,
+                            onChanged: _toggleNotificationDarkMode,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // 自动销毁时间
+              CustomPaint(
+                painter: _SquircleBorderPainter(
+                  radius: 32,
+                  color: Colors.white.withOpacity(0.5),
+                  strokeWidth: 1.5,
+                ),
+                child: ClipPath(
+                  clipper: _SquircleClipper(cornerRadius: _SquircleRadii.large),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.timer_outlined, size: 20, color: Colors.black54),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '自动销毁时间',
+                                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _durationController,
+                                  focusNode: _durationFocusNode,
+                                  keyboardType: TextInputType.number,
+                                  style: const TextStyle(color: Colors.black87),
+                                  decoration: const InputDecoration(
+                                    labelText: '新时间（秒）',
+                                    labelStyle: TextStyle(color: Colors.black54),
+                                    hintText: '输入秒数',
+                                    hintStyle: TextStyle(color: Colors.black38),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                      borderSide: BorderSide(color: Colors.black26),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                      borderSide: BorderSide(color: Colors.black26),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.all(Radius.circular(_SquircleRadii.small)),
+                                      borderSide: BorderSide(color: Colors.black54, width: 2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              ClipPath(
+                                clipper: _SquircleClipper(cornerRadius: _SquircleRadii.small),
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Color(0xFFFF9D88),
+                                        Color(0xFFFFB5C5),
+                                        Color(0xFFE0B5DC),
+                                        Color(0xFFA8C5E5),
+                                      ],
+                                    ),
+                                  ),
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      final seconds = int.tryParse(_durationController.text);
+                                      if (seconds != null && seconds > 0) {
+                                        _setNotificationDuration(seconds);
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('请输入大于0的有效秒数')),
+                                        );
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      foregroundColor: Colors.white,
+                                      shadowColor: Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                    ),
+                                    child: const Text('确定'),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

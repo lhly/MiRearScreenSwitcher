@@ -89,22 +89,19 @@ public class RearScreenNotificationActivity extends Activity {
             applyRegularLayout();
         }
         
-        // 在背屏时点亮屏幕并保持常亮
+        // V3.2: 保持常亮 + 锁屏显示
         getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         );
+        
+        // 适配新API：锁屏时显示
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+        }
         
         // 设置窗口背景，防止上滑回桌面时露出白色底
         getWindow().setBackgroundDrawableResource(R.drawable.bg_gradient_rear_screen);
-        
-        // 适配新API（Android 8.1+）
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
-            setTurnScreenOn(true);
-        }
         
         // 如果在主屏启动，只是占位符，先隐藏内容，等待移动到背屏
         if (displayId == 0) {
@@ -290,8 +287,9 @@ public class RearScreenNotificationActivity extends Activity {
             }
         });
         
-        // 10秒后自动关闭（锁屏/亮屏一致）
-        container.postDelayed(this::finish, 10000);
+        // V3.4: 根据设置的时间自动关闭
+        int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
+        container.postDelayed(this::finish, duration * 1000L);
         
         long onCreateEndTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ✓ onCreate完成 (总耗时%dms)", 
@@ -386,17 +384,16 @@ public class RearScreenNotificationActivity extends Activity {
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
         
-        // 再次确保Window flags
+        // V3.2: 再次确保Window flags（保持常亮 + 锁屏显示）
+        getWindow().addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+        );
+        
+        // 确保锁屏显示设置持续生效
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
-            setTurnScreenOn(true);
         }
-        getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-        );
         
         // 检查是否已从主屏移动到背屏（占位符变为实际显示）
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -571,8 +568,9 @@ public class RearScreenNotificationActivity extends Activity {
                     }
                 });
                 
-                // 10秒后自动关闭
-                container.postDelayed(this::finish, 10000);
+                // V3.4: 根据设置的时间自动关闭
+                int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
+                container.postDelayed(this::finish, duration * 1000L);
                 
                 Log.d(TAG, String.format("[%tT.%tL] ✓ 移动后初始化完成", resumeTime, resumeTime));
             }
@@ -622,6 +620,20 @@ public class RearScreenNotificationActivity extends Activity {
         if (!shouldRestore) {
             Log.d(TAG, String.format("[%tT.%tL] 🔄 通知动画被打断，跳过恢复Launcher", destroyTime, destroyTime));
             return;
+        }
+        
+        // V3.5: 检查是否需要恢复充电动画（常亮模式）
+        if (RearAnimationManager.shouldResumeChargingAnimation()) {
+            Log.d(TAG, String.format("[%tT.%tL] 🔋 检测到充电动画常亮模式，发送恢复广播", destroyTime, destroyTime));
+            
+            // 发送恢复充电动画的广播
+            android.content.Intent resumeIntent = new android.content.Intent("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION");
+            resumeIntent.setPackage(getPackageName());
+            sendBroadcast(resumeIntent);
+            
+            // 清除标记
+            RearAnimationManager.clearChargingAlwaysOnFlag();
+            return;  // 不恢复官方Launcher
         }
         
         // 在背屏恢复官方Launcher

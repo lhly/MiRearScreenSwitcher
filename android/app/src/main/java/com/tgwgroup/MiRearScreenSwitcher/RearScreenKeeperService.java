@@ -24,6 +24,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -124,6 +125,9 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         
         // 创建Handler用于定时任务
         handler = new Handler(Looper.getMainLooper());
+        
+        // V2.2: 从SharedPreferences恢复传感器开关状态
+        loadProximitySensorSetting();
     }
     
     @Override
@@ -167,13 +171,21 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             boolean enabled = intent.getBooleanExtra("enabled", true);
             proximitySensorEnabled = enabled;
             
+            Log.d(TAG, "🔧 传感器开关状态已更新: " + enabled);
+            
             // 如果关闭了传感器，且当前正在监听，则注销监听
             if (!enabled && sensorManager != null && proximitySensor != null) {
                 sensorManager.unregisterListener(this);
+                Log.d(TAG, "⏸️ 传感器监听器已注销");
             }
             // 如果打开了传感器，且当前没有监听，则注册监听
             else if (enabled && sensorManager != null && proximitySensor != null) {
-                sensorManager.registerListener(this, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+                boolean registered = sensorManager.registerListener(this, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+                if (registered) {
+                    Log.d(TAG, "✅ 传感器监听器已注册");
+                } else {
+                    Log.w(TAG, "⚠ 传感器监听器注册失败");
+                }
             }
             
             return START_STICKY;
@@ -654,6 +666,20 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     // ========================================
     
     /**
+     * 从SharedPreferences加载传感器开关状态
+     */
+    private void loadProximitySensorSetting() {
+        try {
+            SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
+            proximitySensorEnabled = prefs.getBoolean("flutter.proximity_sensor_enabled", true);
+            Log.d(TAG, "🔧 传感器开关状态已恢复: " + proximitySensorEnabled);
+        } catch (Exception e) {
+            Log.e(TAG, "✗ 加载传感器设置失败", e);
+            proximitySensorEnabled = true; // 默认启用
+        }
+    }
+    
+    /**
      * 初始化接近传感器（背屏接近传感器）
      */
     private void initProximitySensor() {
@@ -695,16 +721,21 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 }
                 
                 if (proximitySensor != null) {
-                    // 注册监听器，使用SENSOR_DELAY_NORMAL（约200ms）
-                    boolean registered = sensorManager.registerListener(
-                        this, 
-                        proximitySensor, 
-                        SensorManager.SENSOR_DELAY_NORMAL
-                    );
-                    
-                    if (registered) {
+                    // V2.2: 只有在传感器开关启用时才注册监听器
+                    if (proximitySensorEnabled) {
+                        boolean registered = sensorManager.registerListener(
+                            this, 
+                            proximitySensor, 
+                            SensorManager.SENSOR_DELAY_NORMAL
+                        );
+                        
+                        if (registered) {
+                            Log.d(TAG, "✅ 接近传感器已注册 (开关状态: " + proximitySensorEnabled + ")");
+                        } else {
+                            Log.w(TAG, "⚠ Failed to register proximity sensor");
+                        }
                     } else {
-                        Log.w(TAG, "⚠ Failed to register proximity sensor");
+                        Log.d(TAG, "⏸️ 接近传感器已禁用，跳过注册");
                     }
                 } else {
                     Log.w(TAG, "⚠ No proximity sensor available");
