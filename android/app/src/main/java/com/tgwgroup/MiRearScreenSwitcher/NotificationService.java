@@ -46,8 +46,7 @@ public class NotificationService extends NotificationListenerService {
     private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
     
     private Set<String> selectedApps = new HashSet<>();
-    private boolean privacyHideTitle = false; // V3.2: 隐私模式 - 隐藏标题
-    private boolean privacyHideContent = false; // V3.2: 隐私模式 - 隐藏内容
+    private boolean privacyMode = false;
     private boolean followDndMode = true; // 跟随系统勿扰模式（默认开启）
     private boolean onlyWhenLocked = false; // 仅在锁屏时通知（默认关闭）
     private boolean notificationDarkMode = false; // 通知暗夜模式（默认关闭）
@@ -69,8 +68,7 @@ public class NotificationService extends NotificationListenerService {
         public void onReceive(Context context, Intent intent) {
             if ("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS".equals(intent.getAction())) {
                 Log.d(TAG, "🔄 收到重新加载设置的广播");
-                loadNotificationServiceSettings(); // 重新加载开关状态
-                loadSettings(); // 重新加载其他设置
+                loadSettings();
             }
         }
     };
@@ -155,11 +153,6 @@ public class NotificationService extends NotificationListenerService {
         // 绑定TaskService
         bindTaskService();
         
-        // V2.4: 加载通知服务开关状态
-        Log.d(TAG, "🔧 开始加载通知服务开关状态...");
-        loadNotificationServiceSettings();
-        Log.d(TAG, "🔧 通知服务开关状态加载完成: " + serviceEnabled);
-        
         // 启动为前台服务，防止被系统杀死
         startForeground(NOTIFICATION_ID, RearScreenKeeperService.createServiceNotification(this));
         Log.d(TAG, "✓ 前台服务已启动");
@@ -186,37 +179,10 @@ public class NotificationService extends NotificationListenerService {
         }
     }
     
-    /**
-     * 加载通知服务开关状态
-     */
-    private void loadNotificationServiceSettings() {
-        try {
-            Log.d(TAG, "🔧 开始读取FlutterSharedPreferences...");
-            // 从FlutterSharedPreferences读取开关状态
-            SharedPreferences flutterPrefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
-            Log.d(TAG, "🔧 FlutterSharedPreferences读取成功");
-            
-            serviceEnabled = flutterPrefs.getBoolean("flutter.notification_service_enabled", false);
-            Log.d(TAG, "🔧 通知服务开关状态已恢复: " + serviceEnabled);
-            
-            // NotificationListenerService由系统管理，不能手动停止
-            // 如果开关关闭，服务仍会运行但不处理通知
-            if (!serviceEnabled) {
-                Log.d(TAG, "⏸️ 通知服务已禁用，将忽略所有通知");
-            } else {
-                Log.d(TAG, "✅ 通知服务已启用，将处理通知");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "✗ 加载通知服务设置失败", e);
-            serviceEnabled = false; // 默认关闭
-        }
-    }
-    
     private void loadSettings() {
         try {
             selectedApps = prefs.getStringSet("notification_selected_apps", new HashSet<>());
-            privacyHideTitle = prefs.getBoolean("notification_privacy_hide_title", false);
-            privacyHideContent = prefs.getBoolean("notification_privacy_hide_content", false);
+            privacyMode = prefs.getBoolean("notification_privacy_mode", false);
             followDndMode = prefs.getBoolean("notification_follow_dnd_mode", true);
             onlyWhenLocked = prefs.getBoolean("notification_only_when_locked", false);
             notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
@@ -225,8 +191,7 @@ public class NotificationService extends NotificationListenerService {
             Log.d(TAG, "⚙️ 已加载设�?");
             Log.d(TAG, "   - 启用状�? " + serviceEnabled);
             Log.d(TAG, "   - 选中应用: " + selectedApps.size() + " �?");
-            Log.d(TAG, "   - 隐藏标题: " + privacyHideTitle);
-            Log.d(TAG, "   - 隐藏内容: " + privacyHideContent);
+            Log.d(TAG, "   - 隐私模式: " + privacyMode);
             
             if (!selectedApps.isEmpty()) {
                 Log.d(TAG, "📋 选中应用列表: " + selectedApps.toString());
@@ -243,15 +208,6 @@ public class NotificationService extends NotificationListenerService {
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         super.onNotificationPosted(sbn);
-        
-        // V2.4: 每次收到通知时重新加载开关状态
-        loadNotificationServiceSettings();
-        
-        // V2.4: 如果通知服务开关关闭，不处理通知
-        if (!serviceEnabled) {
-            Log.d(TAG, "⏸️ 通知服务已禁用，忽略通知");
-            return;
-        }
         
         try {
             String packageName = sbn.getPackageName();
@@ -325,13 +281,10 @@ public class NotificationService extends NotificationListenerService {
             Log.d(TAG, "📝 通知标题: " + title);
             Log.d(TAG, "📝 通知内容: " + text);
             
-            // V3.2: 隐私模式处理（区分标题和内容）
-            if (privacyHideTitle) {
-                Log.d(TAG, "🔒 隐藏通知标题");
+            // 隐私模式处理
+            if (privacyMode) {
+                Log.d(TAG, "🔒 隐私模式已启用，替换标题与内容");
                 title = "隐私模式已启用";
-            }
-            if (privacyHideContent) {
-                Log.d(TAG, "🔒 隐藏通知内容");
                 text = "你有一条新消息";
             }
             
@@ -343,11 +296,6 @@ public class NotificationService extends NotificationListenerService {
             // 如果有旧动画需要打断，发送打断广播
             if (oldAnim == RearAnimationManager.AnimationType.CHARGING) {
                 Log.d(TAG, "🔄 检测到充电动画正在播放，发送打断广播");
-                
-                // V3.5: 检查充电动画是否是常亮模式
-                boolean chargingAlwaysOn = prefs.getBoolean("charging_always_on_enabled", false);
-                RearAnimationManager.markInterruptedChargingAsAlwaysOn(chargingAlwaysOn);
-                
                 RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.CHARGING);
             } else if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
                 Log.d(TAG, "🔄 检测到通知动画正在播放，发送打断广播并重载");
@@ -412,7 +360,22 @@ public class NotificationService extends NotificationListenerService {
                 Log.w(TAG, "获取主屏前台应用失败: " + t.getMessage());
             }
             
-            // V3.3: 移除唤醒代码，避免锁屏时跳转到密码界面
+            // 只唤醒背屏
+            try {
+                if (taskService == null) {
+                    Log.e(TAG, "❌ TaskService为null，无法唤醒背屏");
+                } else {
+                    boolean result = taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    Log.d(TAG, "✓ 背屏唤醒命令已发送，返回值: " + result);
+                    if (!result) {
+                        Log.w(TAG, "⚠️ 背屏唤醒命令返回false，可能执行失败");
+                    }
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "❌ 唤醒背屏异常: " + t.getMessage(), t);
+            }
+            
+            // 只唤醒背屏
             
             try {
                 // 暂停监控，防止被误杀
@@ -428,7 +391,10 @@ public class NotificationService extends NotificationListenerService {
                 Log.w(TAG, "disableSubScreenLauncher failed: " + t.getMessage());
             }
             
-            // V3.3: 移除 wm dismiss-keyguard 命令，避免锁屏时跳转到密码界面
+            // 锁屏时尽力请求解锁界面让Activity可见（不依赖）
+            try {
+                taskService.executeShellCommand("wm dismiss-keyguard");
+            } catch (Throwable ignored) {}
             
             // 2) 根据锁屏状态与前台应用选择启动策略
             String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();

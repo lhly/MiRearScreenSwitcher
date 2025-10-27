@@ -47,9 +47,6 @@ android {
             )
         }
     }
-
-    // V20: NDK and CMake configuration
-    
 }
 
 flutter {

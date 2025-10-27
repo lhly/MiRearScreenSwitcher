@@ -26,7 +26,6 @@ import android.content.SharedPreferences;
 import android.os.BatteryManager;
 import android.os.PowerManager;
 import android.os.IBinder;
-import android.os.Handler;
 import android.util.Log;
 
 import rikka.shizuku.Shizuku;
@@ -46,14 +45,7 @@ public class ChargingService extends Service {
     
     // 防止重复触发动画（冷却时间）
     private long lastChargingAnimationTime = 0;
-    private static final long CHARGING_ANIMATION_COOLDOWN_MS = 6000; // 6秒冷却时间
-    
-    // V3.5: 充电动画常亮模式
-    private boolean chargingAlwaysOnEnabled = false;
-    private Handler wakeupHandler;
-    private Runnable wakeupRunnable;
-    private boolean isWakeupRunning = false;
-    
+    private static final long CHARGING_ANIMATION_COOLDOWN_MS = 6000; // 6秒冷却时间    
     public static ITaskService getTaskService() {
         return instance != null ? instance.taskService : null;
     }
@@ -109,48 +101,6 @@ public class ChargingService extends Service {
             }, 1000);
         };
     
-    // V3.5: 设置变化广播接收器
-    private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            Log.d(TAG, "收到设置变化广播");
-            chargingAlwaysOnEnabled = prefs.getBoolean("charging_always_on_enabled", false);
-            Log.d(TAG, "充电动画常亮: " + chargingAlwaysOnEnabled);
-        }
-    };
-    
-    // V3.5: 恢复充电动画广播接收器
-    private BroadcastReceiver resumeChargingReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if ("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION".equals(intent.getAction())) {
-                Log.d(TAG, "🔋 收到恢复充电动画广播，准备恢复");
-                
-                // 获取当前电量
-                int batteryLevel = getBatteryLevel(context);
-                
-                // 延迟后重新启动充电动画
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    try {
-                        // 通知动画管理器：开始充电动画
-                        RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
-                        
-                        // 启动充电动画
-                        showChargingOnRearScreen(batteryLevel, false);
-                        
-                        // 如果常亮模式开启，启动唤醒循环
-                        if (chargingAlwaysOnEnabled) {
-                            Log.d(TAG, "💡 常亮模式开启，启动wakeup循环");
-                            startWakeupAndUpdateLoop();
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "恢复充电动画失败", e);
-                    }
-                }, 300);  // 300ms延迟，确保通知Activity完全销毁
-            }
-        }
-    };
-    
     private BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -197,19 +147,9 @@ public class ChargingService extends Service {
                 }
                 
                 showChargingOnRearScreen(batteryLevel, isLocked);
-                
-                // V3.5: 如果开启了充电动画常亮，启动唤醒和更新循环
-                if (chargingAlwaysOnEnabled) {
-                    Log.d(TAG, "充电动画常亮已开启，启动wakeup循环");
-                    startWakeupAndUpdateLoop();
-                }
             } else if (Intent.ACTION_POWER_DISCONNECTED.equals(action)) {
                 // 拔掉充电器，立即销毁充电动画
                 Log.d(TAG, "🔌 Power disconnected, finishing charging animation");
-                
-                // V3.5: 停止唤醒循环
-                stopWakeupLoop();
-                
                 finishChargingAnimation();
             }
         }
@@ -233,26 +173,6 @@ public class ChargingService extends Service {
         filter.addAction(Intent.ACTION_POWER_CONNECTED);
         filter.addAction(Intent.ACTION_POWER_DISCONNECTED);  // 监听拔电事件
         registerReceiver(batteryReceiver, filter);
-        
-        // V3.5: 注册设置变化广播接收器
-        IntentFilter settingsFilter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RELOAD_CHARGING_SETTINGS");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(settingsReceiver, settingsFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(settingsReceiver, settingsFilter);
-        }
-        
-        // V3.5: 注册恢复充电动画广播接收器
-        IntentFilter resumeFilter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(resumeChargingReceiver, resumeFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(resumeChargingReceiver, resumeFilter);
-        }
-        
-        // V3.5: 加载充电动画常亮设置
-        chargingAlwaysOnEnabled = prefs.getBoolean("charging_always_on_enabled", false);
-        wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         
         // 绑定TaskService
         bindTaskService();
@@ -398,7 +318,21 @@ public class ChargingService extends Service {
             long startTime = System.currentTimeMillis();
             Log.d(TAG, String.format("[%tT.%tL] 开始启动充电动画", startTime, startTime));
             
-            // V3.3: 移除所有唤醒和解锁代码，避免锁屏时跳转到密码界面
+            // 步骤3.5: 先唤醒背屏（双唤醒，锁屏更稳）
+            try {
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Thread.sleep(80);
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Thread.sleep(60); // 等待背屏点亮
+                Log.d(TAG, String.format("[%tT.%tL] 背屏已唤醒(2x)", System.currentTimeMillis(), System.currentTimeMillis()));
+            } catch (Exception e) {
+                Log.w(TAG, "唤醒背屏失败: " + e.getMessage());
+            }
+
+            // 额外尝试请求解锁界面（不依赖）
+            try{
+                taskService.executeShellCommand("wm dismiss-keyguard");
+            } catch (Throwable ignored) {}
             
             // 步骤4: 使用MRSN的策略 - 先在主屏隐形启动，然后移动到背屏
             try {
@@ -495,25 +429,8 @@ public class ChargingService extends Service {
         try {
             unregisterReceiver(batteryReceiver);
         } catch (Exception e) {
-            Log.e(TAG, "Error unregistering battery receiver", e);
+            Log.e(TAG, "Error unregistering receiver", e);
         }
-        
-        // V3.5: 注销设置变化接收器
-        try {
-            unregisterReceiver(settingsReceiver);
-        } catch (Exception e) {
-            Log.e(TAG, "Error unregistering settings receiver", e);
-        }
-        
-        // V3.5: 注销恢复充电动画接收器
-        try {
-            unregisterReceiver(resumeChargingReceiver);
-        } catch (Exception e) {
-            Log.e(TAG, "Error unregistering resume charging receiver", e);
-        }
-        
-        // V3.5: 停止唤醒循环
-        stopWakeupLoop();
         
         // 解绑TaskService
         try {
@@ -529,69 +446,6 @@ public class ChargingService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-    
-    // V3.5: 启动唤醒和更新电量循环
-    private void startWakeupAndUpdateLoop() {
-        if (isWakeupRunning) {
-            Log.w(TAG, "⚠️ Wakeup loop already running");
-            return;
-        }
-        
-        isWakeupRunning = true;
-        
-        wakeupRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isWakeupRunning) return;
-                
-                // 检查开关状态
-                boolean enabled = prefs.getBoolean("charging_always_on_enabled", false);
-                if (!enabled) {
-                    Log.d(TAG, "充电动画常亮已关闭，停止循环");
-                    stopWakeupLoop();
-                    return;
-                }
-                
-                // 发送wakeup命令
-                try {
-                    if (taskService != null) {
-                        taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                        Log.d(TAG, "✓ Wakeup sent");
-                    } else {
-                        Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "发送wakeup失败: " + t.getMessage());
-                }
-                
-                // 更新充电动画的电量显示
-                try {
-                    int batteryLevel = getBatteryLevel(getApplicationContext());
-                    // 直接调用静态方法更新电量
-                    RearScreenChargingActivity.updateBatteryLevelStatic(batteryLevel);
-                    Log.d(TAG, "🔋 电量已直接更新: " + batteryLevel + "%");
-                } catch (Exception e) {
-                    Log.w(TAG, "更新电量失败: " + e.getMessage());
-                }
-                
-                // 100ms后继续
-                wakeupHandler.postDelayed(this, 100);
-            }
-        };
-        
-        // 立即开始
-        wakeupHandler.post(wakeupRunnable);
-        Log.d(TAG, "✓ Wakeup and update loop started");
-    }
-    
-    // V3.5: 停止唤醒循环
-    private void stopWakeupLoop() {
-        isWakeupRunning = false;
-        if (wakeupHandler != null && wakeupRunnable != null) {
-            wakeupHandler.removeCallbacks(wakeupRunnable);
-        }
-        Log.d(TAG, "✓ Wakeup loop stopped");
     }
 }
 

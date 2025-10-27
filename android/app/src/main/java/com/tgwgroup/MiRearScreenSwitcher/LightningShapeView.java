@@ -52,33 +52,9 @@ public class LightningShapeView extends View implements SensorEventListener {
     private float waveOffset = 0f;  // 波浪动画偏移
     private float tiltX = 0f;       // X轴倾斜角度（重力感应）
     private float tiltY = 0f;       // Y轴倾斜角度（重力感应）
-    private float[] bubblePositions = new float[6]; // 气泡Y位置（受重力影响）
+    private float[] bubblePositions = new float[10]; // 气泡Y位置（受重力影响）
     private SensorManager sensorManager;
     private Sensor accelerometer;
-    
-    // V3.5: 全屏液体模式（不绘制闪电边框）
-    private boolean fullScreenMode = false;
-    
-    // V3.5: 复用对象避免GC（性能优化）
-    private Path fullScreenLiquidPath = new Path();
-    private Path fullScreenWavePath = new Path();  // 复用波浪路径
-    private Paint fullScreenShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private Paint fullScreenBottomShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);  // 复用底部阴影画笔
-    private Paint fullScreenWavePaint = new Paint(Paint.ANTI_ALIAS_FLAG);  // 复用波浪画笔
-    private Paint fullScreenEdgeShinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);  // 复用边缘光泽画笔
-    private int lastShadowHeight = -1;  // 缓存上次的高度，避免重复创建shader
-    private int lastBottomShadowHeight = -1;  // 缓存底部阴影高度
-    private int lastEdgeShineWidth = -1;  // 缓存边缘光泽宽度
-    private Paint bubbleHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);  // 复用气泡高光画笔
-    
-    // V3.5: 波浪计算优化（预计算，避免每帧sin计算）
-    private float[] wavePoints = new float[200];  // 预计算波浪点
-    private int lastWaveWidth = -1;  // 缓存波浪宽度
-    private float lastWaveOffset = -1f;  // 缓存波浪偏移
-    
-    // V3.14: 恢复波浪计算频率，保证流畅度
-    private static final float WAVE_UPDATE_THRESHOLD = 0.01f;  // 波浪更新阈值（拉满）
-    private float lastProcessedWaveOffset = -1f;  // 上次处理的波浪偏移
     
     public LightningShapeView(Context context) {
         super(context);
@@ -116,11 +92,8 @@ public class LightningShapeView extends View implements SensorEventListener {
         // 气泡画笔（液体中的气泡）
         bubblePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         bubblePaint.setStyle(Paint.Style.FILL);
-        bubblePaint.setColor(0x80FFFFFF);  // 增加透明度，让气泡更明显
-        bubblePaint.setMaskFilter(new BlurMaskFilter(2f, BlurMaskFilter.Blur.NORMAL)); // 减少模糊，让气泡更清晰
-        
-        // V3.5: 气泡高光画笔（预先初始化，避免每帧创建）
-        bubbleHighlightPaint.setColor(0xB0FFFFFF);
+        bubblePaint.setColor(0x50FFFFFF);
+        bubblePaint.setMaskFilter(new BlurMaskFilter(3f, BlurMaskFilter.Blur.NORMAL)); // 模糊边缘
         
         // 主边框画笔（半透明白色）
         outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -160,7 +133,7 @@ public class LightningShapeView extends View implements SensorEventListener {
         highlightPath = new Path();
         wavePath = new Path();
         
-        // 初始化气泡位置（简单方案）
+        // 初始化气泡位置
         for (int i = 0; i < bubblePositions.length; i++) {
             bubblePositions[i] = (float) Math.random();
         }
@@ -206,9 +179,19 @@ public class LightningShapeView extends View implements SensorEventListener {
             lightningPath.close();
         }
         
-        // 使用系统电池绿色（#34C759），去掉渐变，使用纯色
-        liquidPaint.setShader(null);  // 移除渐变
-        liquidPaint.setColor(0xFF34C759);  // 系统电池绿色
+        // 更新液体渐变（从浅绿到深绿，增强立体深度感）
+        liquidPaint.setShader(new LinearGradient(
+            0, 0, 0, h,
+            new int[]{
+                0xFF00E676,  // 顶部：亮绿色（去掉过亮的青绿色）
+                0xFF00D966,  // 上中：中亮绿色
+                0xFF00C853,  // 中部：标准绿色
+                0xFF00A83D,  // 下中：深绿色
+                0xFF008A30   // 底部：最深绿色（阴影区）
+            },
+            new float[]{0f, 0.25f, 0.5f, 0.75f, 1f},
+            Shader.TileMode.CLAMP
+        ));
         
         // 创建左上角高光路径（模拟玻璃反射）
         highlightPath.reset();
@@ -221,59 +204,11 @@ public class LightningShapeView extends View implements SensorEventListener {
     
     @Override
     protected void onDraw(Canvas canvas) {
-        long drawStartTime = System.nanoTime();  // 性能追踪开始
-        
         super.onDraw(canvas);
         
         int width = getWidth();
         int height = getHeight();
         
-        // V3.5: 全屏液体模式 - 直接绘制液体，不裁剪为闪电形状
-        if (fullScreenMode) {
-            drawFullScreenLiquid(canvas, width, height);
-            
-            // V3.5: 性能追踪（修复bug + 增加帧间隔追踪）
-            long drawEndTime = System.nanoTime();
-            long drawTimeNanos = drawEndTime - drawStartTime;
-            totalDrawTime += drawTimeNanos;
-            
-            // 计算帧间隔
-            if (lastFrameTimeNanos > 0) {
-                long frameInterval = drawStartTime - lastFrameTimeNanos;
-                totalFrameInterval += frameInterval;
-            }
-            lastFrameTimeNanos = drawStartTime;
-            frameCount++;
-            
-            // 每60帧输出一次统计
-            if (frameCount % 60 == 0) {
-                float avgDrawTimeMs = (totalDrawTime / (float)frameCount) / 1_000_000f;  // 纳秒→毫秒
-                float currentDrawMs = drawTimeNanos / 1_000_000f;
-                float avgFrameIntervalMs = (totalFrameInterval / (float)(frameCount - 1)) / 1_000_000f;  // 平均帧间隔
-                
-                long currentTime = System.currentTimeMillis();
-                long timeSinceLastLog = currentTime - lastFrameTime;
-                float actualFps = (timeSinceLastLog > 0) ? (60000f / timeSinceLastLog) : 0;
-                
-                // 计算理论最大帧间隔（考虑绘制时间）
-                float drawTimeMs = currentDrawMs;
-                float maxTheoreticalFps = (drawTimeMs > 0) ? (1000f / drawTimeMs) : 999;
-                float vsyncFps = (avgFrameIntervalMs > 0) ? (1000f / avgFrameIntervalMs) : 0;
-                
-                Log.d("LightningPerf", String.format("📊 性能: FPS=%.1f, VSync=%.1fHz (间隔%.2fms), 平均绘制=%.2fms", 
-                    actualFps, vsyncFps, avgFrameIntervalMs, avgDrawTimeMs));
-                
-                lastFrameTime = currentTime;
-                totalDrawTime = 0;
-                totalFrameInterval = 0;
-                frameCount = 0;
-                lastFrameTimeNanos = 0;
-            }
-            
-            return;
-        }
-        
-        // 原有的闪电容器模式
         // 应用重力倾斜（夸张效果，模拟真实液体）
         canvas.save();
         canvas.translate(tiltX * 5, tiltY * 3);
@@ -301,71 +236,62 @@ public class LightningShapeView extends View implements SensorEventListener {
             // 2.1 绘制主液体（绿色渐变）
             canvas.drawRect(0, height - fillHeight, width, height, liquidPaint);
             
-            // 2.2 绘制液体底部的深色阴影（复用Paint，仅高度变化时重建shader）
-            if (lastBottomShadowHeight != height) {
-                fullScreenBottomShadowPaint.setShader(new LinearGradient(
-                    0, height - 30, 0, height,
-                    new int[]{0x00000000, 0x40000000, 0x50000000},
-                    new float[]{0f, 0.5f, 1f},
-                    Shader.TileMode.CLAMP
-                ));
-                lastBottomShadowHeight = height;
-            }
-            canvas.drawRect(0, height - 30, width, height, fullScreenBottomShadowPaint);
+            // 2.2 绘制液体底部的深色阴影（增强深度和厚度感）
+            Paint bottomShadow = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bottomShadow.setShader(new LinearGradient(
+                0, height - 30, 0, height,
+                new int[]{0x00000000, 0x40000000, 0x50000000},
+                new float[]{0f, 0.5f, 1f},
+                Shader.TileMode.CLAMP
+            ));
+            canvas.drawRect(0, height - 30, width, height, bottomShadow);
             
-            // 2.3 绘制液面波浪（优化：减少计算频率）
+            // 2.3 绘制液面波浪（动态效果 + 重力倾斜）
             if (fillHeight > 20) {
                 float waveY = height - fillHeight;
-                fullScreenWavePath.reset();
+                wavePath.reset();
                 
-                // V3.17: 微小闪电模式重力倾斜强度，细腻效果
-                float leftTilt = tiltX * 6;  // 左侧倾斜量（微小强度）
-                float rightTilt = -tiltX * 6; // 右侧倾斜量（微小强度）
+                // 重力倾斜量（夸张效果）
+                float leftTilt = tiltX * 20;  // 左侧倾斜量（4倍增强）
+                float rightTilt = -tiltX * 20; // 右侧倾斜量
                 
-                fullScreenWavePath.moveTo(0, waveY + leftTilt);
+                wavePath.moveTo(0, waveY + leftTilt);
                 
-                // V3.6: 统一波浪计算（避免重复计算）
-                updateWavePoints(width, waveOffset);
-                
-                // 使用预计算的波浪点
-                int pointCount = Math.min(width / 8, wavePoints.length);  // 减少绘制点数
-                for (int i = 0; i < pointCount; i++) {
-                    float x = (float) i / (pointCount - 1) * width;
-                    float wave = wavePoints[i];
+                // 创建正弦波浪 + 倾斜效果
+                for (int x = 0; x <= width; x += 5) {
+                    float wave = (float) Math.sin((x / (float)width * 4 * Math.PI) + waveOffset) * 5f;
                     float tilt = leftTilt + (rightTilt - leftTilt) * (x / (float)width);
-                    fullScreenWavePath.lineTo(x, waveY + wave + tilt);
+                    wavePath.lineTo(x, waveY + wave + tilt);
                 }
-                fullScreenWavePath.lineTo(width, height);
-                fullScreenWavePath.lineTo(0, height);
-                fullScreenWavePath.close();
+                wavePath.lineTo(width, height);
+                wavePath.lineTo(0, height);
+                wavePath.close();
                 
-                // 绘制波浪液体（复用Paint，只设置alpha）
-                fullScreenWavePaint.set(liquidPaint);
-                fullScreenWavePaint.setAlpha(220);
-                canvas.drawPath(fullScreenWavePath, fullScreenWavePaint);
+                // 绘制波浪液体（稍微透明，显示下层渐变）
+                Paint waveLiquidPaint = new Paint(liquidPaint);
+                waveLiquidPaint.setAlpha(220);
+                canvas.drawPath(wavePath, waveLiquidPaint);
             }
             
             // 2.4 液面光泽已移除（用户要求去掉液体顶部的白色）
             // 不再绘制白色高光，保持纯净的液体颜色
             
-            // V3.15: 修复气泡闪烁，每帧都绘制
-            if (fillHeight > 10) {  // 降低条件，让气泡在更低的液体高度时也能显示
+            // 2.5 绘制气泡（随机位置，根据填充高度显示）
+            if (fillHeight > 30) {
                 drawBubbles(canvas, width, height, fillHeight);
             }
             
-            // 2.6 绘制液体左侧的明亮边缘（复用Paint，仅宽度变化时重建shader）
-            if (lastEdgeShineWidth != width) {
-                fullScreenEdgeShinePaint.setStyle(Paint.Style.FILL);
-                fullScreenEdgeShinePaint.setShader(new LinearGradient(
-                    width * 0.08f, 0, width * 0.22f, 0,
-                    new int[]{0x00FFFFFF, 0x30FFFFFF, 0x20FFFFFF, 0x00FFFFFF},
-                    new float[]{0f, 0.3f, 0.7f, 1f},
-                    Shader.TileMode.CLAMP
-                ));
-                lastEdgeShineWidth = width;
-            }
+            // 2.6 绘制液体左侧的明亮边缘（减弱亮度，避免过白）
+            Paint leftEdgeShine = new Paint(Paint.ANTI_ALIAS_FLAG);
+            leftEdgeShine.setStyle(Paint.Style.FILL);
+            leftEdgeShine.setShader(new LinearGradient(
+                width * 0.08f, 0, width * 0.22f, 0,
+                new int[]{0x00FFFFFF, 0x30FFFFFF, 0x20FFFFFF, 0x00FFFFFF},
+                new float[]{0f, 0.3f, 0.7f, 1f},
+                Shader.TileMode.CLAMP
+            ));
             canvas.drawRect(width * 0.08f, height - fillHeight, 
-                           width * 0.22f, height, fullScreenEdgeShinePaint);
+                           width * 0.22f, height, leftEdgeShine);
             
             // 2.8 液体内部光线散射效果已移除
             // 保持纯净的液体颜色，不添加白色散射
@@ -400,18 +326,16 @@ public class LightningShapeView extends View implements SensorEventListener {
         // 第6层：内部高光（沿着左上边缘的光带）
         canvas.save();
         canvas.clipPath(lightningPath);
-        // 绘制左上角的小面积高光反射（复用Paint，避免每帧创建）
-        if (lastEdgeShineWidth != width) {
-            fullScreenEdgeShinePaint.setStyle(Paint.Style.FILL);
-            fullScreenEdgeShinePaint.setShader(new android.graphics.RadialGradient(
-                width * 0.25f, height * 0.2f, width * 0.3f,
-                new int[]{0x50FFFFFF, 0x20FFFFFF, 0x00FFFFFF},
-                new float[]{0f, 0.5f, 1f},
-                Shader.TileMode.CLAMP
-            ));
-            lastEdgeShineWidth = width;
-        }
-        canvas.drawPath(highlightPath, fullScreenEdgeShinePaint);
+        // 绘制左上角的小面积高光反射
+        Paint spotlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        spotlightPaint.setStyle(Paint.Style.FILL);
+        spotlightPaint.setShader(new android.graphics.RadialGradient(
+            width * 0.25f, height * 0.2f, width * 0.3f,
+            new int[]{0x50FFFFFF, 0x20FFFFFF, 0x00FFFFFF},
+            new float[]{0f, 0.5f, 1f},
+            Shader.TileMode.CLAMP
+        ));
+        canvas.drawPath(highlightPath, spotlightPaint);
         canvas.restore();
         
         // 恢复重力倾斜的变换
@@ -419,122 +343,74 @@ public class LightningShapeView extends View implements SensorEventListener {
     }
     
     /**
-     * V3.6: 统一波浪计算（避免重复计算）
-     */
-    private void updateWavePoints(int width, float waveOffset) {
-        if (lastWaveWidth != width || Math.abs(lastProcessedWaveOffset - waveOffset) > WAVE_UPDATE_THRESHOLD) {
-            // V3.14: 恢复波浪点数，保证流畅度
-            int pointCount = Math.min(width / 6, wavePoints.length);
-            for (int i = 0; i < pointCount; i++) {
-                float x = (float) i / (pointCount - 1) * width;
-                wavePoints[i] = (float) Math.sin((x / (float)width * 4 * Math.PI) + waveOffset) * 8f;
-            }
-            lastWaveWidth = width;
-            lastProcessedWaveOffset = waveOffset;
-        }
-    }
-    
-    /**
-     * V3.7: 绘制液体中的气泡（恢复重力效果，但保持性能优化）
+     * 绘制液体中的气泡（受重力影响）
      */
     private void drawBubbles(Canvas canvas, int width, int height, float fillHeight) {
         float baseY = height - fillHeight;
         
-        // V3.17: 微小气泡重力响应强度，细腻效果
-        float gravityOffsetX = -tiltX * 5; // 手机向左倾，气泡向右漂（微小强度）
-        float gravityOffsetY = tiltY * 2;   // 前后倾斜的影响（微小强度）
+        // 气泡受重力影响的横向偏移（夸张效果）
+        float gravityOffsetX = -tiltX * 15; // 手机向左倾，气泡向右漂
+        float gravityOffsetY = tiltY * 5;   // 前后倾斜的轻微影响
         
-        // V3.15: 增加气泡数量，修复闪烁问题
-        // 绘制气泡（简单方案）
         // 气泡1（大）
-        float bubble1X = width * 0.2f + gravityOffsetX;
+        float bubble1X = width * 0.3f + gravityOffsetX;
         float bubble1Y = baseY + fillHeight * bubblePositions[0] + gravityOffsetY;
-        canvas.drawCircle(bubble1X, bubble1Y, 6f, bubblePaint);
+        canvas.drawCircle(bubble1X, bubble1Y, 7f, bubblePaint);
         
         // 气泡2（中）
-        float bubble2X = width * 0.4f + gravityOffsetX * 0.8f;
+        float bubble2X = width * 0.6f + gravityOffsetX * 0.8f;
         float bubble2Y = baseY + fillHeight * bubblePositions[1] + gravityOffsetY;
-        canvas.drawCircle(bubble2X, bubble2Y, 4f, bubblePaint);
+        canvas.drawCircle(bubble2X, bubble2Y, 5f, bubblePaint);
         
         // 气泡3（小）
-        float bubble3X = width * 0.6f + gravityOffsetX * 0.6f;
+        float bubble3X = width * 0.45f + gravityOffsetX * 0.6f;
         float bubble3Y = baseY + fillHeight * bubblePositions[2] + gravityOffsetY;
-        canvas.drawCircle(bubble3X, bubble3Y, 3f, bubblePaint);
+        canvas.drawCircle(bubble3X, bubble3Y, 4f, bubblePaint);
         
-        // 气泡4（小）
-        float bubble4X = width * 0.8f + gravityOffsetX * 0.9f;
-        float bubble4Y = baseY + fillHeight * bubblePositions[3] + gravityOffsetY;
-        canvas.drawCircle(bubble4X, bubble4Y, 3.5f, bubblePaint);
+        // 气泡4（小）- 只在填充超过50%时显示
+        if (fillLevel > 0.5f) {
+            float bubble4X = width * 0.7f + gravityOffsetX * 0.9f;
+            float bubble4Y = baseY + fillHeight * bubblePositions[3] + gravityOffsetY;
+            canvas.drawCircle(bubble4X, bubble4Y, 4.5f, bubblePaint);
+        }
         
-        // 气泡5（中）
-        float bubble5X = width * 0.3f + gravityOffsetX * 0.7f;
-        float bubble5Y = baseY + fillHeight * bubblePositions[4] + gravityOffsetY;
-        canvas.drawCircle(bubble5X, bubble5Y, 4.5f, bubblePaint);
+        // 气泡5（大）- 只在填充超过70%时显示
+        if (fillLevel > 0.7f) {
+            float bubble5X = width * 0.35f + gravityOffsetX * 0.7f;
+            float bubble5Y = baseY + fillHeight * bubblePositions[4] + gravityOffsetY;
+            canvas.drawCircle(bubble5X, bubble5Y, 6f, bubblePaint);
+        }
         
-        // 气泡6（小）
-        float bubble6X = width * 0.7f + gravityOffsetX * 0.5f;
-        float bubble6Y = baseY + fillHeight * bubblePositions[5] + gravityOffsetY;
-        canvas.drawCircle(bubble6X, bubble6Y, 2.5f, bubblePaint);
+        // 每个气泡添加高光点（模拟透明感和光源）
+        Paint bubbleHighlight = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bubbleHighlight.setColor(0xB0FFFFFF);
+        canvas.drawCircle(bubble1X - 2.5f, bubble1Y - 2.5f, 2.5f, bubbleHighlight);
+        canvas.drawCircle(bubble2X - 2f, bubble2Y - 2f, 2f, bubbleHighlight);
+        canvas.drawCircle(bubble3X - 1.5f, bubble3Y - 1.5f, 1.5f, bubbleHighlight);
         
-        // 简单气泡上升逻辑
+        // 气泡缓慢上升动画（模拟浮力）
         for (int i = 0; i < bubblePositions.length; i++) {
-            bubblePositions[i] -= 0.002f; // 固定上升速度
+            bubblePositions[i] -= 0.002f; // 缓慢向上
             if (bubblePositions[i] < 0) {
-                bubblePositions[i] = 1.0f; // 从底部重新开始
+                bubblePositions[i] = 1.0f; // 从底部重新出现
             }
         }
     }
     
-    private long waveAnimationStartTime = 0;
-    private android.view.Choreographer.FrameCallback frameCallback;
-    
-    // V3.5: 性能追踪
-    private long lastFrameTime = 0;
-    private long frameCount = 0;
-    private long totalDrawTime = 0;
-    private long lastFrameTimeNanos = 0;  // 上一帧的纳秒时间
-    private long totalFrameInterval = 0;  // 帧间隔总和
-    
     /**
-     * 启动波浪动画（优化为120fps）
+     * 启动波浪动画
      */
     private void startWaveAnimation() {
-        // 避免重复启动
-        if (frameCallback != null) {
-            return;
-        }
-        
-        // 记录起始时间（使用实际帧时间）
-        waveAnimationStartTime = 0;
-        
-        // 创建FrameCallback
-        frameCallback = new android.view.Choreographer.FrameCallback() {
-            @Override
-            public void doFrame(long frameTimeNanos) {
-                if (fillLevel > 0) {
-                    // 初始化起始时间
-                    if (waveAnimationStartTime == 0) {
-                        waveAnimationStartTime = frameTimeNanos;
-                    }
-                    
-                    // V3.14: 恢复波浪速度，保证流畅度
-                    long elapsedNanos = frameTimeNanos - waveAnimationStartTime;
-                    waveOffset = (float)((elapsedNanos / 1_000_000_000.0) * Math.PI * 1.5); // 0.67秒一个周期
-                    
-                    // 请求重绘（使用postInvalidateOnAnimation确保与vsync同步）
-                    postInvalidateOnAnimation();
-                    
-                    // V3.6: 修复 - 只在需要时继续下一帧，避免无限递归
-                    if (fillLevel > 0) {
-                        android.view.Choreographer.getInstance().postFrameCallback(this);
-                    }
-                }
-            }
-        };
-        
-        // 开始帧回调
-        android.view.Choreographer.getInstance().postFrameCallback(frameCallback);
-        Log.d("LightningShapeView", "✓ 波浪动画已启动（Choreographer.FrameCallback，跟随屏幕刷新率）");
+        // 使用ValueAnimator创建循环波浪动画
+        android.animation.ValueAnimator waveAnimator = android.animation.ValueAnimator.ofFloat(0f, (float)(2 * Math.PI));
+        waveAnimator.setDuration(2000); // 2秒一个周期
+        waveAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        waveAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+        waveAnimator.addUpdateListener(animation -> {
+            waveOffset = (float) animation.getAnimatedValue();
+            invalidate();
+        });
+        waveAnimator.start();
     }
     
     /**
@@ -543,91 +419,11 @@ public class LightningShapeView extends View implements SensorEventListener {
      */
     public void setFillLevel(float level) {
         this.fillLevel = Math.max(0f, Math.min(1f, level));
-        
-        // 如果开始填充，启动波浪动画（仅启动一次）
-        if (level > 0.01f && frameCallback == null) {
-            startWaveAnimation();
-        }
-        
-        // 如果填充为0，停止动画
-        if (level <= 0 && frameCallback != null) {
-            android.view.Choreographer.getInstance().removeFrameCallback(frameCallback);
-            frameCallback = null;
-        }
-        
-        // 强制重绘
         invalidate();
-        Log.d("LightningShapeView", "🔋 填充比例已更新: " + (level * 100) + "%");
-    }
-    
-    /**
-     * V3.5: 设置全屏液体模式
-     */
-    public void setFullScreenMode(boolean enabled) {
-        this.fullScreenMode = enabled;
         
-        // 全屏模式下立即启动波浪动画
-        if (enabled && fillLevel > 0) {
+        // 如果开始填充，启动波浪动画
+        if (level > 0.1f && waveOffset == 0f) {
             startWaveAnimation();
-        }
-        
-        invalidate();
-    }
-    
-    /**
-     * V3.7: 绘制全屏液体（恢复波浪效果，但保持性能优化）
-     */
-    private void drawFullScreenLiquid(Canvas canvas, int width, int height) {
-        if (fillLevel <= 0) return;
-        
-        float fillHeight = height * fillLevel;
-        
-        // V3.17: 微小重力倾斜强度，细腻效果
-        float leftTilt = tiltX * 8;  // 左侧倾斜量（微小强度）
-        float rightTilt = -tiltX * 8; // 右侧倾斜量（微小强度）
-        
-        // 1. 复用Path对象，避免每帧创建新对象
-        fullScreenLiquidPath.reset();
-        
-        // 液面波浪 + 重力倾斜
-        float waveY = height - fillHeight;
-        fullScreenLiquidPath.moveTo(0, waveY + leftTilt);
-        
-        // V3.7: 统一波浪计算（避免重复计算）
-        updateWavePoints(width, waveOffset);
-        
-        // V3.14: 恢复波浪点数，保证流畅度
-        int pointCount = Math.min(width / 6, wavePoints.length);  // 恢复密集波浪点
-        for (int i = 0; i < pointCount; i++) {
-            float x = (float) i / (pointCount - 1) * width;
-            float wave = wavePoints[i];
-            float tilt = leftTilt + (rightTilt - leftTilt) * (x / (float)width);
-            fullScreenLiquidPath.lineTo(x, waveY + wave + tilt);
-        }
-        
-        // 连接到右下角，再到左下角，形成封闭路径
-        fullScreenLiquidPath.lineTo(width, height);
-        fullScreenLiquidPath.lineTo(0, height);
-        fullScreenLiquidPath.close();
-        
-        // 2. 绘制整体液体
-        canvas.drawPath(fullScreenLiquidPath, liquidPaint);
-        
-        // 3. 绘制底部阴影（仅在高度变化时重新创建shader）
-        if (lastShadowHeight != height) {
-            fullScreenShadowPaint.setShader(new LinearGradient(
-                0, height - 40, 0, height,
-                new int[]{0x00000000, 0x20000000, 0x40000000},
-                new float[]{0f, 0.7f, 1f},
-                Shader.TileMode.CLAMP
-            ));
-            lastShadowHeight = height;
-        }
-        canvas.drawPath(fullScreenLiquidPath, fullScreenShadowPaint);
-        
-        // V3.15: 修复气泡闪烁，每帧都绘制
-        if (fillHeight > 10) {  // 降低条件，让气泡在任何液体高度都能显示
-            drawBubbles(canvas, width, height, fillHeight);
         }
     }
     
@@ -641,10 +437,10 @@ public class LightningShapeView extends View implements SensorEventListener {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        // V3.5: 注册重力传感器（使用UI延迟，降低回调频率）
+        // 注册重力传感器
         if (sensorManager != null && accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
-            Log.d("LightningShapeView", "✅ 重力传感器已注册（UI延迟）");
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+            Log.d("LightningShapeView", "✅ 重力传感器已注册");
         }
     }
     
@@ -656,12 +452,6 @@ public class LightningShapeView extends View implements SensorEventListener {
             sensorManager.unregisterListener(this);
             Log.d("LightningShapeView", "❌ 重力传感器已注销");
         }
-        
-        // V3.5: 停止Choreographer回调
-        if (frameCallback != null) {
-            android.view.Choreographer.getInstance().removeFrameCallback(frameCallback);
-            frameCallback = null;
-        }
     }
     
     @Override
@@ -671,16 +461,17 @@ public class LightningShapeView extends View implements SensorEventListener {
             float x = event.values[0]; // 左右倾斜（-10 到 10）
             float y = event.values[1]; // 前后倾斜（-10 到 10）
             
-            // V3.17: 微小重力感应，更细腻的效果
-            float smoothFactor = 0.05f; // 微小灵敏度
+            // 平滑过渡（避免抖动，但保持灵敏）
+            float smoothFactor = 0.15f; // 降低以更灵敏
             tiltX = tiltX * (1 - smoothFactor) + x * smoothFactor;
             tiltY = tiltY * (1 - smoothFactor) + y * smoothFactor;
             
-            // 限制倾斜范围（微小范围）
-            tiltX = Math.max(-2f, Math.min(2f, tiltX));
-            tiltY = Math.max(-2f, Math.min(2f, tiltY));
+            // 限制倾斜范围（扩大到-8到8，更夸张）
+            tiltX = Math.max(-8f, Math.min(8f, tiltX));
+            tiltY = Math.max(-8f, Math.min(8f, tiltY));
             
-            // V3.5: 不在这里invalidate()，由Choreographer统一驱动刷新，避免过度绘制
+            // 重绘
+            invalidate();
         }
     }
     

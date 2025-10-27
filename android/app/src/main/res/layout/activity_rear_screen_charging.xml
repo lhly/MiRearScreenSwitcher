@@ -1,30 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V3.5: 充电动画：全屏液体填充 + 中央电量数字 -->
+<!-- 充电动画：3D液体闪电 + 毛玻璃电量显示 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/charging_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@drawable/bg_gradient_rear_screen">
     
-    <!-- 全屏液体填充（带重力感应和波浪） -->
-    <com.tgwgroup.MiRearScreenSwitcher.LightningShapeView
-        android:id="@+id/full_screen_liquid"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    <!-- 四色渐变背景全屏显示，不受安全区影响 -->
     
-    <!-- 安全区域中央的电量数字 -->
-    <TextView
-        android:id="@+id/battery_text"
+    <RelativeLayout
+        android:id="@+id/charging_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:text="100%"
-        android:textSize="60sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFF"
-        android:shadowColor="#80000000"
-        android:shadowDx="0"
-        android:shadowDy="6"
-        android:shadowRadius="12"
-        android:letterSpacing="0.05" />
+        android:layout_height="match_parent">
+        
+        <!-- 3D闪电形状液体容器（安全区居中） -->
+        <com.tgwgroup.MiRearScreenSwitcher.LightningShapeView
+            android:id="@+id/lightning_liquid"
+            android:layout_width="180dp"
+            android:layout_height="260dp"
+            android:layout_centerInParent="true" />
+        
+        <!-- 右上角电量数字（绿色，无背景） -->
+        <LinearLayout
+            android:id="@+id/battery_percentage_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentRight="true"
+            android:layout_marginTop="20dp"
+            android:layout_marginRight="20dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:alpha="0">
+            
+            <!-- 电量数字 -->
+            <TextView
+                android:id="@+id/battery_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="100"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:textColor="#00E676"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="3"
+                android:letterSpacing="0.05" />
+            
+            <!-- 百分号 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="%"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#00E676"
+                android:layout_marginLeft="2dp"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="2" />
+        </LinearLayout>
+    </RelativeLayout>
 </FrameLayout>
