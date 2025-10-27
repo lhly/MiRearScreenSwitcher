@@ -113,6 +113,17 @@
                 android:value="充电动画服务"/>
         </service>
         
+        <!-- V3.5: 未投放应用时常亮服务 -->
+        <service
+            android:name=".AlwaysWakeUpService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="持续唤醒背屏服务"/>
+        </service>
+        
         <!-- V2.4: 通知监听服务 -->
         <service
             android:name=".NotificationService"
@@ -179,7 +190,8 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
             android:directBootAware="true"
             android:showWhenLocked="true"
-            android:turnScreenOn="true">
+            android:turnScreenOn="true"
+            android:hardwareAccelerated="true">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
         

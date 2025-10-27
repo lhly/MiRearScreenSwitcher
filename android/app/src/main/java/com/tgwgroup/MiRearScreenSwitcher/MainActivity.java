@@ -111,13 +111,6 @@ public class MainActivity extends FlutterActivity {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
-            
-            // 测试Service
-            try {
-                String test = taskService.getCurrentForegroundApp();
-            } catch (Exception e) {
-                Log.e(TAG, "TaskService test failed", e);
-            }
         }
 
         @Override
@@ -144,7 +137,6 @@ public class MainActivity extends FlutterActivity {
             Shizuku.bindUserService(serviceArgs, taskServiceConnection);
         } catch (Exception e) {
             Log.e(TAG, "Failed to bind TaskService", e);
-            e.printStackTrace();
         }
     }
     
@@ -620,6 +612,41 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
+                    case "setAlwaysWakeUpEnabled": {
+                        // V3.5: 设置未投放应用时常亮开关
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                        prefs.edit().putBoolean("always_wakeup_enabled", enabled).apply();
+                        
+                        Intent intent = new Intent(this, AlwaysWakeUpService.class);
+                        if (enabled) {
+                            startService(intent);
+                            Log.d(TAG, "AlwaysWakeUpService started");
+                        } else {
+                            stopService(intent);
+                            Log.d(TAG, "AlwaysWakeUpService stopped");
+                        }
+                        
+                        result.success(true);
+                        break;
+                    }
+                    
+                    case "setChargingAlwaysOnEnabled": {
+                        // V3.5: 设置充电动画常亮开关
+                        boolean enabled = (boolean) call.argument("enabled");
+                        
+                        SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                        prefs.edit().putBoolean("charging_always_on_enabled", enabled).apply();
+                        
+                        // 通知ChargingService重新加载设置
+                        sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_CHARGING_SETTINGS"));
+                        
+                        Log.d(TAG, "Charging always on set to: " + enabled);
+                        result.success(true);
+                        break;
+                    }
+                    
                     case "toggleChargingService": {
                         // V2.3: 切换充电动画服务
                         boolean enabled = (boolean) call.argument("enabled");
@@ -637,8 +664,17 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
+                    case "startNotificationService": {
+                        // V2.4: 启动通知服务
+                        Intent intent = new Intent(this, NotificationService.class);
+                        startService(intent);
+                        Log.d(TAG, "NotificationService started");
+                        result.success(true);
+                        break;
+                    }
+                    
                     case "toggleNotificationService": {
-                        // V2.4: 切换通知服务（只保存设置，NotificationListenerService由系统管理）
+                        // V2.4: 切换通知服务
                         boolean enabled = (boolean) call.argument("enabled");
                         
                         SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -646,9 +682,16 @@ public class MainActivity extends FlutterActivity {
                             .putBoolean("notification_service_enabled", enabled)
                             .apply();
                         
-                        // 如果服务已运行，通知它重新加载设置
                         if (enabled) {
-                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                            // 开启时启动服务
+                            Intent intent = new Intent(this, NotificationService.class);
+                            startService(intent);
+                            Log.d(TAG, "NotificationService started");
+                        } else {
+                            // 关闭时停止服务
+                            Intent intent = new Intent(this, NotificationService.class);
+                            stopService(intent);
+                            Log.d(TAG, "NotificationService stopped");
                         }
                         
                         Log.d(TAG, "Notification service enabled: " + enabled);
@@ -681,15 +724,6 @@ public class MainActivity extends FlutterActivity {
                         // V2.4: 检查QUERY_ALL_PACKAGES权限
                         boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
                         Log.d(TAG, "🔍 QUERY_ALL_PACKAGES permission check: " + hasPermission);
-                        
-                        // 再测试一下实际能获取多少包
-                        try {
-                            int packageCount = getPackageManager().getInstalledApplications(0).size();
-                            Log.d(TAG, "🔍 Can actually query " + packageCount + " packages");
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to test package query", e);
-                        }
-                        
                         result.success(hasPermission);
                         break;
                     }
@@ -760,18 +794,43 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
-                    case "setNotificationPrivacyMode": {
-                        // V2.4: 设置隐私模式
+                    case "setNotificationPrivacyHideTitle": {
+                        // V3.2: 设置隐藏通知标题
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
                             prefs.edit()
-                                .putBoolean("notification_privacy_mode", enabled)
+                                .putBoolean("notification_privacy_hide_title", enabled)
                                 .apply();
-                            Log.d(TAG, "Privacy mode set to: " + enabled);
+                            
+                            // 通知NotificationService重新加载设置
+                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                            
+                            Log.d(TAG, "Privacy hide title set to: " + enabled);
                             result.success(true);
                         } catch (Exception e) {
-                            Log.e(TAG, "Failed to set privacy mode", e);
+                            Log.e(TAG, "Failed to set privacy hide title", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setNotificationPrivacyHideContent": {
+                        // V3.2: 设置隐藏通知内容
+                        try {
+                            boolean enabled = (boolean) call.argument("enabled");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putBoolean("notification_privacy_hide_content", enabled)
+                                .apply();
+                            
+                            // 通知NotificationService重新加载设置
+                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                            
+                            Log.d(TAG, "Privacy hide content set to: " + enabled);
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set privacy hide content", e);
                             result.error("ERROR", e.getMessage(), null);
                         }
                         break;
@@ -823,6 +882,23 @@ public class MainActivity extends FlutterActivity {
                             result.success(true);
                         } catch (Exception e) {
                             Log.e(TAG, "Failed to set notification dark mode", e);
+                            result.error("ERROR", e.getMessage(), null);
+                        }
+                        break;
+                    }
+                    
+                    case "setNotificationDuration": {
+                        // V3.4: 设置通知自动销毁时间
+                        try {
+                            int duration = (int) call.argument("duration");
+                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                            prefs.edit()
+                                .putInt("notification_duration", duration)
+                                .apply();
+                            Log.d(TAG, "Notification duration set to: " + duration + " seconds");
+                            result.success(true);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to set notification duration", e);
                             result.error("ERROR", e.getMessage(), null);
                         }
                         break;
