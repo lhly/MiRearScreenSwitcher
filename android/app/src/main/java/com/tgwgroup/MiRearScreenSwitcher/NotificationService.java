@@ -220,23 +220,23 @@ public class NotificationService extends NotificationListenerService {
             followDndMode = prefs.getBoolean("notification_follow_dnd_mode", true);
             onlyWhenLocked = prefs.getBoolean("notification_only_when_locked", false);
             notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
-            serviceEnabled = prefs.getBoolean("notification_service_enabled", false);
+            // 注意：不在这里重新设置 serviceEnabled，保持 loadNotificationServiceSettings() 的值
             
-            Log.d(TAG, "⚙️ 已加载设�?");
-            Log.d(TAG, "   - 启用状�? " + serviceEnabled);
-            Log.d(TAG, "   - 选中应用: " + selectedApps.size() + " �?");
+            Log.d(TAG, "⚙️ 已加载设置");
+            Log.d(TAG, "   - 启用状态: " + serviceEnabled + " (由loadNotificationServiceSettings设置)");
+            Log.d(TAG, "   - 选中应用: " + selectedApps.size() + " 个");
             Log.d(TAG, "   - 隐藏标题: " + privacyHideTitle);
             Log.d(TAG, "   - 隐藏内容: " + privacyHideContent);
             
             if (!selectedApps.isEmpty()) {
                 Log.d(TAG, "📋 选中应用列表: " + selectedApps.toString());
             } else {
-                Log.w(TAG, "⚠️ 没有选中任何应用�?");
+                Log.w(TAG, "⚠️ 没有选中任何应用");
             }
         } catch (Exception e) {
-            Log.e(TAG, "�?加载设置失败", e);
+            Log.e(TAG, "加载设置失败", e);
             selectedApps = new HashSet<>();
-            serviceEnabled = false;
+            // 不在这里重置 serviceEnabled
         }
     }
     

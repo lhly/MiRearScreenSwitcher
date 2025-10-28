@@ -257,10 +257,12 @@ public class ChargingService extends Service {
         // 绑定TaskService
         bindTaskService();
         
-        // 不再单独展示前台通知（统一由 NotificationService 提供"MRSS 后台服务"通知）
+        // 启动前台服务保活（使用统一的内核服务通知）
+        startForeground(NOTIFICATION_ID, RearScreenKeeperService.createServiceNotification(this));
+        Log.d(TAG, "✓ 前台服务已启动（使用内核服务通知）");
     }
     
-    // 取消 ChargingService 独立的前台通知，统一由全局后台通知保活
+    private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
 
     private void acquireWakeLock(long timeoutMs) {
         try {
@@ -563,6 +565,16 @@ public class ChargingService extends Service {
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "发送wakeup失败: " + t.getMessage());
+                }
+                
+                // 持续杀死官方launcher（防止其抢占背屏）
+                try {
+                    if (taskService != null) {
+                        taskService.disableSubScreenLauncher();
+                        Log.d(TAG, "🔪 Launcher killed");
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "杀死launcher失败: " + t.getMessage());
                 }
                 
                 // 更新充电动画的电量显示
