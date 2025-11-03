@@ -2253,6 +2253,24 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
       }
       return matchesQuery;
     }).toList();
+    
+    // 排序：选中的应用置顶，然后按应用名排序
+    filtered.sort((a, b) {
+      final String pkgA = a['packageName'] ?? '';
+      final String pkgB = b['packageName'] ?? '';
+      final bool selectedA = _selectedApps.contains(pkgA);
+      final bool selectedB = _selectedApps.contains(pkgB);
+      
+      // 如果一个是选中的，一个是未选中的，选中的排在前面
+      if (selectedA && !selectedB) return -1;
+      if (!selectedA && selectedB) return 1;
+      
+      // 如果都是选中或都是未选中，按应用名排序
+      final String nameA = (a['appName'] ?? '').toString().toLowerCase();
+      final String nameB = (b['appName'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+    
     setState(() {
       _visibleApps = filtered;
     });
@@ -2273,6 +2291,8 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
         _selectedApps.add(pkg);
       }
     });
+    // 重新应用过滤器以更新排序
+    _applyFilters();
     try {
       await platform.invokeMethod('setSelectedNotificationApps', _selectedApps.toList());
     } catch (e) {
@@ -2287,6 +2307,8 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
         _selectedApps.remove(pkg);
       }
     });
+    // 重新应用过滤器以更新排序
+    _applyFilters();
     try {
       await platform.invokeMethod('setSelectedNotificationApps', _selectedApps.toList());
     } catch (e) {
@@ -2458,6 +2480,9 @@ class _AppSelectionPageState extends State<AppSelectionPage> {
         _selectedApps.remove(packageName);
       }
     });
+    
+    // 重新应用过滤器以更新排序（选中的应用置顶）
+    _applyFilters();
     
     // 保存到后台
     try {

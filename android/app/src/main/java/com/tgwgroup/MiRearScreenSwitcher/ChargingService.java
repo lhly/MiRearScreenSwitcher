@@ -567,16 +567,6 @@ public class ChargingService extends Service {
                     Log.w(TAG, "发送wakeup失败: " + t.getMessage());
                 }
                 
-                // 持续杀死官方launcher（防止其抢占背屏）
-                try {
-                    if (taskService != null) {
-                        taskService.disableSubScreenLauncher();
-                        Log.d(TAG, "🔪 Launcher killed");
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "杀死launcher失败: " + t.getMessage());
-                }
-                
                 // 更新充电动画的电量显示
                 try {
                     int batteryLevel = getBatteryLevel(getApplicationContext());
