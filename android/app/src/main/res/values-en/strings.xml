@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MRSS</string>
+    <string name="tile_label">Switch to Rear Screen</string>
+    <string name="tile_screenshot_label">Rear Screen Screenshot</string>
+    <string name="tile_record_label">Rear Screen Record</string>
+    <string name="uninstall_title">😭Are you sure you want to uninstall MRSS?😭\n😭Are you sure you want to uninstall MRSS?😭\n😭Are you sure you want to uninstall MRSS?😭\n</string>
+    <string name="uninstall_content">\n\n\n😭Come back MRSS😭\n🌟My proudest belief🌟\n⚡️Rear screen scenes vividly⚡️\n😭Tears flow inexplicably😭\n💥Remember app on rear💥\n👍And powerful tools (Author note: refers to am force-stop)👍\n⚡️Beat Xiaomi SubScreenCenter⚡️\n✨Stay up all night not tired✨\n\n\n</string>
+    <string name="privacy_mode_enabled">Privacy Mode Enabled</string>
+    <string name="new_message_placeholder">You have a new message</string>
+    <string name="toast_cast_to_rear">cast to rear screen</string>
+    <string name="toast_switch_failed">Switch failed</string>
+    <string name="toast_return_to_main">returned to main screen</string>
+    <string name="toast_not_on_rear">Not on rear screen</string>
+    <string name="toast_app_not_found">App not found</string>
+    <string name="toast_screenshot_saved">Rear screen screenshot saved</string>
+    <string name="toast_please_switch_back">Please switch %s back to main screen first</string>
+    <string name="notif_kernel_service">MRSS Core Service</string>
+    <string name="notif_running_on_rear">running on rear screen</string>
+    <string name="notif_click_to_return">Tap to switch %s back to main screen</string>
+    <string name="notif_mrss_running">MRSS is currently running</string>
+</resources>

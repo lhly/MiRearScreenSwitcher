@@ -34,31 +34,31 @@ import rikka.shizuku.Shizuku;
  */
 public class SwitchToRearTileService extends TileService {
     private static final String TAG = "SwitchToRearTile";
-    
+
     // 静态变量：保存最后移动到背屏的任务信息（用于接近传感器恢复）
     private static String lastMovedTask = null; // 格式: "packageName:taskId"
-    
+
     private ITaskService taskService;
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
+    private final Shizuku.UserServiceArgs serviceArgs = new Shizuku.UserServiceArgs(
+            new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
             .daemon(false)
             .processNameSuffix("task_service")
             .debuggable(false)
             .version(1);
-    
+
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
         }
-        
+
         @Override
         public void onServiceDisconnected(ComponentName name) {
             taskService = null;
             scheduleReconnectTaskService();
         }
     };
-    
+
     /**
      * TaskService重连任务
      */
@@ -72,18 +72,18 @@ public class SwitchToRearTileService extends TileService {
             }
         }
     };
-    
+
     /**
      * 安排TaskService重连
      */
     private void scheduleReconnectTaskService() {
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 200);
     }
-    
+
     @Override
     public void onStartListening() {
         super.onStartListening();
-        
+
         Tile tile = getQsTile();
         if (tile != null) {
             tile.setState(Tile.STATE_INACTIVE);
@@ -93,16 +93,16 @@ public class SwitchToRearTileService extends TileService {
             }
             tile.updateTile();
         }
-        
+
         bindTaskService();
     }
-    
+
     @Override
     public void onStopListening() {
         super.onStopListening();
         unbindTaskService();
     }
-    
+
     /**
      * 静态辅助方法：恢复指定任务到背屏
      * 由 RearScreenBroadcastReceiver 调用
@@ -111,44 +111,45 @@ public class SwitchToRearTileService extends TileService {
         // 这个方法留空，实际恢复逻辑由广播接收器直接启动Activity来触发
         // Activity会自动应用FLAG_KEEP_SCREEN_ON
     }
-    
+
     /**
      * 获取最后移动到背屏的任务信息
+     * 
      * @return 格式: "packageName:taskId"，如果没有则返回null
      */
     public static String getLastMovedTask() {
         return lastMovedTask;
     }
-    
+
     @Override
     public void onClick() {
         super.onClick();
         switchCurrentAppToRearDisplay();
     }
-    
+
     private void bindTaskService() {
         if (taskService != null) {
             return;
         }
-        
+
         try {
             if (!Shizuku.pingBinder()) {
                 Log.e(TAG, "Shizuku not available");
                 return;
             }
-            
+
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "No Shizuku permission");
                 return;
             }
-            
+
             Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-            
+
         } catch (Exception e) {
             Log.e(TAG, "Failed to bind TaskService", e);
         }
     }
-    
+
     private void unbindTaskService() {
         if (taskService != null) {
             try {
@@ -159,15 +160,15 @@ public class SwitchToRearTileService extends TileService {
             taskService = null;
         }
     }
-    
+
     private void switchCurrentAppToRearDisplay() {
         if (taskService == null) {
             Log.w(TAG, "TaskService not available!");
             showTemporaryFeedback("服务未就绪");
-            
+
             // 尝试重新绑定
             bindTaskService();
-            
+
             // 延迟重试
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 if (taskService != null) {
@@ -178,15 +179,15 @@ public class SwitchToRearTileService extends TileService {
             }, 1000);
             return;
         }
-        
+
         performSwitch();
     }
-    
+
     private void performSwitch() {
         // 显示执行中状态 - 保持按钮外观，只改变副标题
         Tile tile = getQsTile();
         if (tile != null) {
-            tile.setState(Tile.STATE_INACTIVE);  // 保持熄灭状态
+            tile.setState(Tile.STATE_INACTIVE); // 保持熄灭状态
             tile.setSubtitle("切换中...");
             // 不显示"已开启"
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -194,7 +195,7 @@ public class SwitchToRearTileService extends TileService {
             }
             tile.updateTile();
         }
-        
+
         try {
             // 步骤0: 检查背屏是否已有应用在运行
             if (lastMovedTask != null && lastMovedTask.contains(":")) {
@@ -202,25 +203,26 @@ public class SwitchToRearTileService extends TileService {
                     String[] oldParts = lastMovedTask.split(":");
                     String oldPackageName = oldParts[0];
                     int oldTaskId = Integer.parseInt(oldParts[1]);
-                    
+
                     // 检查旧应用是否还在背屏
                     String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
                     if (rearForegroundApp != null && rearForegroundApp.equals(lastMovedTask)) {
                         // 背屏已有应用在运行，禁止操作
                         String oldAppName = getAppName(oldPackageName);
-                        
+
                         // 先收起控制中心，Toast才能显示
                         try {
                             taskService.collapseStatusBar();
                         } catch (Exception e) {
                             Log.w(TAG, "Failed to collapse for toast: " + e.getMessage());
                         }
-                        
+
                         // 延迟显示Toast，确保控制中心已收起
                         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                            Toast.makeText(this, "请先将 " + oldAppName + " 切换回主屏", Toast.LENGTH_LONG).show();
+                            Toast.makeText(this, getString(R.string.toast_please_switch_back, oldAppName),
+                                    Toast.LENGTH_LONG).show();
                         }, 300);
-                        
+
                         showTemporaryFeedback("✗ 背屏已占用");
                         return;
                     }
@@ -228,52 +230,53 @@ public class SwitchToRearTileService extends TileService {
                     Log.w(TAG, "Failed to check previous app: " + e.getMessage());
                 }
             }
-            
+
             // 步骤1: 禁用系统背屏Launcher（关键！防止挤占）
             try {
                 taskService.disableSubScreenLauncher();
             } catch (Exception e) {
                 Log.w(TAG, "Failed to disable SubScreenLauncher", e);
             }
-            
+
             // 步骤2: 获取当前前台应用
             String currentApp = taskService.getCurrentForegroundApp();
-            
+
             // 步骤3: 立即启动前台Service（不延迟，让通知快速出现）
             Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
             serviceIntent.putExtra("lastMovedTask", currentApp);
-            
+
             // V2.5: 传递背屏常亮开关状态
             try {
-                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
+                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences",
+                        MODE_PRIVATE);
                 boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
                 serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
             } catch (Exception e) {
                 // 默认为开启
                 serviceIntent.putExtra("keepScreenOnEnabled", true);
             }
-            
+
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
             } else {
                 startService(serviceIntent);
             }
-            
+
             if (currentApp != null && currentApp.contains(":")) {
                 String[] parts = currentApp.split(":");
                 String packageName = parts[0];
                 int taskId = Integer.parseInt(parts[1]);
-                
+
                 // 获取应用名
                 String appName = getAppName(packageName);
-                
+
                 // 步骤4: 切换到display 1 (背屏)
                 boolean success = taskService.moveTaskToDisplay(taskId, 1);
-                
+
                 if (success) {
                     // 保存最后移动的任务信息（用于接近传感器恢复）
                     lastMovedTask = currentApp;
-                    
+
                     // 自动收回控制中心（提升用户体验）
                     try {
                         new Thread(() -> {
@@ -288,12 +291,13 @@ public class SwitchToRearTileService extends TileService {
                     } catch (Exception e) {
                         Log.w(TAG, "Failed to start collapse thread: " + e.getMessage());
                     }
-                    
+
                     // 延迟显示Toast，确保控制中心已收起
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        Toast.makeText(this, appName + " 已投放到背屏", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, appName + " " + getString(R.string.toast_cast_to_rear), Toast.LENGTH_SHORT)
+                                .show();
                     }, 300);
-                    
+
                     // 步骤5: 主动点亮背屏 (通过TaskService启动Activity，绕过BAL限制)
                     try {
                         if (taskService != null) {
@@ -311,7 +315,7 @@ public class SwitchToRearTileService extends TileService {
                     } catch (Exception e) {
                         Log.w(TAG, "Failed to launch wakeup activity", e);
                     }
-                    
+
                     showTemporaryFeedback("✓ 已切换");
                 } else {
                     // 先收起控制中心
@@ -320,12 +324,12 @@ public class SwitchToRearTileService extends TileService {
                     } catch (Exception e) {
                         Log.w(TAG, "Failed to collapse: " + e.getMessage());
                     }
-                    
+
                     // 延迟显示Toast
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        Toast.makeText(this, "切换失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.toast_switch_failed), Toast.LENGTH_SHORT).show();
                     }, 300);
-                    
+
                     showTemporaryFeedback("✗ 失败");
                 }
             } else {
@@ -337,7 +341,7 @@ public class SwitchToRearTileService extends TileService {
             showTemporaryFeedback("✗ 操作失败");
         }
     }
-    
+
     private void showTemporaryFeedback(String message) {
         Tile tile = getQsTile();
         if (tile != null) {
@@ -348,7 +352,7 @@ public class SwitchToRearTileService extends TileService {
             }
             tile.updateTile();
         }
-        
+
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             Tile resetTile = getQsTile();
             if (resetTile != null) {
@@ -361,7 +365,7 @@ public class SwitchToRearTileService extends TileService {
             }
         }, 1500);
     }
-    
+
     /**
      * 获取应用名称
      */
@@ -379,4 +383,3 @@ public class SwitchToRearTileService extends TileService {
         return packageName; // 失败时返回包名
     }
 }
-

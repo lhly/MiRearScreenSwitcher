@@ -328,11 +328,11 @@ public class NotificationService extends NotificationListenerService {
             // V3.2: 隐私模式处理（区分标题和内容）
             if (privacyHideTitle) {
                 Log.d(TAG, "🔒 隐藏通知标题");
-                title = "隐私模式已启用";
+                title = getString(R.string.privacy_mode_enabled);
             }
             if (privacyHideContent) {
                 Log.d(TAG, "🔒 隐藏通知内容");
-                text = "你有一条新消息";
+                text = getString(R.string.new_message_placeholder);
             }
             
             Log.d(TAG, "🚀 开始显示背屏通知: " + packageName);
