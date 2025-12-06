@@ -854,17 +854,17 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setOnlyWhenLocked": {
-                        // V3.0: 设置仅在锁屏时通知
+                        // V3.0: 设置仅倒扣手机时通知
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
                             prefs.edit()
                                 .putBoolean("notification_only_when_locked", enabled)
                                 .apply();
-                            Log.d(TAG, "Only when locked mode set to: " + enabled);
+                            Log.d(TAG, "Only when upside down mode set to: " + enabled);
                             result.success(true);
                         } catch (Exception e) {
-                            Log.e(TAG, "Failed to set only when locked mode", e);
+                            Log.e(TAG, "Failed to set only when upside down mode", e);
                             result.error("ERROR", e.getMessage(), null);
                         }
                         break;

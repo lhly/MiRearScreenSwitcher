@@ -25,6 +25,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.IBinder;
@@ -49,12 +53,17 @@ public class NotificationService extends NotificationListenerService {
     private boolean privacyHideTitle = false; // V3.2: 隐私模式 - 隐藏标题
     private boolean privacyHideContent = false; // V3.2: 隐私模式 - 隐藏内容
     private boolean followDndMode = true; // 跟随系统勿扰模式（默认开启）
-    private boolean onlyWhenLocked = false; // 仅在锁屏时通知（默认关闭）
+    private boolean onlyWhenLocked = false; // 仅倒扣手机时通知（默认关闭）
     private boolean notificationDarkMode = false; // 通知暗夜模式（默认关闭）
     private boolean serviceEnabled = false; // 服务是否启用
     private ITaskService taskService; // 自己的TaskService实例
     private SharedPreferences prefs;
     private PowerManager.WakeLock wakeLock;
+    
+    // 主屏接近传感器相关
+    private SensorManager sensorManager;
+    private Sensor mainProximitySensor; // 主屏接近传感器
+    private boolean isMainScreenCovered = false; // 主屏是否被遮盖
     
     // 静态实例，供外部访问
     private static NotificationService instance;
@@ -159,6 +168,9 @@ public class NotificationService extends NotificationListenerService {
         Log.d(TAG, "🔧 开始加载通知服务开关状态...");
         loadNotificationServiceSettings();
         Log.d(TAG, "🔧 通知服务开关状态加载完成: " + serviceEnabled);
+        
+        // 初始化主屏接近传感器
+        initMainProximitySensor();
         
         // 启动为前台服务，防止被系统杀死
         startForeground(NOTIFICATION_ID, RearScreenKeeperService.createServiceNotification(this));
@@ -293,16 +305,11 @@ public class NotificationService extends NotificationListenerService {
                 }
             }
             
-            // 检查是否仅在锁屏时通知
+            // 检查是否仅倒扣手机时通知（检测主屏接近传感器）
             if (onlyWhenLocked) {
-                try {
-                    android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                    if (km != null && !km.isKeyguardLocked()) {
-                        Log.d(TAG, "⏭️ 当前未锁屏，仅锁屏通知模式已开启，跳过");
-                        return;
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "检查锁屏状态失败: " + e.getMessage());
+                if (!isMainScreenCovered) {
+                    Log.d(TAG, "⏭️ 主屏未被遮盖，仅倒扣手机通知模式已开启，跳过");
+                    return;
                 }
             }
             
@@ -588,6 +595,115 @@ public class NotificationService extends NotificationListenerService {
         }
     }
     
+    /**
+     * 初始化主屏接近传感器（用于检测倒扣手机）
+     */
+    private void initMainProximitySensor() {
+        try {
+            sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+            
+            if (sensorManager != null) {
+                // 获取所有传感器列表
+                java.util.List<Sensor> allSensors = sensorManager.getSensorList(Sensor.TYPE_ALL);
+                
+                // 查找主屏接近传感器（不包含"Back"的接近传感器）
+                // 优先选择 Wakeup 版本，如果没有则选择 Non-wakeup 版本
+                Sensor wakeupSensor = null;
+                Sensor nonWakeupSensor = null;
+                
+                for (Sensor sensor : allSensors) {
+                    String name = sensor.getName();
+                    if (name.contains("Proximity") && !name.contains("Back")) {
+                        // 主屏接近传感器（不包含Back）
+                        if (name.contains("Wakeup")) {
+                            wakeupSensor = sensor;
+                        } else {
+                            nonWakeupSensor = sensor;
+                        }
+                    }
+                }
+                
+                // 优先使用 Wakeup 版本
+                if (wakeupSensor != null) {
+                    mainProximitySensor = wakeupSensor;
+                } else if (nonWakeupSensor != null) {
+                    mainProximitySensor = nonWakeupSensor;
+                    Log.w(TAG, "→ Using NON-WAKEUP main proximity sensor");
+                }
+                
+                // 如果找不到主屏传感器，回退到默认传感器
+                if (mainProximitySensor == null) {
+                    Log.w(TAG, "⚠ Main proximity sensor not found, using default");
+                    mainProximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
+                }
+                
+                if (mainProximitySensor != null) {
+                    // 注册传感器监听器
+                    boolean registered = sensorManager.registerListener(
+                            proximitySensorListener,
+                            mainProximitySensor,
+                            SensorManager.SENSOR_DELAY_NORMAL);
+                    
+                    if (registered) {
+                        Log.d(TAG, "✅ 主屏接近传感器已注册");
+                    } else {
+                        Log.w(TAG, "⚠ Failed to register main proximity sensor");
+                    }
+                } else {
+                    Log.w(TAG, "⚠ No main proximity sensor available");
+                }
+            } else {
+                Log.w(TAG, "⚠ SensorManager not available");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "✗ Error initializing main proximity sensor", e);
+        }
+    }
+    
+    /**
+     * 注销主屏接近传感器
+     */
+    private void unregisterMainProximitySensor() {
+        try {
+            if (sensorManager != null && proximitySensorListener != null) {
+                sensorManager.unregisterListener(proximitySensorListener);
+                Log.d(TAG, "✓ 主屏接近传感器已注销");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "✗ Error unregistering main proximity sensor", e);
+        }
+    }
+    
+    /**
+     * 主屏接近传感器监听器
+     */
+    private final SensorEventListener proximitySensorListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (event.sensor == mainProximitySensor) {
+                float distance = event.values[0];
+                float maxRange = mainProximitySensor.getMaximumRange();
+                
+                // 当距离接近0（被覆盖）时触发
+                // 小于最大距离的20%视为覆盖
+                boolean isCovered = (distance < maxRange * 0.2f);
+                
+                isMainScreenCovered = isCovered;
+                
+                if (isCovered) {
+                    Log.d(TAG, "📱 主屏接近传感器：被遮盖 (距离: " + distance + " cm)");
+                } else {
+                    Log.d(TAG, "📱 主屏接近传感器：未遮盖 (距离: " + distance + " cm)");
+                }
+            }
+        }
+        
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            // 不需要处理
+        }
+    };
+    
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
@@ -626,6 +742,9 @@ public class NotificationService extends NotificationListenerService {
         } catch (Exception e) {
             Log.w(TAG, "Failed to unbind TaskService", e);
         }
+        
+        // 注销主屏接近传感器
+        unregisterMainProximitySensor();
         
         // 清除实例
         instance = null;

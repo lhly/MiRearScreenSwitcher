@@ -3259,7 +3259,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         _onlyWhenLocked = enabled;
       });
     } catch (e) {
-      print('切换锁屏通知设置失败: $e');
+      print('切换倒扣手机通知设置失败: $e');
     }
   }
 
@@ -3472,7 +3472,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
 
               const SizedBox(height: 20),
 
-              // 仅在锁屏时通知
+              // 仅倒扣手机时通知
               CustomPaint(
                 painter: _SquircleBorderPainter(
                   radius: 32,
@@ -3494,7 +3494,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                       child: Row(
                         children: [
                           const Icon(
-                            Icons.screen_lock_portrait,
+                            Icons.flip_camera_android,
                             size: 20,
                             color: Colors.black54,
                           ),
