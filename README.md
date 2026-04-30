@@ -1,3 +1,5 @@
+# 鉴于小米3.8解锁节形势，加之shizuku限制实在过多，本项目无限期停更。
+
 # MiRearScreenSwitcher (MRSS)
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
