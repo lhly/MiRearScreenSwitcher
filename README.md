@@ -141,6 +141,10 @@
 
 ## 🛠️ 开发构建
 
+Release 构建需要先配置 `android/key.properties` 和正式签名密钥。Android Studio 的“构建正式 APK”入口、本机构建环境及密钥备份方法见 [正式 APK 构建说明](docs/android-studio-release.md)。
+
+推送版本 tag 自动发布已签名 APK 的 GitHub Actions 配置见 [自动发版说明](docs/github-release.md)。首次需配置签名 Secrets；当前版本对应 tag `v3.2.1`。
+
 ```bash
 # 安装依赖
 flutter pub get

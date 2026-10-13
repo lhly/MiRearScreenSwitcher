@@ -17,7 +17,7 @@ APK 输出为 `build/app/outputs/flutter-apk/app-debug.apk`。该环境文件包
 
 ## 测试包与原版数据
 
-debug 包名为 `com.tgwgroup.MiRearScreenSwitcher.debug`，名称为“MRSS 修复测试”，磁贴为“切换至背屏（修复测试）”，URI 为 `mrss-debug://`。release 仍使用原包名与 `mrss://`。
+debug 包名为 `com.tgwgroup.MiRearScreenSwitcher.debug`，名称为“MRSS 修复测试”，磁贴为“切换至背屏（修复测试）”，URI 为 `mrss-debug://`。release 默认使用原包名与 `mrss://`；2026-10-13 配置的本机个人正式版通过签名属性设置独立包名 `.personal`，详见 [正式 APK 构建说明](android-studio-release.md)。
 
 原版作者签名与本地测试包签名不同。原版使用 `pm uninstall -k --user 0 com.tgwgroup.MiRearScreenSwitcher` 保留手机上的私有数据，测试版使用独立数据目录，原设置不会自动出现在测试版中。原版 APK 备份位于 `.local/backups/original/base.apk`；私有数据没有离线导出。
 

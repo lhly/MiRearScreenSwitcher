@@ -1,0 +1,9 @@
+# Copy to key.properties and fill in your own signing credentials.
+# key.properties and the actual keystore must not be committed.
+storePassword=REPLACE_WITH_YOUR_STORE_PASSWORD
+keyPassword=REPLACE_WITH_YOUR_KEY_PASSWORD
+keyAlias=mrss-release
+storeFile=../../.local/signing/mrss-release.p12
+storeType=PKCS12
+# Omit this line only when you deliberately build the original application ID.
+releaseApplicationIdSuffix=.personal

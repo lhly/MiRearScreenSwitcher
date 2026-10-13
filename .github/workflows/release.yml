@@ -1,0 +1,137 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and verify signed APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      # Must match the personal key used by local Android Studio builds.
+      RELEASE_CERT_SHA256: 6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+    outputs:
+      apk_name: ${{ steps.version.outputs.apk_name }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and version
+        id: version
+        run: python3 tools/ci_release.py metadata
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: zulu
+          java-version: '21'
+          cache: gradle
+
+      - name: Test release checks and service lifecycle
+        run: |
+          python3 tools/test_ci_release.py
+          python3 tools/test_task_service_connection.py
+
+      - name: Set up Flutter 3.35.7
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: '3.35.7'
+          cache: true
+
+      - name: Prepare Android toolchain and dependencies
+        run: |
+          flutter config --no-analytics --jdk-dir="$JAVA_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.0.12077973'
+          flutter pub get --enforce-lockfile
+
+      - name: Restore and validate signing key
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: python3 tools/ci_release.py signing
+
+      - name: Build release APK for ARM64
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: >-
+          flutter build apk --release --target-platform android-arm64
+          --build-name="$RELEASE_VERSION" --build-number="$RELEASE_BUILD_NUMBER"
+
+      - name: Verify APK and generate checksums
+        run: python3 tools/ci_release.py verify build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Remove signing files
+        if: always()
+        run: rm -f android/key.properties "$RUNNER_TEMP/mrss-release.p12"
+
+      - name: Upload verified release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist
+
+      - name: Publish APK and checksum file
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          sha256sum --check SHA256SUMS
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-is-draft"; then
+            if [[ "$(cat "$RUNNER_TEMP/release-is-draft")" != 'true' ]]; then
+              echo "Release already published; keeping its existing assets."
+              exit 0
+            fi
+            gh release upload "$RELEASE_TAG" "$APK_NAME" SHA256SUMS --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_NAME" SHA256SUMS \
+              --verify-tag --title "MRSS $RELEASE_TAG" --generate-notes --draft
+          fi
+          if [[ "$PRERELEASE" == 'true' ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          fi

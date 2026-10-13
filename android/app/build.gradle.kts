@@ -57,6 +57,7 @@ android {
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = keystoreProperties["storeFile"]?.let { file(it) }
                 storePassword = keystoreProperties["storePassword"] as String
+                storeType = keystoreProperties.getProperty("storeType", "JKS")
             }
         }
     }
@@ -73,8 +74,10 @@ android {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
+            // A local suffix allows a personal signing key without replacing the author's app.
+            applicationIdSuffix = keystoreProperties.getProperty("releaseApplicationIdSuffix", "")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -86,6 +89,18 @@ android {
 
     // V20: NDK and CMake configuration
     
+}
+
+val validateReleaseSigning by tasks.registering {
+    doLast {
+        check(keystorePropertiesFile.exists()) {
+            "Release signing is not configured. Create android/key.properties with your release keystore."
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validateReleaseSigning)
 }
 
 flutter {
