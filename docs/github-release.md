@@ -38,38 +38,38 @@ done
 
 先将工作流、辅助脚本、当前构建配置和应用修改提交并推送到 GitHub。tag 必须指向包含这些修改的提交。
 
-当前 `pubspec.yaml` 为 `version: 3.2.1+2011`，`v3.2.1` 已正式发布。下一次发版先修改为 `version: 3.2.2+2012`，提交修改后运行：
+当前 `version.properties` 为 `versionName=3.3.0`、`versionCode=2012`。`v3.2.1` 已发布；原生 `v3.3.0` 目前仅本地构建。确认源码与配置后，提交修改再运行：
 
 ```sh
 git push origin main
-git tag -a v3.2.2 -m "MRSS 3.2.2"
-git push origin v3.2.2
+git tag -a v3.3.0 -m "MRSS 3.3.0"
+git push origin v3.3.0
 ```
 
-tag 中的版本必须与 `+` 前的 versionName 完全一致；`+` 后的 versionCode 必须为正整数，更新个人正式版时应持续递增。已发布的 tag 不再重复创建或覆盖。
+tag 中的版本必须与 `version.properties` 的 versionName 完全一致；versionCode 必须为正整数，更新个人正式版时应持续递增。已发布的 tag 不再重复创建或覆盖。
 
-预览版示例：`version: 3.2.2-rc.1+2012` 对应 `v3.2.2-rc.1`。预览版会被标记为 Pre-release；正式版会被标记为 Latest。不接受 `v3.2.2+2012` 这种带构建号的 tag。
+预览版示例：`versionName=3.3.0-rc.1`、`versionCode=2012` 对应 `v3.3.0-rc.1`。预览版会被标记为 Pre-release；正式版会被标记为 Latest。不接受 `v3.3.0+2012` 这种带构建号的 tag。
 
 在 [Actions 页面](https://github.com/lhly/MiRearScreenSwitcher/actions) 查看 **Release APK** 的运行状态。成功后，[Releases 页面](https://github.com/lhly/MiRearScreenSwitcher/releases) 会出现：
 
-- `MRSS-v3.2.1-arm64-v8a.apk`：已正式签名的 ARM64 APK。
+- `MRSS-v3.3.0-native.apk`：已正式签名、不含 Flutter 的原生 APK。
 - `SHA256SUMS`：APK 的 SHA256 校验文件。
 - GitHub 自动生成的版本说明。
 
-工作流还会保存一份名为 `release-v3.2.1` 的 Actions artifact，保留 14 天。Release 附件不受这份 artifact 的保留期限影响。
+工作流还会保存一份名为 `release-v3.3.0` 的 Actions artifact，保留 14 天。Release 附件不受这份 artifact 的保留期限影响。
 
 ## 构建与签名检查
 
-构建环境固定为 Ubuntu 22.04、Flutter 3.35.7、JDK 21、SDK 36 / Build Tools 36.0.0 和 NDK 27.0.12077973；依赖使用已提交的 `pubspec.lock`。外部 Actions 使用完整 commit SHA 固定。
+构建环境固定为 Ubuntu 22.04、JDK 21、SDK 36 / Build Tools 36.0.0，使用 Gradle Wrapper 8.9 和显式版本的 Android 依赖。无需 Flutter 或 NDK；外部 Actions 使用完整 commit SHA 固定。
 
 构建前运行发布参数测试与 16 项服务生命周期回归。签名缺失、Base64 错误、密钥无法读取或证书与预期不一致时，工作流失败并停止发版。
 
 产物必须符合以下条件：
 
 - 包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`。
-- 版本与 tag、`pubspec.yaml` 一致。
+- 版本与 tag、`version.properties` 一致。
 - APK 验签通过，签名证书与本机 Android Studio 构建使用的个人密钥一致。
-- 不可调试，包含 ARM64 Flutter AOT 代码。
+- 不可调试，包含 `classes.dex`，不含 Flutter 引擎、Dart AOT 和 Flutter assets。
 
 预期签名证书 SHA256 已写入工作流：`6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac`。沿用这把密钥和包名即可继续覆盖更新个人正式版；作者原版和 `.debug` 测试版有各自的数据目录。
 
@@ -77,7 +77,7 @@ tag 中的版本必须与 `+` 前的 versionName 完全一致；`+` 后的 versi
 
 ## 本地验证与云端验收
 
-本次已通过 actionlint 工作流检查、9 项发布参数测试、16 项业务回归及发布 shell 场景验证，验证了 Secrets 导出和恢复，以及当前正式 APK 的签名、包名、版本和 AOT 结构。错误证书和校验文件会阻止发布。
+原生工作流在本地检查 YAML 和发布参数，正式产物校验签名、包名、版本与无 Flutter 结构。原生 v3.3.0 尚未触发真实云端运行。以下记录是此前 Flutter v3.2.1 的历史验收，不代表新工作流已云端验收。错误证书和校验文件会阻止发布。
 
 2026-10-13 已完成首次真实云端验收：[Release APK 运行 38348746002](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38348746002) 的构建和发布两个 job 均成功，[MRSS v3.2.1](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.2.1) 已公开并标记为 Latest，包含 APK 和 `SHA256SUMS`。构建耗时 6 分 35 秒，发布耗时 10 秒。
 
@@ -89,7 +89,7 @@ tag 中的版本必须与 `+` 前的 versionName 完全一致；`+` 后的 versi
 source .local/env.sh
 python3 tools/test_ci_release.py
 python3 tools/test_task_service_connection.py
-RELEASE_TAG=v3.2.1 python3 tools/ci_release.py metadata
+RELEASE_TAG=v3.3.0 python3 tools/ci_release.py metadata
 ```
 
 参考：[GitHub Actions Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[GitHub CLI 创建 Release](https://cli.github.com/manual/gh_release_create)、[编辑并发布草稿](https://cli.github.com/manual/gh_release_edit)。

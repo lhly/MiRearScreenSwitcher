@@ -25,7 +25,6 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
       # Must match the personal key used by local Android Studio builds.
       RELEASE_CERT_SHA256: 6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac
-      FLUTTER_SUPPRESS_ANALYTICS: 'true'
     outputs:
       apk_name: ${{ steps.version.outputs.apk_name }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -51,19 +50,10 @@ jobs:
           python3 tools/test_ci_release.py
           python3 tools/test_task_service_connection.py
 
-      - name: Set up Flutter 3.35.7
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: stable
-          flutter-version: '3.35.7'
-          cache: true
-
-      - name: Prepare Android toolchain and dependencies
+      - name: Prepare Android toolchain
         run: |
-          flutter config --no-analytics --jdk-dir="$JAVA_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.0.12077973'
-          flutter pub get --enforce-lockfile
+            'platforms;android-36' 'build-tools;36.0.0'
 
       - name: Restore and validate signing key
         env:
@@ -73,16 +63,16 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: python3 tools/ci_release.py signing
 
-      - name: Build release APK for ARM64
+      - name: Build native release APK
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
         run: >-
-          flutter build apk --release --target-platform android-arm64
-          --build-name="$RELEASE_VERSION" --build-number="$RELEASE_BUILD_NUMBER"
+          ./android/gradlew -p android :app:assembleRelease --console=plain
+          -PmrssVersionName="$RELEASE_VERSION" -PmrssVersionCode="$RELEASE_BUILD_NUMBER"
 
       - name: Verify APK and generate checksums
-        run: python3 tools/ci_release.py verify build/app/outputs/flutter-apk/app-release.apk
+        run: python3 tools/ci_release.py verify build/app/outputs/apk/release/app-release.apk
 
       - name: Remove signing files
         if: always()

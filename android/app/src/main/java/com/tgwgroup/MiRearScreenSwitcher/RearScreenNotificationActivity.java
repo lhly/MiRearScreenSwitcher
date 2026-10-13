@@ -121,11 +121,8 @@ public class RearScreenNotificationActivity extends Activity {
             
             // 注册广播接收器（即使是占位符也要注册）
             android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(interruptReceiver, interruptFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                registerReceiver(interruptReceiver, interruptFilter);
-            }
+            androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
             currentInstance = this;
             return;
         }
@@ -302,11 +299,8 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 注册广播接收器（监听打断事件）
         android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(interruptReceiver, interruptFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(interruptReceiver, interruptFilter);
-        }
+        androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, String.format("[%tT.%tL] ✓ 已注册通知动画广播接收器", onCreateEndTime, onCreateEndTime));
         
         // 设置为当前实例

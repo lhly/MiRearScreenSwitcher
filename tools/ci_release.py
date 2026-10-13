@@ -18,23 +18,24 @@ PACKAGE_ID = 'com.tgwgroup.MiRearScreenSwitcher.personal'
 SEMVER = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
 
 
-def release_metadata(pubspec, tag):
+def release_metadata(properties, tag):
     version = tag.removeprefix('v')
     match = SEMVER.fullmatch(version) if tag.startswith('v') else None
     if not match or any(p.isdigit() and len(p) > 1 and p.startswith('0')
                         for p in (match[4] or '').split('.')):
         raise ValueError('Tag must be vMAJOR.MINOR.PATCH, optionally with a prerelease suffix.')
-    versions = re.findall(r'^version:\s*[\'"]?([^\'"\s#]+)[\'"]?\s*(?:#.*)?$', pubspec, re.MULTILINE)
-    if len(versions) != 1:
-        raise ValueError('pubspec.yaml must contain one version: VERSION+BUILD_NUMBER.')
-    name, separator, number = versions[0].rpartition('+')
-    if not separator or not re.fullmatch(r'[1-9][0-9]*', number) or int(number) > 2100000000:
+    names = re.findall(r'^versionName\s*=\s*([^\s#]+)\s*$', properties, re.MULTILINE)
+    codes = re.findall(r'^versionCode\s*=\s*([^\s#]+)\s*$', properties, re.MULTILINE)
+    if len(names) != 1 or len(codes) != 1:
+        raise ValueError('version.properties must contain one versionName and one versionCode.')
+    name, number = names[0], codes[0]
+    if not re.fullmatch(r'[1-9][0-9]*', number) or int(number) > 2100000000:
         raise ValueError('versionCode must be a positive integer no greater than 2100000000.')
     if name != version:
-        raise ValueError('Tag version must match the versionName in pubspec.yaml.')
+        raise ValueError('Tag version must match versionName in version.properties.')
     return {'version': version, 'build_number': number,
             'prerelease': str(match[4] is not None).lower(),
-            'apk_name': f'MRSS-{tag}-arm64-v8a.apk'}
+            'apk_name': f'MRSS-{tag}-native.apk'}
 
 
 def properties_value(value):
@@ -123,12 +124,11 @@ def verify_apk(apk, metadata, dist):
         raise ValueError('Refusing to publish a debuggable APK.')
     with zipfile.ZipFile(apk) as archive:
         names = set(archive.namelist())
-        for library in ('libapp.so', 'libflutter.so'):
-            paths = {p for p in names if p.startswith('lib/') and p.endswith('/' + library)}
-            if paths != {f'lib/arm64-v8a/{library}'}:
-                raise ValueError('APK must contain ARM64 Flutter release libraries.')
-        if any(p.endswith('kernel_blob.bin') for p in names):
-            raise ValueError('Refusing to publish a Flutter debug kernel.')
+        if 'classes.dex' not in names:
+            raise ValueError('APK has no native Android application code.')
+        if any(p.endswith(('/libflutter.so', '/libapp.so', 'kernel_blob.bin'))
+               or p.startswith('assets/flutter_assets/') for p in names):
+            raise ValueError('Refusing to publish an APK containing the removed Flutter runtime.')
     dist.mkdir(parents=True, exist_ok=True)
     target = dist / metadata['apk_name']
     shutil.copy2(apk, target)
@@ -148,7 +148,7 @@ def main():
         if args.command == 'signing':
             prepare_signing(args.project)
             return
-        metadata = release_metadata((args.project / 'pubspec.yaml').read_text(), os.environ.get('RELEASE_TAG', ''))
+        metadata = release_metadata((args.project / 'version.properties').read_text(), os.environ.get('RELEASE_TAG', ''))
         if args.command == 'metadata':
             if os.environ.get('GITHUB_OUTPUT'):
                 with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:

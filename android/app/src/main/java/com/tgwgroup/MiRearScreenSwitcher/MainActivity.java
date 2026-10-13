@@ -29,14 +29,11 @@ import android.os.IBinder;
 import android.util.Log;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import io.flutter.embedding.android.FlutterActivity;
-import io.flutter.embedding.engine.FlutterEngine;
-import io.flutter.plugin.common.MethodChannel;
+import android.app.Activity;
 
 import rikka.shizuku.Shizuku;
 
-public class MainActivity extends FlutterActivity {
-    private static final String CHANNEL = "com.display.switcher/task";
+public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
     
@@ -49,7 +46,9 @@ public class MainActivity extends FlutterActivity {
     
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService;
-    private MethodChannel methodChannel;
+    private NativeSettingsUi nativeUi;
+    private final java.util.concurrent.ExecutorService commandExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private final Shizuku.OnRequestPermissionResultListener requestPermissionResultListener =
         (requestCode, grantResult) -> {
@@ -57,23 +56,20 @@ public class MainActivity extends FlutterActivity {
             if (granted) {
                 bindTaskService();
             }
-            // 通知Flutter刷新状态
-            if (methodChannel != null) {
-                runOnUiThread(() -> {
-                    methodChannel.invokeMethod("onShizukuPermissionChanged", granted);
-                });
-            }
+            if (nativeUi != null) runOnUiThread(nativeUi::refreshStatus);
         };
     
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
+            if (nativeUi != null) nativeUi.refreshStatus();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             taskService = null;
+            if (nativeUi != null) nativeUi.refreshStatus();
         }
     };
     
@@ -84,8 +80,11 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        nativeUi = new NativeSettingsUi(this, savedInstanceState);
+        setContentView(nativeUi.getView());
+        if (Build.VERSION.SDK_INT >= 33) BackApi33.register(this);
         bindTaskService();
-        
+
         // 保存实例
         currentInstance = this;
 
@@ -228,6 +227,8 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onDestroy() {
         taskServiceReleased = true;
+        if (nativeUi != null) nativeUi.destroy();
+        commandExecutor.shutdownNow();
         super.onDestroy();
         
         // 清除静态实例
@@ -239,11 +240,79 @@ public class MainActivity extends FlutterActivity {
     }
     
     @Override
-    public void configureFlutterEngine(FlutterEngine flutterEngine) {
-        super.configureFlutterEngine(flutterEngine);
-        
-        methodChannel = new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL);
-        methodChannel.setMethodCallHandler((call, result) -> {
+    protected void onResume() {
+        super.onResume();
+        if (nativeUi != null) nativeUi.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        if (nativeUi != null) nativeUi.onPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle state) {
+        if (nativeUi != null) nativeUi.saveState(state);
+        super.onSaveInstanceState(state);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (!nativeUi.navigateBack()) super.onBackPressed();
+    }
+
+    @androidx.annotation.RequiresApi(33)
+    private static final class BackApi33 {
+        static void register(MainActivity activity) {
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    () -> { if (!activity.nativeUi.navigateBack()) activity.finish(); });
+        }
+    }
+
+    boolean isTaskServiceReady() {
+        ITaskService service = taskService;
+        return service != null && service.asBinder().isBinderAlive();
+    }
+
+    void runAction(String method, Object arguments, NativeAction.Callback callback) {
+        NativeAction.Result result = new NativeAction.Result() {
+            @Override public void success(Object value) { deliver(value, null); }
+            @Override public void error(String code, String message, Object details) { deliver(null, message); }
+            private void deliver(Object value, String error) {
+                runOnUiThread(() -> {
+                    if (!isDestroyed() && callback != null) callback.complete(value, error);
+                });
+            }
+        };
+        boolean remote = method.equals("getCurrentRearDpi") || method.equals("setRearDpi")
+                || method.equals("resetRearDpi") || method.equals("getDisplayRotation")
+                || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart")
+                || method.equals("getCurrentApp");
+        Runnable action = () -> {
+            try {
+                if (remote) {
+                    bindTaskService();
+                    long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
+                    while (!isTaskServiceReady() && !taskServiceReleased
+                            && android.os.SystemClock.elapsedRealtime() < deadline) {
+                        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) break;
+                        Thread.sleep(50);
+                    }
+                    if (taskServiceReleased) return;
+                }
+                handleAction(new NativeAction(method, arguments), result);
+            } catch (Exception error) {
+                Log.e(TAG, "Native action failed: " + method, error);
+                result.error("ERROR", error.getMessage(), null);
+            }
+        };
+        if (remote) commandExecutor.execute(action);
+        else action.run();
+    }
+
+    private void handleAction(NativeAction call, NativeAction.Result result) {
                 switch (call.method) {
                     case "checkShizuku": {
                         try {
@@ -580,7 +649,7 @@ public class MainActivity extends FlutterActivity {
                         prefs.edit().putBoolean("charging_always_on_enabled", enabled).apply();
                         
                         // 通知ChargingService重新加载设置
-                        sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_CHARGING_SETTINGS"));
+                        sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_CHARGING_SETTINGS").setPackage(getPackageName()));
                         
                         Log.d(TAG, "Charging always on set to: " + enabled);
                         result.success(true);
@@ -744,7 +813,7 @@ public class MainActivity extends FlutterActivity {
                                 .apply();
                             
                             // 通知NotificationService重新加载设置
-                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS"));
+                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(getPackageName()));
                             
                             Log.d(TAG, "Privacy hide title set to: " + enabled);
                             result.success(true);
@@ -765,7 +834,7 @@ public class MainActivity extends FlutterActivity {
                                 .apply();
                             
                             // 通知NotificationService重新加载设置
-                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS"));
+                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(getPackageName()));
                             
                             Log.d(TAG, "Privacy hide content set to: " + enabled);
                             result.success(true);
@@ -847,9 +916,8 @@ public class MainActivity extends FlutterActivity {
                     default:
                         result.notImplemented();
                 }
-            });
     }
-    
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);

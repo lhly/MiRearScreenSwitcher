@@ -52,8 +52,8 @@ public class RearScreenshotTileService extends TileService {
         Tile tile = getQsTile();
         if (tile != null) {
             tile.setState(Tile.STATE_INACTIVE);
-            tile.setSubtitle(null);
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            if (android.os.Build.VERSION.SDK_INT >= 29) tile.setSubtitle(null);
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
                 tile.setStateDescription("");
             }
             tile.updateTile();
@@ -127,14 +127,14 @@ public class RearScreenshotTileService extends TileService {
     private void showTemporaryFeedback(String message) {
         Tile tile = getQsTile();
         if (tile != null) {
-            tile.setSubtitle(message);
+            if (android.os.Build.VERSION.SDK_INT >= 29) tile.setSubtitle(message);
             tile.updateTile();
 
             // 1秒后清除反馈
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 Tile t = getQsTile();
                 if (t != null) {
-                    t.setSubtitle(null);
+                    if (android.os.Build.VERSION.SDK_INT >= 29) t.setSubtitle(null);
                     t.updateTile();
                 }
             }, 1000);

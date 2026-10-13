@@ -2,21 +2,21 @@
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库是 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 的个人维护分支，当前版本为 **v3.2.1（2026-10-13）**，包含 HyperOS 4 / Android 17 磁贴切屏修复和正式签名自动发版配置。下文 v3.2.1 的改动记录对应本分支。
+本仓库是 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 的个人维护分支，当前源码为 **v3.3.0 原生版（2026-10-13）**：设置界面已迁移到 Android 原生 View，保留现有 Shizuku 控制、磁贴与背屏服务。正式 APK 约 0.58 MB，使用与 v3.2.1 相同的个人签名；v3.3.0 目前已本地构建，尚未发布至 GitHub。
 
 上游原作者的停更公告：
 
 > 鉴于小米3.8解锁节形势，加之shizuku限制实在过多，本项目无限期停更。
 
-## 📦 最新版本：v3.2.1
+## 📦 最新版本：v3.3.0 原生版
 
-- [查看 v3.2.1 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.2.1)
-- [下载正式 APK（ARM64，约 17.7 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.2.1/MRSS-v3.2.1-arm64-v8a.apk)
-- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.2.1/SHA256SUMS)
+- [查看 v3.3.0 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.0)
+- [下载正式 APK（Android 原生，约 0.58 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.0/MRSS-v3.3.0-native.apk)
+- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.0/SHA256SUMS)
 
-本版修复点击“切换至背屏”后无反应或提示服务未就绪的问题：共享 Shizuku 服务连接由 `TaskServiceManager` 统一管理，磁贴等待连接就绪后执行，并检查任务实际所在显示屏。控制中心收起时不再销毁其他组件仍在使用的远端服务。
+v3.3.0 将设置、通知、应用选择与关于界面迁移到 Android 原生 View，移除 Flutter 引擎和 Dart AOT，正式 APK 从 **17.69 MB 缩至约 0.58 MB，减少 96.72%**。界面采用柔光玻璃卡片和悬浮导航，支持深色模式、系统字号、简繁英及横屏；保留现有功能、Shizuku 控制和 v3.2.1 的共享服务连接修复。不同 CPU 架构使用同一份 APK。
 
-修复测试版已在一台运行 HyperOS 4 / Android 17 的小米双屏设备上完成重复磁贴切屏、URI 拉回和远端断开后重连验证；v3.2.1 正式包已通过云端构建、签名和下载校验，正式包的真机安装验收尚未完成。截图、录屏、充电动画和通知等其他功能尚未完整回归。详见 [磁贴修复与真机验证记录](docs/hyperos4-tile-validation.md)。
+原生版已完成本机正式构建、30 项测试及 Lint/验签；模拟器同签名覆盖升级后保留旧设置，系统显示总占用约 1.18 MB。此次未安装到小米真机，模拟器占用不能代替真机测量。详见 [原生版迁移与验证记录](docs/native-ui-validation.md)。此前修复测试版已在 HyperOS 4 / Android 17 的小米双屏设备验证磁贴切屏、URI 返回和断线重连，见 [历史真机记录](docs/hyperos4-tile-validation.md)。
 
 ## 📄 开源协议
 
@@ -33,7 +33,7 @@
 
 ---
 
-## ✨ 功能特性 (V3.2.1)
+## ✨ 功能特性 (V3.3.0)
 
 - 🎯 **快捷切换**: 通过控制中心快捷开关一键将应用切换到背屏
 - 📸 **背屏截图**: 一键截取背屏画面并保存到相册（自动收起控制中心，keycode唤醒）
@@ -42,7 +42,7 @@
 - 📢 **通知推送**: 收到通知时自动在背屏显示通知内容（支持应用选择+隐私模式+动态重载）
 - 🔓 **后台可用**: 即使应用在后台也能正常触发切换
 - 🚀 **无需ROOT**: 基于Shizuku实现，无需ROOT权限
-- 🎨 **精致UI**: Material 3设计，四色渐变UI，精确2.84超椭圆圆角
+- 🎨 **原生UI**: 柔光玻璃卡片、悬浮导航，支持深色模式、系统字体缩放和简体/繁体中文/英文
 - 🛡️ **智能保护**: 防止系统Launcher覆盖投射的应用
 - 💡 **背屏常亮**: 可选的背屏常亮功能，防止自动息屏
 - 🔄 **智能监控**: 背屏应用退出或切换时自动清除通知
@@ -70,7 +70,7 @@
 3. 打开MRSS应用，授予Shizuku权限
 4. 等待状态显示"一切就绪"
 
-当前 Release 使用个人正式签名，包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，与作者原版和 `.debug` 修复测试版分别保存数据。首次安装个人正式版需要重新配置应用并授予 Shizuku 权限；以后使用同一签名、同一包名更新，可保留个人正式版自己的设置。作者原版的数据保留与恢复说明见 [验证文档](docs/hyperos4-tile-validation.md#测试包与原版数据)。
+当前 Release 使用个人正式签名，包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，与作者原版和 `.debug` 修复测试版分别保存数据。首次安装个人正式版需要配置应用并授予 Shizuku 权限；从个人正式 v3.2.1 同签名覆盖升级时，会自动导入原有设置和应用选择。作者原版的数据保留与恢复说明见 [验证文档](docs/hyperos4-tile-validation.md#测试包与原版数据)。
 
 ### 2. 添加快捷开关
 
@@ -129,7 +129,7 @@
 
 ## 🔧 技术实现
 
-- **Flutter**: 跨平台UI框架，Material 3设计，四色渐变+精确超椭圆圆角
+- **Android 原生 View**: Java 设置界面、系统对话框/开关、回收式应用列表，Canvas 绘制柔光玻璃；无 Flutter 引擎或 Dart AOT
 - **Shizuku**: 提供shell权限执行特权操作
 - **TaskServiceManager**: 统一共享 UserService 连接，检查 Binder 存活并在断开后重连；磁贴通过连接回调执行，切屏后校验任务实际显示屏
 - **Quick Settings Tile**: Android系统级快捷开关服务（切换/截图/录屏）
@@ -160,39 +160,35 @@
 
 ## 🛠️ 开发构建
 
-当前构建环境为 Flutter **3.35.7**、JDK **21**、Gradle **8.9**、Android SDK / Build Tools **36** 和 NDK **27.0.12077973**；版本号为 `3.2.1+2011`。使用已提交的 `pubspec.lock` 安装依赖。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需自行准备工具及路径配置。
+构建需要 JDK **21**、Gradle **8.9**、Android SDK / Build Tools **36**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前为 `3.3.0 / 2012`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
 
-Release 构建需要先配置 `android/key.properties` 和正式签名密钥；可参考 `android/key.properties.example`，个人正式版保留 `releaseApplicationIdSuffix=.personal`。缺少正式签名配置时构建会失败。Android Studio 的“构建正式 APK”入口、本机构建环境及密钥备份方法见 [正式 APK 构建说明](docs/android-studio-release.md)。
+Release 需要 `android/key.properties` 和正式签名密钥；参考 `android/key.properties.example`，个人正式版使用 `releaseApplicationIdSuffix=.personal`。缺少正式签名时构建会失败。Android Studio 请打开 `android/`，操作及密钥备份见 [正式 APK 构建说明](docs/android-studio-release.md)。
 
 ```bash
-# 使用本机已配置的工具；其他机器先准备对应的构建环境
 source .local/env.sh
 
-# 按锁定版本安装依赖
-flutter pub get --enforce-lockfile
+# 原生测试版（.debug 包名、mrss-debug://）
+./android/gradlew -p android :app:assembleDebug
 
-# 构建独立修复测试版（.debug 包名、mrss-debug://）
-flutter build apk --debug --target-platform android-arm64
-
-# 构建正式 APK（ARM64，R8 混淆与资源压缩）
+# 正式 APK（R8 混淆与资源压缩，无 CPU 架构限制）
 ./tools/build_release.sh
 ```
 
-测试版输出为 `build/app/outputs/flutter-apk/app-debug.apk`，正式版输出为 `build/app/outputs/flutter-apk/app-release.apk`。
+输出：`build/app/outputs/apk/debug/app-debug.apk`、`build/app/outputs/apk/release/app-release.apk`。旧 Flutter 设置在同包名覆盖升级时自动导入；不同包名之间不会自动迁移数据。迁移对应表和体积测量见 [原生版验证记录](docs/native-ui-validation.md)。
 
 ### GitHub tag 自动发版
 
 本仓库的四项签名 Secrets 已配置完成，`v3.2.1` 的 [自动发版任务](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38348746002) 已成功完成。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，再发布 GitHub Release；普通分支推送不触发发版。
 
-下一次发布先修改 `pubspec.yaml`（例如 `version: 3.2.2+2012`），提交修改后执行：
+v3.3.0 原生构建工作流已更新，尚未触发云端发版。确认 `version.properties` 为 `versionName=3.3.0`、`versionCode=2012`，提交修改后可执行：
 
 ```bash
 git push origin main
-git tag -a v3.2.2 -m "MRSS 3.2.2"
-git push origin v3.2.2
+git tag -a v3.3.0 -m "MRSS 3.3.0"
+git push origin v3.3.0
 ```
 
-tag 的版本必须与 `pubspec.yaml` 的 versionName 一致，versionCode 需递增；已发布的 tag 不再重复创建或覆盖。其他仓库需配置自己的签名 Secrets 和预期证书。完整配置及预览版规则见 [自动发版说明](docs/github-release.md)。
+tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode 需递增；已发布的 tag 不再重复创建或覆盖。其他仓库需配置自己的签名 Secrets 和预期证书。完整配置及预览版规则见 [自动发版说明](docs/github-release.md)。
 
 ## 🔍 技术细节
 
@@ -305,7 +301,7 @@ tag 的版本必须与 `pubspec.yaml` 的 versionName 一致，versionCode 需�
 
 - ✅ 代码混淆（ProGuard/R8）
 - ✅ 资源压缩
-- ✅ 只包含arm64-v8a架构
+- ✅ 原生 Java，无需捆绑任何 CPU 架构的渲染引擎
 - ✅ APK体积优化
 
 ## 📄 许可证
@@ -316,6 +312,14 @@ tag 的版本必须与 `pubspec.yaml` 的 versionName 一致，versionCode 需�
 ---
 
 ## 📝 更新日志
+
+### V3.3.0 (2026-10-13，本分支，已本地构建)
+
+- 设置界面迁移到 Android 原生，移除 Flutter 引擎、Dart AOT 和旧界面资源，正式 APK 由 17.69 MB 缩至约 0.58 MB。
+- 重新设计背屏、通知、关于三页及应用选择，采用轻量柔光玻璃视觉，支持深色/系统字号/简繁英/横屏。
+- 保留 DPI/方向、遮盖检测、常亮、充电动画、通知隐私/条件/时长、应用搜索/批量选择、教程/支持/URI/诊断等功能，以及既有 Shizuku 与背屏控制逻辑。
+- 同包名升级自动导入旧设置，继续兼容旧磁贴和服务偏好键；沿用个人正式签名。
+- 本机正式构建、运行测试和验签通过；新版尚未发布或安装到小米真机。
 
 ### V3.2.1 (2026-10-13，本分支)
 
@@ -430,7 +434,7 @@ tag 的版本必须与 `pubspec.yaml` 的 versionName 一致，versionCode 需�
 ## 🙏 致谢
 
 - [Shizuku](https://github.com/RikkaApps/Shizuku) - 提供特权API支持
-- Flutter团队 - 优秀的跨平台框架
+- Flutter团队 - 历史版本使用的跨平台框架
 - Xiaomi HyperOS 小米澎湃OS团队 - 小米手机背屏功能
 
 ---

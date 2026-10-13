@@ -253,7 +253,7 @@ public class SwitchToRearTileService extends TileService {
         tile.setState(Tile.STATE_INACTIVE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.setSubtitle(message);
-            tile.setStateDescription("");
+            if (Build.VERSION.SDK_INT >= 30) tile.setStateDescription("");
         }
         tile.updateTile();
     }

@@ -13,4 +13,5 @@ if [[ ! -f android/key.properties ]]; then
     exit 1
 fi
 
-flutter build apk --release --target-platform android-arm64 "$@"
+./android/gradlew -p android :app:assembleRelease "$@"
+echo "正式 APK：$MRSS_BUILD_ROOT/build/app/outputs/apk/release/app-release.apk"

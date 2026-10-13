@@ -181,11 +181,8 @@ public class RearScreenChargingActivity extends Activity {
         finishFilter.addAction(BuildConfig.APPLICATION_ID + ".FINISH_CHARGING_ANIMATION");
         finishFilter.addAction(BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION");
         finishFilter.addAction(BuildConfig.APPLICATION_ID + ".UPDATE_CHARGING_BATTERY");  // V3.5: 监听电量更新
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(finishReceiver, finishFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(finishReceiver, finishFilter);
-        }
+        androidx.core.content.ContextCompat.registerReceiver(this, finishReceiver, finishFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         
         // 注册LocalBroadcastManager接收器（监听电量更新）
         // androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(finishReceiver, finishFilter);

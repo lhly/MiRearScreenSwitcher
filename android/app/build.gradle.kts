@@ -3,9 +3,6 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id("dev.flutter.flutter-gradle-plugin")
 }
 
 val keystoreProperties = Properties()
@@ -14,26 +11,26 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+val versionProperties = Properties().apply {
+    rootProject.file("../version.properties").inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.tgwgroup.MiRearScreenSwitcher"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
     defaultConfig {
         applicationId = "com.tgwgroup.MiRearScreenSwitcher"
         minSdk = 24  // Shizuku需要最低24
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        targetSdk = 36
+        versionCode = (project.findProperty("mrssVersionCode")?.toString() ?: versionProperties.getProperty("versionCode")).toInt()
+        versionName = project.findProperty("mrssVersionName")?.toString() ?: versionProperties.getProperty("versionName")
         manifestPlaceholders["appLabel"] = "MRSS"
         manifestPlaceholders["mrssScheme"] = "mrss"
         buildConfigField("String", "URI_SCHEME", "\"mrss\"")
@@ -65,8 +62,8 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-hyperos4-fix"
-            manifestPlaceholders["appLabel"] = "MRSS 修复测试"
+            versionNameSuffix = "-native-debug"
+            manifestPlaceholders["appLabel"] = "MRSS 原生测试"
             manifestPlaceholders["mrssScheme"] = "mrss-debug"
             buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
         }
@@ -87,8 +84,6 @@ android {
         }
     }
 
-    // V20: NDK and CMake configuration
-    
 }
 
 val validateReleaseSigning by tasks.registering {
@@ -103,11 +98,10 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     dependsOn(validateReleaseSigning)
 }
 
-flutter {
-    source = "../.."
-}
-
 dependencies {
+    implementation("androidx.core:core:1.13.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     // Shizuku API
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")

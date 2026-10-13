@@ -117,11 +117,8 @@ public class NotificationService extends NotificationListenerService {
         
         // 注册广播接收器（监听设置变化）
         IntentFilter filter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(settingsReceiver, filter);
-        }
+        androidx.core.content.ContextCompat.registerReceiver(this, settingsReceiver, filter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, "✓ 广播接收器已注册");
 
         // 绑定TaskService

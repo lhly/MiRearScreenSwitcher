@@ -14,34 +14,34 @@ from ci_release import prepare_signing, properties_value, release_metadata, writ
 
 class ReleaseChecks(unittest.TestCase):
     def test_stable_and_prerelease(self):
-        stable = release_metadata('version: 3.2.1+2011\n', 'v3.2.1')
+        stable = release_metadata('versionName=3.2.1\nversionCode=2011\n', 'v3.2.1')
         self.assertEqual(stable['build_number'], '2011')
         self.assertEqual(stable['prerelease'], 'false')
-        prerelease = release_metadata('version: "3.2.2-rc.1+2012" # candidate\n', 'v3.2.2-rc.1')
+        prerelease = release_metadata('versionName=3.2.2-rc.1\nversionCode=2012\n', 'v3.2.2-rc.1')
         self.assertEqual(prerelease['prerelease'], 'true')
-        self.assertEqual(prerelease['apk_name'], 'MRSS-v3.2.2-rc.1-arm64-v8a.apk')
+        self.assertEqual(prerelease['apk_name'], 'MRSS-v3.2.2-rc.1-native.apk')
 
     def test_mismatched_tag(self):
         with self.assertRaisesRegex(ValueError, 'must match'):
-            release_metadata('version: 3.2.1+2011\n', 'v3.2.2')
+            release_metadata('versionName=3.2.1\nversionCode=2011\n', 'v3.2.2')
 
     def test_unsafe_or_invalid_tags(self):
         for tag in ['3.2.1', 'v03.2.1', 'v3.2.1-01', 'v3.2.1-rc..1',
                     'v3.2.1+2011', 'v3.2.1;echo bad', 'v3.2.1\nprerelease=false', 'v3.2.1１']:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
-                release_metadata('version: 3.2.1+2011\n', tag)
+                release_metadata('versionName=3.2.1\nversionCode=2011\n', tag)
 
     def test_version_code_bounds(self):
         for code in ['0', '-1', '01', 'abc', '201１', '2100000001']:
             with self.subTest(code=code), self.assertRaises(ValueError):
-                release_metadata(f'version: 3.2.1+{code}\n', 'v3.2.1')
-        self.assertEqual(release_metadata('version: 3.2.1+2100000000', 'v3.2.1')['build_number'], '2100000000')
+                release_metadata(f'versionName=3.2.1\nversionCode={code}\n', 'v3.2.1')
+        self.assertEqual(release_metadata('versionName=3.2.1\nversionCode=2100000000', 'v3.2.1')['build_number'], '2100000000')
 
     def test_missing_or_duplicate_version(self):
-        for pubspec in ['name: mrss\n', 'version: 3.2.1\n',
-                        'version: 3.2.1+2011\nversion: 3.2.1+2012\n']:
-            with self.subTest(pubspec=pubspec), self.assertRaises(ValueError):
-                release_metadata(pubspec, 'v3.2.1')
+        for properties in ['name=mrss\n', 'versionName=3.2.1\n',
+                        'versionName=3.2.1\nversionCode=2011\nversionCode=2012\n']:
+            with self.subTest(properties=properties), self.assertRaises(ValueError):
+                release_metadata(properties, 'v3.2.1')
 
     def test_missing_secrets_fail_without_writing_files(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):

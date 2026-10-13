@@ -200,19 +200,13 @@ public class ChargingService extends Service {
         
         // V3.5: 注册设置变化广播接收器
         IntentFilter settingsFilter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RELOAD_CHARGING_SETTINGS");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(settingsReceiver, settingsFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(settingsReceiver, settingsFilter);
-        }
+        androidx.core.content.ContextCompat.registerReceiver(this, settingsReceiver, settingsFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         
         // V3.5: 注册恢复充电动画广播接收器
         IntentFilter resumeFilter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(resumeChargingReceiver, resumeFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(resumeChargingReceiver, resumeFilter);
-        }
+        androidx.core.content.ContextCompat.registerReceiver(this, resumeChargingReceiver, resumeFilter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         
         // V3.5: 加载充电动画常亮设置
         chargingAlwaysOnEnabled = prefs.getBoolean("charging_always_on_enabled", false);
