@@ -1,8 +1,22 @@
-# 鉴于小米3.8解锁节形势，加之shizuku限制实在过多，本项目无限期停更。
-
 # MiRearScreenSwitcher (MRSS)
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
+
+本仓库是 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 的个人维护分支，当前版本为 **v3.2.1（2026-10-13）**，包含 HyperOS 4 / Android 17 磁贴切屏修复和正式签名自动发版配置。下文 v3.2.1 的改动记录对应本分支。
+
+上游原作者的停更公告：
+
+> 鉴于小米3.8解锁节形势，加之shizuku限制实在过多，本项目无限期停更。
+
+## 📦 最新版本：v3.2.1
+
+- [查看 v3.2.1 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.2.1)
+- [下载正式 APK（ARM64，约 17.7 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.2.1/MRSS-v3.2.1-arm64-v8a.apk)
+- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.2.1/SHA256SUMS)
+
+本版修复点击“切换至背屏”后无反应或提示服务未就绪的问题：共享 Shizuku 服务连接由 `TaskServiceManager` 统一管理，磁贴等待连接就绪后执行，并检查任务实际所在显示屏。控制中心收起时不再销毁其他组件仍在使用的远端服务。
+
+修复测试版已在一台运行 HyperOS 4 / Android 17 的小米双屏设备上完成重复磁贴切屏、URI 拉回和远端断开后重连验证；v3.2.1 正式包已通过云端构建、签名和下载校验，正式包的真机安装验收尚未完成。截图、录屏、充电动画和通知等其他功能尚未完整回归。详见 [磁贴修复与真机验证记录](docs/hyperos4-tile-validation.md)。
 
 ## 📄 开源协议
 
@@ -19,7 +33,7 @@
 
 ---
 
-## ✨ 功能特性 (V3.2.0)
+## ✨ 功能特性 (V3.2.1)
 
 - 🎯 **快捷切换**: 通过控制中心快捷开关一键将应用切换到背屏
 - 📸 **背屏截图**: 一键截取背屏画面并保存到相册（自动收起控制中心，keycode唤醒）
@@ -51,10 +65,12 @@
 
 ### 1. 初次设置
 
-1. 安装MRSS应用
+1. 从上方 Release 下载并安装正式 APK
 2. 确保Shizuku已启动
 3. 打开MRSS应用，授予Shizuku权限
 4. 等待状态显示"一切就绪"
+
+当前 Release 使用个人正式签名，包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，与作者原版和 `.debug` 修复测试版分别保存数据。首次安装个人正式版需要重新配置应用并授予 Shizuku 权限；以后使用同一签名、同一包名更新，可保留个人正式版自己的设置。作者原版的数据保留与恢复说明见 [验证文档](docs/hyperos4-tile-validation.md#测试包与原版数据)。
 
 ### 2. 添加快捷开关
 
@@ -72,8 +88,10 @@
 1. 打开任意想要切换到背屏的应用
 2. 下拉控制中心
 3. 点击"**切换至背屏**"快捷开关
-4. 应用立即切换到背屏，控制中心自动收起
+4. 服务就绪后应用切换到背屏，控制中心自动收起；连接尚未就绪时磁贴会显示“正在连接服务...”，等待最多 5 秒
 5. 翻转手机即可在背屏查看
+
+显示“正在连接服务...”时请保持控制中心展开，收起面板会取消尚未开始的切屏请求。若提示“请先启动 Shizuku”或“请先打开应用授权”，先按提示完成启动或授权再点击。
 
 **截取背屏画面：**
 1. 下拉控制中心
@@ -113,6 +131,7 @@
 
 - **Flutter**: 跨平台UI框架，Material 3设计，四色渐变+精确超椭圆圆角
 - **Shizuku**: 提供shell权限执行特权操作
+- **TaskServiceManager**: 统一共享 UserService 连接，检查 Binder 存活并在断开后重连；磁贴通过连接回调执行，切屏后校验任务实际显示屏
 - **Quick Settings Tile**: Android系统级快捷开关服务（切换/截图/录屏）
 - **ActivityTaskManager**: 通过system service调用实现显示切换
 - **Foreground Service + WakeLock**: 前台服务持有唤醒锁，可选的背屏常亮
@@ -141,22 +160,39 @@
 
 ## 🛠️ 开发构建
 
-Release 构建需要先配置 `android/key.properties` 和正式签名密钥。Android Studio 的“构建正式 APK”入口、本机构建环境及密钥备份方法见 [正式 APK 构建说明](docs/android-studio-release.md)。
+当前构建环境为 Flutter **3.35.7**、JDK **21**、Gradle **8.9**、Android SDK / Build Tools **36** 和 NDK **27.0.12077973**；版本号为 `3.2.1+2011`。使用已提交的 `pubspec.lock` 安装依赖。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需自行准备工具及路径配置。
 
-推送版本 tag 自动发布已签名 APK 的 GitHub Actions 配置见 [自动发版说明](docs/github-release.md)。首次需配置签名 Secrets；当前版本对应 tag `v3.2.1`。
+Release 构建需要先配置 `android/key.properties` 和正式签名密钥；可参考 `android/key.properties.example`，个人正式版保留 `releaseApplicationIdSuffix=.personal`。缺少正式签名配置时构建会失败。Android Studio 的“构建正式 APK”入口、本机构建环境及密钥备份方法见 [正式 APK 构建说明](docs/android-studio-release.md)。
 
 ```bash
-# 安装依赖
-flutter pub get
+# 使用本机已配置的工具；其他机器先准备对应的构建环境
+source .local/env.sh
 
-# 构建Debug APK
-flutter build apk --debug
+# 按锁定版本安装依赖
+flutter pub get --enforce-lockfile
 
-# 构建Release APK (arm64-v8a, 代码混淆+资源压缩)
-flutter build apk --release --split-per-abi --target-platform android-arm64
+# 构建独立修复测试版（.debug 包名、mrss-debug://）
+flutter build apk --debug --target-platform android-arm64
+
+# 构建正式 APK（ARM64，R8 混淆与资源压缩）
+./tools/build_release.sh
 ```
 
-生成的APK位于: `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`
+测试版输出为 `build/app/outputs/flutter-apk/app-debug.apk`，正式版输出为 `build/app/outputs/flutter-apk/app-release.apk`。
+
+### GitHub tag 自动发版
+
+本仓库的四项签名 Secrets 已配置完成，`v3.2.1` 的 [自动发版任务](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38348746002) 已成功完成。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，再发布 GitHub Release；普通分支推送不触发发版。
+
+下一次发布先修改 `pubspec.yaml`（例如 `version: 3.2.2+2012`），提交修改后执行：
+
+```bash
+git push origin main
+git tag -a v3.2.2 -m "MRSS 3.2.2"
+git push origin v3.2.2
+```
+
+tag 的版本必须与 `pubspec.yaml` 的 versionName 一致，versionCode 需递增；已发布的 tag 不再重复创建或覆盖。其他仓库需配置自己的签名 Secrets 和预期证书。完整配置及预览版规则见 [自动发版说明](docs/github-release.md)。
 
 ## 🔍 技术细节
 
@@ -280,6 +316,27 @@ flutter build apk --release --split-per-abi --target-platform android-arm64
 ---
 
 ## 📝 更新日志
+
+### V3.2.1 (2026-10-13，本分支)
+
+#### 磁贴切屏修复
+
+- 统一共享 Shizuku TaskService 的连接与释放，避免磁贴、Keeper、通知和充电等组件相互销毁服务。
+- 磁贴改为异步等待连接回调后执行，加入 5 秒等待超时、重复点击去重和 Binder 存活检查。
+- 切屏操作在后台线程执行，并核对任务实际所在显示屏，避免仅凭命令退出码误报成功。
+- 修复测试版使用独立 `.debug` 包名和 `mrss-debug://`，URI 路由按构建配置选择协议。
+
+#### 正式构建与自动发版
+
+- 配置个人正式签名与 `.personal` 包名，缺少正式签名时停止构建。
+- 固定 Flutter 3.35.7 / JDK 21 等构建工具，提供 Android Studio“构建正式 APK”入口和终端构建脚本。
+- 推送版本 tag 后自动运行检查、构建并验签，发布 ARM64 APK、`SHA256SUMS` 和版本说明，支持预览版及草稿失败重跑。
+
+#### 验证结果
+
+- 修复测试版完成真实控制中心重复切屏、URI 拉回和远端断开后重连验证。
+- 云端 9 项发布参数测试和 16 项服务生命周期回归通过，v3.2.1 构建和发布任务成功。
+- 从公开 Release 下载的正式 APK 签名、包名、版本、ARM64 AOT 结构及 SHA256 校验通过。
 
 ### V3.2.0 (2025)
 
