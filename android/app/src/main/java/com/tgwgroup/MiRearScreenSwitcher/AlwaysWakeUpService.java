@@ -15,8 +15,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
 
-import rikka.shizuku.Shizuku;
-
 /**
  * V3.5: 未投放应用时常亮服务
  * 以100ms间隔持续发送KEYCODE_WAKEUP唤醒背屏
@@ -27,18 +25,12 @@ public class AlwaysWakeUpService extends Service {
     private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
     private static final int WAKEUP_INTERVAL_MS = 100; // 100ms间隔
     
-    private ITaskService taskService;
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private Handler wakeupHandler;
     private Runnable wakeupRunnable;
     private boolean isRunning = false;
     private SharedPreferences prefs;
-    
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("always_wakeup_task_service")
-            .debuggable(false)
-            .version(1);
     
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
@@ -52,14 +44,7 @@ public class AlwaysWakeUpService extends Service {
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.w(TAG, "⚠️ TaskService disconnected");
             taskService = null;
-            
-            // 断开后尝试重连
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                Log.d(TAG, "🔄 尝试重新绑定TaskService...");
-                bindTaskService();
-            }, 1000);
         }
     };
     
@@ -79,22 +64,7 @@ public class AlwaysWakeUpService extends Service {
     }
     
     private void bindTaskService() {
-        try {
-            if (taskService != null) {
-                Log.d(TAG, "TaskService already bound");
-                return;
-            }
-            
-            if (!Shizuku.pingBinder()) {
-                Log.w(TAG, "Shizuku not available");
-                return;
-            }
-            
-            Log.d(TAG, "🔗 开始绑定TaskService...");
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "绑定TaskService失败", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
     
     private void createForegroundNotification() {
@@ -195,19 +165,14 @@ public class AlwaysWakeUpService extends Service {
     
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         Log.d(TAG, "🔴 onDestroy");
         
         stopWakeupLoop();
         
         // 解绑TaskService
-        try {
-            if (taskService != null) {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-                Log.d(TAG, "✓ TaskService unbound");
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to unbind TaskService: " + e.getMessage());
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
         
         super.onDestroy();
     }

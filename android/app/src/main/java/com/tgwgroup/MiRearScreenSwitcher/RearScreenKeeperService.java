@@ -40,7 +40,6 @@ import android.os.RemoteException;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
-import rikka.shizuku.Shizuku;
 
 /**
  * 前台Service - 保持背屏常亮
@@ -60,7 +59,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private static RearScreenKeeperService instance = null;
     private PowerManager.WakeLock wakeLock;
     private Handler handler;
-    private ITaskService taskService = null;
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService = null;
 
     // V12.3: 初始杀进程策略 - 只杀1次，不持续监控
     private static final int INITIAL_KILL_COUNT = 1; // 初始杀1次
@@ -403,44 +403,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
 
-            // 取消重连任务（如果存在）
-            if (handler != null) {
-                handler.removeCallbacks(reconnectTaskServiceRunnable);
-            }
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.w(TAG, "⚠ TaskService disconnected - will attempt to reconnect");
             taskService = null;
-
-            // 启动重连任务
-            scheduleReconnectTaskService();
-        }
-    };
-
-    /**
-     * TaskService重连任务
-     */
-    private final Runnable reconnectTaskServiceRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (taskService == null) {
-                bindTaskService();
-
-                // 如果重连失败，1秒后再次尝试
-                handler.postDelayed(this, 1000);
-            } else {
-            }
-        }
-    };
-
-    /**
-     * 安排TaskService重连
-     */
-    private void scheduleReconnectTaskService() {
-        if (handler != null) {
-            handler.postDelayed(reconnectTaskServiceRunnable, 300);
         }
     };
 
@@ -448,48 +415,20 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
      * 绑定Shizuku TaskService
      */
     private void bindTaskService() {
-        if (taskService != null) {
-            return;
-        }
-
-        try {
-            Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(
-                    new ComponentName(getPackageName(), TaskService.class.getName()))
-                    .daemon(false)
-                    .processNameSuffix("task_service")
-                    .debuggable(false)
-                    .version(1);
-
-            Shizuku.bindUserService(args, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "✗ Failed to bind TaskService", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
 
     /**
      * 解绑TaskService
      */
     private void unbindTaskService() {
-        if (taskService != null) {
-            try {
-                Shizuku.unbindUserService(
-                        new Shizuku.UserServiceArgs(
-                                new ComponentName(getPackageName(), TaskService.class.getName()))
-                                .daemon(false)
-                                .processNameSuffix("task_service")
-                                .debuggable(false)
-                                .version(1),
-                        taskServiceConnection,
-                        true);
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to unbind TaskService", e);
-            }
-            taskService = null;
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
     }
 
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
 
         Log.w(TAG, "═══════════════════════════════════════");

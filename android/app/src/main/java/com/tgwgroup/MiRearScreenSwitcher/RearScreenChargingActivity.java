@@ -51,14 +51,14 @@ public class RearScreenChargingActivity extends Activity {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
             String action = intent.getAction();
-            if ("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION".equals(action)) {
+            if ((BuildConfig.APPLICATION_ID + ".FINISH_CHARGING_ANIMATION").equals(action)) {
                 Log.d(TAG, "🔌 收到拔电广播，立即销毁");
                 finish();
-            } else if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION".equals(action)) {
+            } else if ((BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION").equals(action)) {
                 Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
                 // 标记为被打断，onDestroy不恢复Launcher
                 finish();
-            } else if ("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY".equals(action)) {
+            } else if ((BuildConfig.APPLICATION_ID + ".UPDATE_CHARGING_BATTERY").equals(action)) {
                 // V3.5: 接收电量更新
                 int newLevel = intent.getIntExtra("batteryLevel", -1);
                 Log.d(TAG, "📡 收到电量更新广播: " + newLevel + "%");
@@ -178,9 +178,9 @@ public class RearScreenChargingActivity extends Activity {
         
         // 注册广播接收器（监听拔电、打断和电量更新事件）
         android.content.IntentFilter finishFilter = new android.content.IntentFilter();
-        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION");
-        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION");
-        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY");  // V3.5: 监听电量更新
+        finishFilter.addAction(BuildConfig.APPLICATION_ID + ".FINISH_CHARGING_ANIMATION");
+        finishFilter.addAction(BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION");
+        finishFilter.addAction(BuildConfig.APPLICATION_ID + ".UPDATE_CHARGING_BATTERY");  // V3.5: 监听电量更新
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(finishReceiver, finishFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
         } else {

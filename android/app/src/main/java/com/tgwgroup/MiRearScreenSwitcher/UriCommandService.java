@@ -28,7 +28,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
-import rikka.shizuku.Shizuku;
 
 /**
  * V2.6: URI命令处理服务
@@ -38,14 +37,8 @@ import rikka.shizuku.Shizuku;
 public class UriCommandService extends IntentService {
     private static final String TAG = "UriCommandService";
 
-    private ITaskService taskService;
-    private final Shizuku.UserServiceArgs serviceArgs = new Shizuku.UserServiceArgs(
-            new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("task_service")
-            .debuggable(false)
-            .version(1);
-
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -75,7 +68,7 @@ public class UriCommandService extends IntentService {
             return;
 
         Uri uri = intent.getData();
-        if (uri == null || !"mrss".equals(uri.getScheme())) {
+        if (uri == null || !BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
             return;
         }
 
@@ -129,24 +122,7 @@ public class UriCommandService extends IntentService {
     }
 
     private void bindTaskService() {
-        if (taskService != null)
-            return;
-
-        try {
-            if (!Shizuku.pingBinder()) {
-                Log.e(TAG, "Shizuku不可用");
-                return;
-            }
-
-            if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "无Shizuku权限");
-                return;
-            }
-
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "绑定TaskService失败", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
 
     /**
@@ -309,13 +285,13 @@ public class UriCommandService extends IntentService {
                                 if (!launchResult) {
                                     Log.w(TAG, "TaskService launch failed, fallback to shell");
                                     // Fallback: shell命令启动
-                                    String cmd = "am start --display 1 -n com.tgwgroup.MiRearScreenSwitcher/"
+                                    String cmd = "am start --display 1 -n " + getPackageName() + "/"
                                             + RearScreenWakeupActivity.class.getName();
                                     taskService.executeShellCommand(cmd);
                                 }
                             } catch (NoSuchMethodError e) {
                                 // 旧版本TaskService没有launchWakeActivity，使用shell命令
-                                String cmd = "am start --display 1 -n com.tgwgroup.MiRearScreenSwitcher/"
+                                String cmd = "am start --display 1 -n " + getPackageName() + "/"
                                         + RearScreenWakeupActivity.class.getName();
                                 taskService.executeShellCommand(cmd);
                             }
@@ -534,14 +510,14 @@ public class UriCommandService extends IntentService {
                     boolean launchResult = taskService.launchWakeActivity(1);
                     if (!launchResult) {
                         Log.w(TAG, "TaskService launch failed, fallback to shell");
-                        String cmd = "am start --display 1 -n com.tgwgroup.MiRearScreenSwitcher/"
+                        String cmd = "am start --display 1 -n " + getPackageName() + "/"
                                 + RearScreenWakeupActivity.class.getName();
                         taskService.executeShellCommand(cmd);
                     }
                     Log.d(TAG, "✓ 背屏已点亮");
                 } catch (NoSuchMethodError e) {
                     // 旧版本兼容
-                    String cmd = "am start --display 1 -n com.tgwgroup.MiRearScreenSwitcher/"
+                    String cmd = "am start --display 1 -n " + getPackageName() + "/"
                             + RearScreenWakeupActivity.class.getName();
                     taskService.executeShellCommand(cmd);
                     Log.d(TAG, "✓ 背屏已点亮（旧版本fallback）");
@@ -793,15 +769,10 @@ public class UriCommandService extends IntentService {
 
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
 
-        if (taskService != null) {
-            try {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-            } catch (Exception e) {
-                Log.e(TAG, "解绑TaskService失败", e);
-            }
-            taskService = null;
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
     }
 }

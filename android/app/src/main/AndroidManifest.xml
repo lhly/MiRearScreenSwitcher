@@ -20,7 +20,7 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     
     <application
-        android:label="MRSS"
+        android:label="${appLabel}"
         android:name=".MyApplication"
         android:icon="@mipmap/ic_launcher">
         <!-- 🔑 关键：背屏准入证！已验证有效！ -->
@@ -31,7 +31,7 @@
         <!-- Shizuku Provider（重要！） -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="com.tgwgroup.MiRearScreenSwitcher.shizuku"
+            android:authorities="${applicationId}.shizuku"
             android:multiprocess="false"
             android:enabled="true"
             android:exported="true"
@@ -164,7 +164,7 @@
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.rear"
+            android:taskAffinity="${applicationId}.rear"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden" />
             
@@ -175,7 +175,7 @@
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.wakeup">
+            android:taskAffinity="${applicationId}.wakeup">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
         
@@ -185,7 +185,7 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.charging"
+            android:taskAffinity="${applicationId}.charging"
             android:theme="@style/Theme.Transparent"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
             android:directBootAware="true"
@@ -201,7 +201,7 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.notification"
+            android:taskAffinity="${applicationId}.notification"
             android:theme="@style/Theme.Transparent"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
             android:directBootAware="true"
@@ -217,12 +217,12 @@
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.uri">
+            android:taskAffinity="${applicationId}.uri">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="mrss"/>
+                <data android:scheme="${mrssScheme}"/>
             </intent-filter>
         </activity>
         

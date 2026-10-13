@@ -39,8 +39,6 @@ import android.util.Log;
 import java.util.HashSet;
 import java.util.Set;
 
-import rikka.shizuku.Shizuku;
-
 /**
  * 通知监听服务
  * 监听系统通知，将选中应用的通知显示到背屏
@@ -56,7 +54,8 @@ public class NotificationService extends NotificationListenerService {
     private boolean onlyWhenLocked = false; // 仅倒扣手机时通知（默认关闭）
     private boolean notificationDarkMode = false; // 通知暗夜模式（默认关闭）
     private boolean serviceEnabled = false; // 服务是否启用
-    private ITaskService taskService; // 自己的TaskService实例
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService; // 自己的TaskService实例
     private SharedPreferences prefs;
     private PowerManager.WakeLock wakeLock;
     
@@ -76,21 +75,13 @@ public class NotificationService extends NotificationListenerService {
     private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if ("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS".equals(intent.getAction())) {
+            if ((BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").equals(intent.getAction())) {
                 Log.d(TAG, "🔄 收到重新加载设置的广播");
                 loadNotificationServiceSettings(); // 重新加载开关状态
                 loadSettings(); // 重新加载其他设置
             }
         }
     };
-    
-    // Shizuku服务配置
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("notification_task_service")
-            .debuggable(false)
-            .version(1);
     
     // TaskService连接
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
@@ -109,34 +100,10 @@ public class NotificationService extends NotificationListenerService {
         
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.d(TAG, "✗ TaskService disconnected");
             taskService = null;
-            // 自动重连
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                if (taskService == null) {
-                    bindTaskService();
-                }
-            }, 1000);
         }
     };
-    
-    // Shizuku监听器
-    private final Shizuku.OnBinderReceivedListener binderReceivedListener = 
-        () -> {
-            Log.d(TAG, "Shizuku binder received");
-            bindTaskService();
-        };
-    
-    private final Shizuku.OnBinderDeadListener binderDeadListener = 
-        () -> {
-            Log.d(TAG, "Shizuku binder dead");
-            taskService = null;
-            // 尝试重连
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                bindTaskService();
-            }, 1000);
-        };
-    
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -149,18 +116,14 @@ public class NotificationService extends NotificationListenerService {
         prefs = getSharedPreferences("mrss_settings", Context.MODE_PRIVATE);
         
         // 注册广播接收器（监听设置变化）
-        IntentFilter filter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS");
+        IntentFilter filter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS");
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(settingsReceiver, filter);
         }
         Log.d(TAG, "✓ 广播接收器已注册");
-        
-        // 添加Shizuku监听器
-        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
-        Shizuku.addBinderDeadListener(binderDeadListener);
-        
+
         // 绑定TaskService
         bindTaskService();
         
@@ -180,22 +143,7 @@ public class NotificationService extends NotificationListenerService {
     }
     
     private void bindTaskService() {
-        try {
-            if (taskService != null) {
-                Log.d(TAG, "TaskService already bound");
-                return;
-            }
-            
-            if (!Shizuku.pingBinder()) {
-                Log.w(TAG, "Shizuku not available");
-                return;
-            }
-            
-            Log.d(TAG, "🔗 开始绑定TaskService...");
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to bind TaskService", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
     
     /**
@@ -714,6 +662,7 @@ public class NotificationService extends NotificationListenerService {
     
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
         Log.d(TAG, "🔴 NotificationService destroyed");
         
@@ -724,24 +673,10 @@ public class NotificationService extends NotificationListenerService {
         } catch (Exception e) {
             Log.w(TAG, "Failed to unregister receiver", e);
         }
-        
-        // 移除Shizuku监听器
-        try {
-            Shizuku.removeBinderReceivedListener(binderReceivedListener);
-            Shizuku.removeBinderDeadListener(binderDeadListener);
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to remove Shizuku listeners", e);
-        }
-        
+
         // 解绑TaskService
-        try {
-            if (taskService != null) {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-                taskService = null;
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to unbind TaskService", e);
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
         
         // 注销主屏接近传感器
         unregisterMainProximitySensor();

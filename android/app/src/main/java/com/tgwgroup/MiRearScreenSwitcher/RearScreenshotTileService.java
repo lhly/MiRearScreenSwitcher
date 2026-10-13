@@ -23,7 +23,6 @@ import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 import android.util.Log;
 import android.widget.Toast;
-import rikka.shizuku.Shizuku;
 
 /**
  * Quick Settings Tile - 获取背屏截图
@@ -32,14 +31,8 @@ import rikka.shizuku.Shizuku;
 public class RearScreenshotTileService extends TileService {
     private static final String TAG = "RearScreenshotTile";
 
-    private ITaskService taskService;
-    private final Shizuku.UserServiceArgs serviceArgs = new Shizuku.UserServiceArgs(
-            new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("task_service")
-            .debuggable(false)
-            .version(1);
-
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -49,32 +42,10 @@ public class RearScreenshotTileService extends TileService {
         @Override
         public void onServiceDisconnected(ComponentName name) {
             taskService = null;
-            scheduleReconnectTaskService();
         }
     };
 
-    /**
-     * TaskService重连任务
-     */
-    private final Runnable reconnectTaskServiceRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (taskService == null) {
-                bindTaskService();
-                // 如果重连失败，1秒后再次尝试
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 1000);
-            }
-        }
-    };
-
-    /**
-     * 安排TaskService重连
-     */
-    private void scheduleReconnectTaskService() {
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 200);
-    }
-
-    @Override
+@Override
     public void onStartListening() {
         super.onStartListening();
 
@@ -142,33 +113,15 @@ public class RearScreenshotTileService extends TileService {
     }
 
     private void bindTaskService() {
-        if (taskService != null) {
-            return;
-        }
-
-        try {
-            if (!Shizuku.pingBinder()) {
-                Log.w(TAG, "Shizuku not available");
-                return;
-            }
-
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to bind TaskService", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
 
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
-        try {
-            if (taskService != null) {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-                taskService = null;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error unbinding service", e);
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
     }
 
     private void showTemporaryFeedback(String message) {

@@ -47,7 +47,7 @@ public class RearScreenNotificationActivity extends Activity {
     private android.content.BroadcastReceiver interruptReceiver = new android.content.BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
-            if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION".equals(intent.getAction())) {
+            if ((BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION").equals(intent.getAction())) {
                 Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
                 finish();
             }
@@ -120,7 +120,7 @@ public class RearScreenNotificationActivity extends Activity {
                 onCreateStartTime, onCreateStartTime));
             
             // 注册广播接收器（即使是占位符也要注册）
-            android.content.IntentFilter interruptFilter = new android.content.IntentFilter("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION");
+            android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(interruptReceiver, interruptFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
             } else {
@@ -301,7 +301,7 @@ public class RearScreenNotificationActivity extends Activity {
             onCreateEndTime, onCreateEndTime, onCreateEndTime - onCreateStartTime));
         
         // 注册广播接收器（监听打断事件）
-        android.content.IntentFilter interruptFilter = new android.content.IntentFilter("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION");
+        android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(interruptReceiver, interruptFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -654,7 +654,7 @@ public class RearScreenNotificationActivity extends Activity {
             Log.d(TAG, String.format("[%tT.%tL] 🔋 检测到充电动画常亮模式，发送恢复广播", destroyTime, destroyTime));
             
             // 发送恢复充电动画的广播
-            android.content.Intent resumeIntent = new android.content.Intent("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION");
+            android.content.Intent resumeIntent = new android.content.Intent(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION");
             resumeIntent.setPackage(getPackageName());
             sendBroadcast(resumeIntent);
             

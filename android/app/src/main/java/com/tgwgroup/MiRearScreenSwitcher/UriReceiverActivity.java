@@ -38,7 +38,7 @@ public class UriReceiverActivity extends Activity {
         Intent intent = getIntent();
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             Uri uri = intent.getData();
-            if (uri != null && "mrss".equals(uri.getScheme())) {
+            if (uri != null && BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
                 Log.d(TAG, "🔗 URI接收: " + uri.toString());
                 
                 // 转发到UriCommandService处理

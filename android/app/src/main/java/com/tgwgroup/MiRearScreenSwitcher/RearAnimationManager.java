@@ -137,10 +137,10 @@ public class RearAnimationManager {
         
         switch (type) {
             case CHARGING:
-                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION";
+                action = BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION";
                 break;
             case NOTIFICATION:
-                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION";
+                action = BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION";
                 break;
             default:
                 return;
@@ -163,10 +163,10 @@ public class RearAnimationManager {
         
         switch (type) {
             case CHARGING:
-                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION";
+                action = BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION";
                 break;
             case NOTIFICATION:
-                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION";
+                action = BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION";
                 break;
             default:
                 return;

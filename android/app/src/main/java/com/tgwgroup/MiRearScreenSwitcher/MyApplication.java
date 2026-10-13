@@ -30,7 +30,7 @@ public class MyApplication extends FlutterApplication {
     static {
         // 关键！在静态块中初始化Sui
         try {
-            isSui = Sui.init("com.tgwgroup.MiRearScreenSwitcher");
+            isSui = Sui.init(BuildConfig.APPLICATION_ID);
         } catch (Throwable e) {
             Log.e(TAG, "Sui init failed", e);
         }

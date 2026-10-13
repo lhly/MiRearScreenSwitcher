@@ -29,8 +29,6 @@ import android.os.IBinder;
 import android.os.Handler;
 import android.util.Log;
 
-import rikka.shizuku.Shizuku;
-
 /**
  * 充电状态监听服务
  * 监听电源连接事件，插电后在背屏显示充电电量动画
@@ -38,7 +36,8 @@ import rikka.shizuku.Shizuku;
 public class ChargingService extends Service {
     private static final String TAG = "ChargingService";
     private SharedPreferences prefs;
-    private ITaskService taskService;
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private PowerManager.WakeLock wakeLock;
     
     // 静态实例，供RearScreenChargingActivity访问
@@ -58,13 +57,6 @@ public class ChargingService extends Service {
         return instance != null ? instance.taskService : null;
     }
     
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("charging_task_service")
-            .debuggable(false)
-            .version(1);
-    
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -81,34 +73,10 @@ public class ChargingService extends Service {
         
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.d(TAG, "✗ TaskService disconnected");
             taskService = null;
-            // 自动重连
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                if (taskService == null) {
-                    bindTaskService();
-                }
-            }, 1000);
         }
     };
-    
-    // Shizuku监听器
-    private final Shizuku.OnBinderReceivedListener binderReceivedListener = 
-        () -> {
-            Log.d(TAG, "Shizuku binder received");
-            bindTaskService();
-        };
-    
-    private final Shizuku.OnBinderDeadListener binderDeadListener = 
-        () -> {
-            Log.d(TAG, "Shizuku binder dead");
-            taskService = null;
-            // 尝试重连
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                bindTaskService();
-            }, 1000);
-        };
-    
+
     // V3.5: 设置变化广播接收器
     private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override
@@ -123,7 +91,7 @@ public class ChargingService extends Service {
     private BroadcastReceiver resumeChargingReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if ("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION".equals(intent.getAction())) {
+            if ((BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION").equals(intent.getAction())) {
                 Log.d(TAG, "🔋 收到恢复充电动画广播，准备恢复");
                 
                 // 获取当前电量
@@ -224,18 +192,14 @@ public class ChargingService extends Service {
         instance = this;
         
         prefs = getSharedPreferences("mrss_settings", Context.MODE_PRIVATE);
-        
-        // 添加Shizuku监听器
-        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
-        Shizuku.addBinderDeadListener(binderDeadListener);
-        
+
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_POWER_CONNECTED);
         filter.addAction(Intent.ACTION_POWER_DISCONNECTED);  // 监听拔电事件
         registerReceiver(batteryReceiver, filter);
         
         // V3.5: 注册设置变化广播接收器
-        IntentFilter settingsFilter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RELOAD_CHARGING_SETTINGS");
+        IntentFilter settingsFilter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RELOAD_CHARGING_SETTINGS");
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(settingsReceiver, settingsFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -243,7 +207,7 @@ public class ChargingService extends Service {
         }
         
         // V3.5: 注册恢复充电动画广播接收器
-        IntentFilter resumeFilter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION");
+        IntentFilter resumeFilter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION");
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(resumeChargingReceiver, resumeFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -306,22 +270,7 @@ public class ChargingService extends Service {
     }
     
     private void bindTaskService() {
-        try {
-            if (!Shizuku.pingBinder()) {
-                Log.w(TAG, "Shizuku not available");
-                return;
-            }
-            
-            if (Shizuku.checkSelfPermission() != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                Log.w(TAG, "No Shizuku permission");
-                return;
-            }
-            
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-            Log.d(TAG, "Binding TaskService...");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to bind TaskService", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
     
     private int getBatteryLevel(Context context) {
@@ -335,7 +284,7 @@ public class ChargingService extends Service {
     private void finishChargingAnimation() {
         try {
             // 通过广播通知RearScreenChargingActivity立即结束
-            Intent finishIntent = new Intent("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION");
+            Intent finishIntent = new Intent(BuildConfig.APPLICATION_ID + ".FINISH_CHARGING_ANIMATION");
             finishIntent.setPackage(getPackageName());
             sendBroadcast(finishIntent);
                 Log.d(TAG, "已发送结束充电动画的广播");
@@ -478,6 +427,7 @@ public class ChargingService extends Service {
     
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
         
         // 停止前台服务
@@ -485,15 +435,7 @@ public class ChargingService extends Service {
         
         // 清除静态实例
         instance = null;
-        
-        // 移除Shizuku监听器
-        try {
-            Shizuku.removeBinderReceivedListener(binderReceivedListener);
-            Shizuku.removeBinderDeadListener(binderDeadListener);
-        } catch (Exception e) {
-            Log.e(TAG, "Error removing Shizuku listeners", e);
-        }
-        
+
         try {
             unregisterReceiver(batteryReceiver);
         } catch (Exception e) {
@@ -518,14 +460,8 @@ public class ChargingService extends Service {
         stopWakeupLoop();
         
         // 解绑TaskService
-        try {
-            if (taskService != null) {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-                taskService = null;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error unbinding TaskService", e);
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
     }
     
     @Override

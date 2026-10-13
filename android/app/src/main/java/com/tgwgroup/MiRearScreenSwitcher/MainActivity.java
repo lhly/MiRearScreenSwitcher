@@ -47,53 +47,11 @@ public class MainActivity extends FlutterActivity {
         return currentInstance;
     }
     
-    private ITaskService taskService;
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private MethodChannel methodChannel;
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("task_service")
-            .debuggable(false)
-            .version(1);
-    
-    // Shizuku监听器（关键！）
-    private final Shizuku.OnBinderReceivedListener binderReceivedListener = 
-        () -> {
-            bindTaskService();
-        };
-    
-    private final Shizuku.OnBinderDeadListener binderDeadListener = 
-        () -> {
-            taskService = null;
-            
-            // 启动重连任务
-            scheduleReconnectTaskService();
-        };
-    
-    /**
-     * TaskService重连任务
-     */
-    private final Runnable reconnectTaskServiceRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (taskService == null) {
-                bindTaskService();
-                
-                // 如果重连失败，2秒后再次尝试
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 30);
-            } else {
-            }
-        }
-    };
-    
-    /**
-     * 安排TaskService重连
-     */
-    private void scheduleReconnectTaskService() {
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 30);
-    };
-    
-    private final Shizuku.OnRequestPermissionResultListener requestPermissionResultListener = 
+
+    private final Shizuku.OnRequestPermissionResultListener requestPermissionResultListener =
         (requestCode, grantResult) -> {
             boolean granted = grantResult == PackageManager.PERMISSION_GRANTED;
             if (granted) {
@@ -120,36 +78,17 @@ public class MainActivity extends FlutterActivity {
     };
     
     private void bindTaskService() {
-        if (taskService != null) {
-            return;
-        }
-        
-        try {
-            if (!Shizuku.pingBinder()) {
-                Log.e(TAG, "Shizuku not available");
-                return;
-            }
-            
-            if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "No Shizuku permission");
-                return;
-            }
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to bind TaskService", e);
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        bindTaskService();
         
         // 保存实例
         currentInstance = this;
-        
-        // 添加Shizuku监听器（关键！使用Sticky版本）
-        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
-        Shizuku.addBinderDeadListener(binderDeadListener);
+
         Shizuku.addRequestPermissionResultListener(requestPermissionResultListener);
         
         // 自动检查并请求Shizuku权限
@@ -288,14 +227,15 @@ public class MainActivity extends FlutterActivity {
     
     @Override
     protected void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
         
         // 清除静态实例
         currentInstance = null;
         
-        Shizuku.removeBinderReceivedListener(binderReceivedListener);
-        Shizuku.removeBinderDeadListener(binderDeadListener);
         Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener);
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
     }
     
     @Override
@@ -640,7 +580,7 @@ public class MainActivity extends FlutterActivity {
                         prefs.edit().putBoolean("charging_always_on_enabled", enabled).apply();
                         
                         // 通知ChargingService重新加载设置
-                        sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_CHARGING_SETTINGS"));
+                        sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_CHARGING_SETTINGS"));
                         
                         Log.d(TAG, "Charging always on set to: " + enabled);
                         result.success(true);
@@ -804,7 +744,7 @@ public class MainActivity extends FlutterActivity {
                                 .apply();
                             
                             // 通知NotificationService重新加载设置
-                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS"));
                             
                             Log.d(TAG, "Privacy hide title set to: " + enabled);
                             result.success(true);
@@ -825,7 +765,7 @@ public class MainActivity extends FlutterActivity {
                                 .apply();
                             
                             // 通知NotificationService重新加载设置
-                            sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
+                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS"));
                             
                             Log.d(TAG, "Privacy hide content set to: " + enabled);
                             result.success(true);

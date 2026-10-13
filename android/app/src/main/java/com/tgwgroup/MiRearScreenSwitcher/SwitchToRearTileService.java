@@ -15,371 +15,261 @@
 
 package com.tgwgroup.MiRearScreenSwitcher;
 
-import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 import android.util.Log;
 import android.widget.Toast;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import rikka.shizuku.Shizuku;
 
-/**
- * Quick Settings Tile - 切换至背屏
- * 点击后将当前前台应用切换到背屏
- */
+/** Quick Settings tile that moves the foreground task to the rear display. */
 public class SwitchToRearTileService extends TileService {
     private static final String TAG = "SwitchToRearTile";
-
-    // 静态变量：保存最后移动到背屏的任务信息（用于接近传感器恢复）
-    private static String lastMovedTask = null; // 格式: "packageName:taskId"
-
+    private static final long READY_TIMEOUT_MS = 5000;
+    private static volatile String lastMovedTask;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile boolean listening;
+    private boolean destroyed;
     private ITaskService taskService;
-    private final Shizuku.UserServiceArgs serviceArgs = new Shizuku.UserServiceArgs(
-            new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("task_service")
-            .debuggable(false)
-            .version(1);
+    private SwitchRequest pending;
+    private long nextRequestId;
+    private final Runnable resetFeedback = () -> updateFeedback(null);
+    private final Runnable readyTimeout = () -> {
+        if (pending != null && !pending.executing) {
+            Log.w(TAG, "request=" + pending.id + " stage=ready_timeout elapsed_ms="
+                    + (SystemClock.elapsedRealtime() - pending.startedAt));
+            pending = null;
+            showTemporaryFeedback("连接超时，请检查 Shizuku");
+        }
+    };
+
+    private static final class SwitchRequest {
+        final long id;
+        final long startedAt = SystemClock.elapsedRealtime();
+        volatile boolean cancelled;
+        boolean executing; // Main-thread state.
+
+        SwitchRequest(long id) { this.id = id; }
+    }
 
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
+            executePending();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             taskService = null;
-            scheduleReconnectTaskService();
+            // The manager reconnects; a pending click continues only within its deadline.
         }
     };
-
-    /**
-     * TaskService重连任务
-     */
-    private final Runnable reconnectTaskServiceRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (taskService == null) {
-                bindTaskService();
-                // 如果重连失败，1秒后再次尝试
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 1000);
-            }
-        }
-    };
-
-    /**
-     * 安排TaskService重连
-     */
-    private void scheduleReconnectTaskService() {
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 200);
-    }
 
     @Override
     public void onStartListening() {
         super.onStartListening();
-
-        Tile tile = getQsTile();
-        if (tile != null) {
-            tile.setState(Tile.STATE_INACTIVE);
-            tile.setSubtitle(null);
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                tile.setStateDescription("");
-            }
-            tile.updateTile();
-        }
-
-        bindTaskService();
+        listening = true;
+        updateFeedback(null);
+        TaskServiceManager.acquire(this, taskServiceConnection);
     }
 
     @Override
     public void onStopListening() {
         super.onStopListening();
-        unbindTaskService();
+        listening = false;
+        cancelPending("panel_closed");
+        if (pending == null) releaseConnection();
     }
 
-    /**
-     * 静态辅助方法：恢复指定任务到背屏
-     * 由 RearScreenBroadcastReceiver 调用
-     */
+    @Override
+    public void onDestroy() {
+        destroyed = true;
+        listening = false;
+        cancelPending("tile_destroyed");
+        handler.removeCallbacksAndMessages(null);
+        if (pending == null) releaseConnection();
+        worker.shutdown();
+        super.onDestroy();
+    }
+
+    private void cancelPending(String reason) {
+        handler.removeCallbacks(readyTimeout);
+        handler.removeCallbacks(resetFeedback);
+        if (pending == null) return;
+        pending.cancelled = true;
+        Log.i(TAG, "request=" + pending.id + " stage=cancel reason=" + reason);
+        // An executing worker retains its connection until the operation/cleanup finishes.
+        if (!pending.executing) pending = null;
+    }
+
+    private void releaseConnection() {
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
+    }
+
     public static void restoreTaskToRearDisplay(int taskId) {
-        // 这个方法留空，实际恢复逻辑由广播接收器直接启动Activity来触发
-        // Activity会自动应用FLAG_KEEP_SCREEN_ON
+        // Restoration is handled by RearScreenBroadcastReceiver.
     }
 
-    /**
-     * 获取最后移动到背屏的任务信息
-     * 
-     * @return 格式: "packageName:taskId"，如果没有则返回null
-     */
-    public static String getLastMovedTask() {
-        return lastMovedTask;
-    }
+    public static String getLastMovedTask() { return lastMovedTask; }
 
     @Override
     public void onClick() {
         super.onClick();
-        switchCurrentAppToRearDisplay();
-    }
-
-    private void bindTaskService() {
-        if (taskService != null) {
+        if (destroyed || pending != null) {
+            Log.i(TAG, "stage=click_ignored reason=busy_or_destroyed");
             return;
         }
-
         try {
             if (!Shizuku.pingBinder()) {
-                Log.e(TAG, "Shizuku not available");
+                Log.w(TAG, "stage=click_rejected reason=shizuku_unavailable");
+                showTemporaryFeedback("请先启动 Shizuku");
                 return;
             }
-
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "No Shizuku permission");
+                Log.w(TAG, "stage=click_rejected reason=permission_denied");
+                showTemporaryFeedback("请先打开应用授权");
                 return;
             }
-
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-
+            pending = new SwitchRequest(++nextRequestId);
+            Log.i(TAG, "request=" + pending.id + " stage=click binder_alive="
+                    + (taskService != null && taskService.asBinder().isBinderAlive()));
+            handler.removeCallbacks(resetFeedback);
+            updateFeedback("正在连接服务...");
+            handler.postDelayed(readyTimeout, READY_TIMEOUT_MS);
+            TaskServiceManager.acquire(this, taskServiceConnection);
+            executePending();
         } catch (Exception e) {
-            Log.e(TAG, "Failed to bind TaskService", e);
+            Log.e(TAG, "stage=click_failed", e);
+            pending = null;
+            handler.removeCallbacks(readyTimeout);
+            showTemporaryFeedback("服务连接失败");
         }
     }
 
-    private void unbindTaskService() {
-        if (taskService != null) {
-            try {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-            } catch (Exception e) {
-                Log.e(TAG, "Error unbinding TaskService", e);
-            }
-            taskService = null;
-        }
-    }
-
-    private void switchCurrentAppToRearDisplay() {
-        if (taskService == null) {
-            Log.w(TAG, "TaskService not available!");
-            showTemporaryFeedback("服务未就绪");
-
-            // 尝试重新绑定
-            bindTaskService();
-
-            // 延迟重试
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                if (taskService != null) {
-                    performSwitch();
-                } else {
-                    showTemporaryFeedback("请先打开应用授权");
-                }
-            }, 1000);
+    private void executePending() {
+        if (pending == null || pending.executing || pending.cancelled || destroyed || !listening) return;
+        if (taskService == null || !taskService.asBinder().isBinderAlive()) return;
+        if (SystemClock.elapsedRealtime() - pending.startedAt >= READY_TIMEOUT_MS) {
+            readyTimeout.run();
             return;
         }
-
-        performSwitch();
+        SwitchRequest request = pending;
+        ITaskService service = taskService; // Stable reference while UI lifecycle callbacks run.
+        request.executing = true;
+        handler.removeCallbacks(readyTimeout);
+        updateFeedback("切换中...");
+        Log.i(TAG, "request=" + request.id + " stage=ready elapsed_ms="
+                + (SystemClock.elapsedRealtime() - request.startedAt));
+        worker.execute(() -> performSwitch(request, service));
     }
 
-    private void performSwitch() {
-        // 显示执行中状态 - 保持按钮外观，只改变副标题
-        Tile tile = getQsTile();
-        if (tile != null) {
-            tile.setState(Tile.STATE_INACTIVE); // 保持熄灭状态
-            tile.setSubtitle("切换中...");
-            // 不显示"已开启"
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                tile.setStateDescription("");
-            }
-            tile.updateTile();
-        }
-
+    private void performSwitch(SwitchRequest request, ITaskService service) {
+        String feedback = "✗ 操作失败";
+        boolean launcherStopped = false;
+        boolean moved = false;
         try {
-            // 步骤0: 检查背屏是否已有应用在运行
-            if (lastMovedTask != null && lastMovedTask.contains(":")) {
-                try {
-                    String[] oldParts = lastMovedTask.split(":");
-                    String oldPackageName = oldParts[0];
-                    int oldTaskId = Integer.parseInt(oldParts[1]);
-
-                    // 检查旧应用是否还在背屏
-                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
-                    if (rearForegroundApp != null && rearForegroundApp.equals(lastMovedTask)) {
-                        // 背屏已有应用在运行，禁止操作
-                        String oldAppName = getAppName(oldPackageName);
-
-                        // 先收起控制中心，Toast才能显示
-                        try {
-                            taskService.collapseStatusBar();
-                        } catch (Exception e) {
-                            Log.w(TAG, "Failed to collapse for toast: " + e.getMessage());
-                        }
-
-                        // 延迟显示Toast，确保控制中心已收起
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                            Toast.makeText(this, getString(R.string.toast_please_switch_back, oldAppName),
-                                    Toast.LENGTH_LONG).show();
-                        }, 300);
-
-                        showTemporaryFeedback("✗ 背屏已占用");
-                        return;
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to check previous app: " + e.getMessage());
-                }
+            if (request.cancelled) return;
+            if (lastMovedTask != null && lastMovedTask.equals(service.getForegroundAppOnDisplay(1))) {
+                feedback = "✗ 背屏已占用";
+                service.collapseStatusBar();
+                String appName = getAppName(lastMovedTask.split(":")[0]);
+                handler.postDelayed(() -> Toast.makeText(this,
+                        getString(R.string.toast_please_switch_back, appName), Toast.LENGTH_LONG).show(), 300);
+                return;
             }
-
-            // 步骤1: 禁用系统背屏Launcher（关键！防止挤占）
+            String currentApp = service.getCurrentForegroundApp();
+            if (currentApp == null || !currentApp.contains(":")) {
+                feedback = "✗ 未找到应用";
+                Log.w(TAG, "request=" + request.id + " stage=no_foreground_task");
+                return;
+            }
+            String[] parts = currentApp.split(":");
+            int taskId = Integer.parseInt(parts[1]);
+            Log.i(TAG, "request=" + request.id + " stage=target task_id=" + taskId + " display_id=1");
+            if (request.cancelled) return;
+            launcherStopped = service.disableSubScreenLauncher();
+            if (request.cancelled) return;
+            moved = service.moveTaskToDisplay(taskId, 1);
+            Log.i(TAG, "request=" + request.id + " stage=move_result task_id=" + taskId + " verified=" + moved);
+            if (!moved) {
+                feedback = "✗ 切屏失败，请查看日志";
+                return;
+            }
+            lastMovedTask = currentApp;
+            Intent keeper = new Intent(this, RearScreenKeeperService.class);
+            keeper.putExtra("lastMovedTask", currentApp);
+            keeper.putExtra("keepScreenOnEnabled", getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                    .getBoolean("flutter.keep_screen_on_enabled", true));
             try {
-                taskService.disableSubScreenLauncher();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(keeper);
+                else startService(keeper);
+                feedback = "✓ 已切换";
             } catch (Exception e) {
-                Log.w(TAG, "Failed to disable SubScreenLauncher", e);
+                feedback = "已切换，保活服务未启动";
+                Log.e(TAG, "request=" + request.id + " stage=keeper_failed", e);
             }
-
-            // 步骤2: 获取当前前台应用
-            String currentApp = taskService.getCurrentForegroundApp();
-
-            // 步骤3: 立即启动前台Service（不延迟，让通知快速出现）
-            Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
-            serviceIntent.putExtra("lastMovedTask", currentApp);
-
-            // V2.5: 传递背屏常亮开关状态
-            try {
-                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences",
-                        MODE_PRIVATE);
-                boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
-                serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
-            } catch (Exception e) {
-                // 默认为开启
-                serviceIntent.putExtra("keepScreenOnEnabled", true);
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
-
-            if (currentApp != null && currentApp.contains(":")) {
-                String[] parts = currentApp.split(":");
-                String packageName = parts[0];
-                int taskId = Integer.parseInt(parts[1]);
-
-                // 获取应用名
-                String appName = getAppName(packageName);
-
-                // 步骤4: 切换到display 1 (背屏)
-                boolean success = taskService.moveTaskToDisplay(taskId, 1);
-
-                if (success) {
-                    // 保存最后移动的任务信息（用于接近传感器恢复）
-                    lastMovedTask = currentApp;
-
-                    // 自动收回控制中心（提升用户体验）
-                    try {
-                        new Thread(() -> {
-                            try {
-                                if (taskService != null) {
-                                    taskService.collapseStatusBar();
-                                }
-                            } catch (Exception e) {
-                                Log.w(TAG, "Failed to collapse: " + e.getMessage());
-                            }
-                        }).start();
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to start collapse thread: " + e.getMessage());
-                    }
-
-                    // 延迟显示Toast，确保控制中心已收起
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        Toast.makeText(this, appName + " " + getString(R.string.toast_cast_to_rear), Toast.LENGTH_SHORT)
-                                .show();
-                    }, 300);
-
-                    // 步骤5: 主动点亮背屏 (通过TaskService启动Activity，绕过BAL限制)
-                    try {
-                        if (taskService != null) {
-                            try {
-                                boolean launchResult = taskService.launchWakeActivity(1);
-                                if (!launchResult) {
-                                    Log.w(TAG, "TaskService launch failed");
-                                }
-                            } catch (Exception e) {
-                                Log.w(TAG, "launchWakeActivity exception: " + e.getMessage());
-                            }
-                        } else {
-                            Log.w(TAG, "TaskService not available");
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to launch wakeup activity", e);
-                    }
-
-                    showTemporaryFeedback("✓ 已切换");
-                } else {
-                    // 先收起控制中心
-                    try {
-                        taskService.collapseStatusBar();
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to collapse: " + e.getMessage());
-                    }
-
-                    // 延迟显示Toast
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        Toast.makeText(this, getString(R.string.toast_switch_failed), Toast.LENGTH_SHORT).show();
-                    }, 300);
-
-                    showTemporaryFeedback("✗ 失败");
-                }
-            } else {
-                Log.w(TAG, "No foreground app found");
-                showTemporaryFeedback("✗ 未找到应用");
-            }
+            service.launchWakeActivity(1);
+            service.collapseStatusBar();
+            String appName = getAppName(parts[0]);
+            handler.postDelayed(() -> Toast.makeText(this,
+                    appName + " " + getString(R.string.toast_cast_to_rear), Toast.LENGTH_SHORT).show(), 300);
         } catch (Exception e) {
-            Log.e(TAG, "Error switching app", e);
-            showTemporaryFeedback("✗ 操作失败");
+            Log.e(TAG, "request=" + request.id + " stage=operation_failed moved=" + moved, e);
+            if (moved) feedback = "已切换，唤醒失败";
+        } finally {
+            if (launcherStopped && !moved) {
+                try { service.enableSubScreenLauncher(); }
+                catch (Exception e) { Log.w(TAG, "request=" + request.id + " stage=restore_launcher_failed", e); }
+            }
+            String result = feedback;
+            handler.post(() -> {
+                Log.i(TAG, "request=" + request.id + " stage=finished elapsed_ms="
+                        + (SystemClock.elapsedRealtime() - request.startedAt));
+                if (pending == request) pending = null;
+                if (!destroyed && listening) showTemporaryFeedback(result);
+                if (destroyed || !listening) releaseConnection();
+            });
         }
+    }
+
+    private void updateFeedback(String message) {
+        Tile tile = getQsTile();
+        if (tile == null) return;
+        tile.setState(Tile.STATE_INACTIVE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            tile.setSubtitle(message);
+            tile.setStateDescription("");
+        }
+        tile.updateTile();
     }
 
     private void showTemporaryFeedback(String message) {
-        Tile tile = getQsTile();
-        if (tile != null) {
-            tile.setState(Tile.STATE_INACTIVE);
-            tile.setSubtitle(message);
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                tile.setStateDescription("");
-            }
-            tile.updateTile();
-        }
-
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            Tile resetTile = getQsTile();
-            if (resetTile != null) {
-                resetTile.setState(Tile.STATE_INACTIVE);
-                resetTile.setSubtitle(null);
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    resetTile.setStateDescription("");
-                }
-                resetTile.updateTile();
-            }
-        }, 1500);
+        updateFeedback(message);
+        handler.removeCallbacks(resetFeedback);
+        handler.postDelayed(resetFeedback, 1500);
     }
 
-    /**
-     * 获取应用名称
-     */
     private String getAppName(String packageName) {
         try {
-            android.content.pm.PackageManager pm = getPackageManager();
-            android.content.pm.ApplicationInfo appInfo = pm.getApplicationInfo(packageName, 0);
-            CharSequence label = pm.getApplicationLabel(appInfo);
-            if (label != null && label.length() > 0) {
-                return label.toString();
-            }
+            PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString();
         } catch (Exception e) {
-            Log.w(TAG, "Failed to get app name: " + e.getMessage());
+            return packageName;
         }
-        return packageName; // 失败时返回包名
     }
 }

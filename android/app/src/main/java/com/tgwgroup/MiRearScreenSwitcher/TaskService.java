@@ -74,7 +74,7 @@ public class TaskService extends ITaskService.Stub {
                     // 跳过Launcher和应用自己
                     if (packageName.contains("launcher") || 
                         packageName.contains("miui.home") ||
-                        packageName.equals("com.tgwgroup.MiRearScreenSwitcher")) {
+                        packageName.equals(BuildConfig.APPLICATION_ID)) {
                         continue;
                     }
                     
@@ -152,13 +152,22 @@ public class TaskService extends ITaskService.Stub {
             String cmd = "service call activity_task 50 i32 " + taskId + " i32 " + displayId;
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
+            pb.redirectErrorStream(true);
             Process process = pb.start();
-            
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() < 1024) output.append(line).append(' ');
+                }
+            }
             int exitCode = process.waitFor();
-            boolean success = (exitCode == 0);
-            
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
+            // service call can return a Parcel containing an exception with exit code 0.
+            boolean success = exitCode == 0 && isTaskOnDisplay(taskId, displayId);
+            Log.i(TAG, "move_result task_id=" + taskId + " display_id=" + displayId
+                    + " exit_code=" + exitCode + " verified=" + success
+                    + " elapsed_ms=" + (System.currentTimeMillis() - startTime)
+                    + " response=" + output);
 
             // 如果成功移动到背屏（displayId=1），保存任务信息
             if (success && displayId == 1) {
@@ -229,7 +238,7 @@ public class TaskService extends ITaskService.Stub {
             // --display参数指定目标display
             // 注意：RearScreenWakeupActivity使用FLAG_TURN_SCREEN_ON点亮屏幕
             String cmd = "am start --display " + displayId + 
-                        " -n com.tgwgroup.MiRearScreenSwitcher/.RearScreenWakeupActivity";
+                        " -n " + BuildConfig.APPLICATION_ID + "/" + RearScreenWakeupActivity.class.getName();
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
             pb.redirectErrorStream(true);
@@ -705,11 +714,11 @@ public class TaskService extends ITaskService.Stub {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("RootTask")) {
-                    inTargetDisplay = line.contains("displayId=" + displayId);
+                    inTargetDisplay = line.matches(".*\\bdisplayId=" + displayId + "\\b.*");
                     continue;
                 }
                 
-                if (inTargetDisplay && line.contains("taskId=" + taskId)) {
+                if (inTargetDisplay && line.contains("taskId=" + taskId + ":")) {
                     reader.close();
                     process.destroy();
                     return true;
@@ -741,7 +750,7 @@ public class TaskService extends ITaskService.Stub {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("RootTask")) {
-                    inTargetDisplay = line.contains("displayId=" + displayId);
+                    inTargetDisplay = line.matches(".*\\bdisplayId=" + displayId + "\\b.*");
                     continue;
                 }
                 

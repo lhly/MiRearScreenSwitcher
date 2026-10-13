@@ -38,7 +38,6 @@ import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
-import rikka.shizuku.Shizuku;
 
 /**
  * 背屏录屏服务
@@ -62,14 +61,8 @@ public class ScreenRecordService extends Service {
     private static final long WAKEUP_INTERVAL_MS = 100; // 每100ms唤醒一次背屏
     
     // TaskService
-    private ITaskService taskService;
-    private final Shizuku.UserServiceArgs serviceArgs = 
-        new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
-            .daemon(false)
-            .processNameSuffix("task_service")
-            .debuggable(false)
-            .version(1);
-    
+    private volatile boolean taskServiceReleased;
+    private volatile ITaskService taskService;
     private final ServiceConnection taskServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -128,28 +121,7 @@ public class ScreenRecordService extends Service {
     }
     
     private void bindTaskService() {
-        if (taskService != null) {
-            Log.d(TAG, "TaskService已连接，跳过绑定");
-            return;
-        }
-        
-        try {
-            if (!Shizuku.pingBinder()) {
-                Log.e(TAG, "❌ Shizuku不可用");
-                return;
-            }
-            
-            if (Shizuku.checkSelfPermission() != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "❌ 无Shizuku权限");
-                return;
-            }
-            
-            Log.d(TAG, "→ 正在绑定TaskService...");
-            Shizuku.bindUserService(serviceArgs, taskServiceConnection);
-        } catch (Exception e) {
-            Log.e(TAG, "❌ 绑定TaskService失败", e);
-            e.printStackTrace();
-        }
+        if (!taskServiceReleased) TaskServiceManager.acquire(this, taskServiceConnection);
     }
     
     private void createNotificationChannel() {
@@ -697,6 +669,7 @@ public class ScreenRecordService extends Service {
     
     @Override
     public void onDestroy() {
+        taskServiceReleased = true;
         super.onDestroy();
         
         // 停止背屏持续唤醒
@@ -718,14 +691,8 @@ public class ScreenRecordService extends Service {
         }
         
         // 解绑TaskService
-        if (taskService != null) {
-            try {
-                Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);
-            } catch (Exception e) {
-                Log.e(TAG, "解绑TaskService失败", e);
-            }
-            taskService = null;
-        }
+        TaskServiceManager.release(taskServiceConnection);
+        taskService = null;
         
         instance = null;
         Log.d(TAG, "⚠ Service已销毁");

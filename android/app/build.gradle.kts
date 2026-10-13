@@ -34,11 +34,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "MRSS"
+        manifestPlaceholders["mrssScheme"] = "mrss"
+        buildConfigField("String", "URI_SCHEME", "\"mrss\"")
     }
     
     // Shizuku需要
     buildFeatures {
         aidl = true
+        buildConfig = true
     }
     
     lint {
@@ -58,6 +62,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-hyperos4-fix"
+            manifestPlaceholders["appLabel"] = "MRSS 修复测试"
+            manifestPlaceholders["mrssScheme"] = "mrss-debug"
+            buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
+        }
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
