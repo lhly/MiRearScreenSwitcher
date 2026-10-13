@@ -4,6 +4,8 @@
 
 ## 首次配置 GitHub Secrets
 
+当前仓库的四项 Secrets 已于 2026-10-13 配置完成，使用本机生成的个人正式签名密钥。后续沿用这把密钥发版时无需重复填写，直接按下方步骤更新版本并推送新 tag。
+
 打开当前仓库的 [Actions Secrets 设置](https://github.com/lhly/MiRearScreenSwitcher/settings/secrets/actions)，在 **Repository secrets** 中添加以下四项。原工作流使用相同名称；若之前填过作者密钥，请替换成此次生成的个人密钥。
 
 | Secret 名称 | 内容 | 本机已导出的文件 |
@@ -36,15 +38,15 @@ done
 
 先将工作流、辅助脚本、当前构建配置和应用修改提交并推送到 GitHub。tag 必须指向包含这些修改的提交。
 
-当前 `pubspec.yaml` 为 `version: 3.2.1+2011`，首次可以发布 `v3.2.1`：
+当前 `pubspec.yaml` 为 `version: 3.2.1+2011`，`v3.2.1` 已正式发布。下一次发版先修改为 `version: 3.2.2+2012`，提交修改后运行：
 
 ```sh
 git push origin main
-git tag -a v3.2.1 -m "MRSS 3.2.1"
-git push origin v3.2.1
+git tag -a v3.2.2 -m "MRSS 3.2.2"
+git push origin v3.2.2
 ```
 
-以后先修改版本，例如 `version: 3.2.2+2012`，提交并推送，再发布 `v3.2.2`。tag 中的版本必须与 `+` 前的 versionName 完全一致；`+` 后的 versionCode 必须为正整数，更新个人正式版时应持续递增。
+tag 中的版本必须与 `+` 前的 versionName 完全一致；`+` 后的 versionCode 必须为正整数，更新个人正式版时应持续递增。已发布的 tag 不再重复创建或覆盖。
 
 预览版示例：`version: 3.2.2-rc.1+2012` 对应 `v3.2.2-rc.1`。预览版会被标记为 Pre-release；正式版会被标记为 Latest。不接受 `v3.2.2+2012` 这种带构建号的 tag。
 
@@ -75,7 +77,11 @@ git push origin v3.2.1
 
 ## 本地验证与云端验收
 
-本次已通过 actionlint 工作流检查、9 项发布参数测试、16 项业务回归及发布 shell 场景验证，验证了 Secrets 导出和恢复，以及当前正式 APK 的签名、包名、版本和 AOT 结构。错误证书和校验文件会阻止发布。GitHub 云端构建与实际 Release 发布需在 Secrets 配置完成并推送首个 tag 后验收。
+本次已通过 actionlint 工作流检查、9 项发布参数测试、16 项业务回归及发布 shell 场景验证，验证了 Secrets 导出和恢复，以及当前正式 APK 的签名、包名、版本和 AOT 结构。错误证书和校验文件会阻止发布。
+
+2026-10-13 已完成首次真实云端验收：[Release APK 运行 38348746002](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38348746002) 的构建和发布两个 job 均成功，[MRSS v3.2.1](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.2.1) 已公开并标记为 Latest，包含 APK 和 `SHA256SUMS`。构建耗时 6 分 35 秒，发布耗时 10 秒。
+
+已从公开 Release 重新下载附件，APK 的 SHA256 与校验文件及 GitHub asset digest 一致：`ce6f1dcd71ec70d41003dde990cee656b4bd70a10bfa84185dfc2e332a69092d`。下载成品的签名证书、个人包名、版本 `3.2.1 / 2011`、不可调试及 ARM64 AOT 结构均通过复核。APK 大小为 17,693,866 字节。本次验收覆盖云端发布和下载产物；手机上的磁贴实测记录见 `docs/hyperos4-tile-validation.md`。
 
 本地可运行：
 
