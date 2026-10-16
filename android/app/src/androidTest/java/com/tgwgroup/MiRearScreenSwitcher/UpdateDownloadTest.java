@@ -172,7 +172,7 @@ public class UpdateDownloadTest {
         try {
             UpdateDownloadTask.State state = done(task);
             assertEquals(String.valueOf(state.error), UpdateDownloadTask.Phase.READY, state.phase);
-            Intent intent = UpdateDownloadActivity.installerIntent(context, state.file);
+            Intent intent = UpdateInstaller.intent(context, state.file);
             assertEquals(Intent.ACTION_VIEW, intent.getAction()); assertEquals("content", intent.getData().getScheme());
             assertEquals(context.getPackageName() + ".updates", intent.getData().getAuthority());
             assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
@@ -203,7 +203,7 @@ public class UpdateDownloadTest {
             assertEquals(UpdateDownloadTask.Phase.ERROR, done(task).phase); assertFalse(file.exists());
         } finally { task.close(); }
         File outside = File.createTempFile("private-", ".txt", context.getCacheDir());
-        try { UpdateDownloadActivity.installerIntent(context, outside); fail("Unrelated cache exposed"); }
+        try { UpdateInstaller.intent(context, outside); fail("Unrelated cache exposed"); }
         catch (IllegalArgumentException expected) { } finally { outside.delete(); }
         android.content.pm.ProviderInfo provider = context.getPackageManager().resolveContentProvider(context.getPackageName() + ".updates", 0);
         assertNotNull(provider); assertFalse(provider.exported); assertTrue(provider.grantUriPermissions);

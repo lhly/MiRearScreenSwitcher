@@ -57,6 +57,7 @@ final class NativeSettingsUi {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, Switch> switches = new HashMap<>();
     private final ReleaseUpdateChecker updateChecker;
+    private final UpdateDialogController updateDialog;
     private LinearLayout updateRow;
     private TextView updateSummary;
     private boolean checkingUpdates;
@@ -83,12 +84,13 @@ final class NativeSettingsUi {
     };
 
     NativeSettingsUi(MainActivity activity, Bundle state) {
-        this(activity, state, new ReleaseUpdateChecker());
+        this(activity, state, activity.createUpdateChecker());
     }
 
     NativeSettingsUi(MainActivity activity, Bundle state, ReleaseUpdateChecker updateChecker) {
         this.activity = activity;
         this.updateChecker = updateChecker;
+        updateDialog = new UpdateDialogController(activity, state, this::checkForUpdates);
         ui = new GlassUi(activity);
         preferences = new NativePreferences(activity);
         page = state == null ? 0 : state.getInt("native_page", 0);
@@ -154,22 +156,25 @@ final class NativeSettingsUi {
 
     void onResume() {
         resumed = true;
+        updateDialog.onResume();
         handler.removeCallbacks(statusTick);
         handler.post(statusTick);
         if (picker != null) picker.onResume();
         else if (page == 1 && scroll != null && ViewCompat.isLaidOut(scroll)) rebuildKeepingPosition();
     }
 
-    void onPause() { resumed = false; handler.removeCallbacks(statusTick); }
+    void onPause() { resumed = false; updateDialog.onPause(); handler.removeCallbacks(statusTick); }
     void destroy() {
         destroyed = true;
         updateChecker.close();
+        updateDialog.destroy();
         handler.removeCallbacksAndMessages(null);
         if (picker != null) picker.destroy();
         for (AlertDialog dialog : new ArrayList<>(dialogs)) dialog.dismiss();
     }
 
     void saveState(Bundle state) {
+        updateDialog.saveState(state);
         composeUi.saveState(state);
         state.putInt("native_page", page);
         state.putInt("native_scroll", scroll == null ? 0 : scroll.getScrollY());
@@ -338,15 +343,7 @@ final class NativeSettingsUi {
     private String updateSummaryText() {
         if (checkingUpdates) return s("checking_updates");
         if (updateResult == null) return s("updates_help");
-        switch (updateResult.status) {
-            case AVAILABLE: return count("update_available", updateResult.tag);
-            case CURRENT: return s("update_current");
-            case LOCAL_NEWER: return s("update_local_newer");
-            case MANIFEST_UNAVAILABLE: return s("update_none");
-            case RESTRICTED: return s("update_restricted");
-            case INVALID_RESPONSE: return s("update_invalid");
-            default: return s("update_network_error");
-        }
+        return UpdateDialogController.summary(activity, updateResult);
     }
 
     private void refreshUpdateRow() {
@@ -356,7 +353,7 @@ final class NativeSettingsUi {
         updateRow.setContentDescription(s("check_updates") + ", " + updateSummaryText());
     }
 
-    private void checkForUpdates() {
+    void checkForUpdates() {
         if (destroyed || checkingUpdates) return;
         checkingUpdates = true;
         refreshUpdateRow();
@@ -367,28 +364,7 @@ final class NativeSettingsUi {
             refreshUpdateRow();
             // A completed background check must not interrupt a different page/app.
             if (page != 2 || !resumed) return;
-            String message = count("version_label", BuildConfig.VERSION_NAME);
-            if (!result.tag.isEmpty()) message += "\n" + count("latest_release_label", result.tag);
-            message += "\n\n" + updateSummaryText();
-            AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(s("check_updates"))
-                    .setMessage(message).setNegativeButton(s("cancel"), null);
-            boolean failed = result.status == ReleaseUpdateChecker.Status.NETWORK_ERROR
-                    || result.status == ReleaseUpdateChecker.Status.MANIFEST_UNAVAILABLE
-                    || result.status == ReleaseUpdateChecker.Status.RESTRICTED
-                    || result.status == ReleaseUpdateChecker.Status.INVALID_RESPONSE;
-            if (failed) builder.setPositiveButton(s("retry"), (d, w) -> checkForUpdates())
-                    .setNeutralButton(s("view_releases"), (d, w) -> action("openReleases"));
-            else if (result.status == ReleaseUpdateChecker.Status.AVAILABLE) {
-                builder.setPositiveButton(activity.getString(R.string.ui_download_update),
-                        (d, w) -> activity.startActivity(UpdateDownloadActivity.intent(activity, result.apk)))
-                        .setNeutralButton(s("view_release"), (d, w) -> activity.startActivity(
-                                new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(result.releaseUrl()))));
-            } else builder.setPositiveButton(s("view_releases"),
-                    (d, w) -> {
-                        try { activity.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(result.releaseUrl()))); }
-                        catch (Exception error) { toast(s("operation_failed")); }
-                    });
-            dialog(builder.create());
+            updateDialog.show(result);
         });
     }
 

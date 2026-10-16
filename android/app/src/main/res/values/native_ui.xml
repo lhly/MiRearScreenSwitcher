@@ -196,13 +196,11 @@
     <string name="ui_update_invalid" formatted="false">Could not read the release version. Please check the GitHub releases page.</string>
     <string name="ui_view_release" formatted="false">View update</string>
     <string name="ui_view_releases" formatted="false">Release history</string>
-    <string name="ui_latest_release_label" formatted="false">Latest stable release: {0}</string>
     <string name="ui_retry" formatted="false">Retry</string>
     <string name="ui_download_update" formatted="false">Download update</string>
     <string name="ui_downloading_update" formatted="false">Downloading update…</string>
     <string name="ui_verifying_update" formatted="false">Verifying APK…</string>
     <string name="ui_verify_help" formatted="false">Checking file integrity, app version and signing certificate.</string>
-    <string name="ui_download_help" formatted="false">The download continues while this page is in the background. Leaving this page cancels the download. Android will ask you to confirm installation.</string>
     <string name="ui_download_ready" formatted="false">APK verified</string>
     <string name="ui_ready_install_help" formatted="false">Continue in the system installer. If you cancelled installation, you can try again here.</string>
     <string name="ui_install_permission_help" formatted="false">Allow this app to install updates in Android settings, then return here to continue.</string>
@@ -216,4 +214,6 @@
     <string name="ui_download_version_error" formatted="false">The APK version does not match the update or is not newer than the installed version.</string>
     <string name="ui_download_signature_error" formatted="false">The APK signing certificate does not match this app. Installation was stopped.</string>
     <string name="ui_installer_unavailable" formatted="false">Cannot open the installer or installation settings. You can use the releases page.</string>
+    <string name="ui_current_version" formatted="false">Current version: {0}</string>
+    <string name="ui_update_size" formatted="false">APK size: {0}</string>
 </resources>

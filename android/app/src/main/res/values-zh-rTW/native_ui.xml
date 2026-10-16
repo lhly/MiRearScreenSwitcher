@@ -196,13 +196,11 @@
     <string name="ui_update_invalid" formatted="false">無法識別發布版本，請前往 GitHub 發布頁查看。</string>
     <string name="ui_view_release" formatted="false">查看更新</string>
     <string name="ui_view_releases" formatted="false">發布紀錄</string>
-    <string name="ui_latest_release_label" formatted="false">最新正式版：{0}</string>
     <string name="ui_retry" formatted="false">重試</string>
     <string name="ui_download_update" formatted="false">下載更新</string>
     <string name="ui_downloading_update" formatted="false">正在下載更新…</string>
     <string name="ui_verifying_update" formatted="false">正在驗證安裝套件…</string>
     <string name="ui_verify_help" formatted="false">正在核對檔案完整性、應用版本和簽章。</string>
-    <string name="ui_download_help" formatted="false">此頁面退到背景時會繼續下載，離開此頁面會取消下載。驗證完成後，由系統確認安裝。</string>
     <string name="ui_download_ready" formatted="false">安裝套件已通過驗證</string>
     <string name="ui_ready_install_help" formatted="false">請在系統安裝程式中繼續。若取消了安裝，可在此再次發起。</string>
     <string name="ui_install_permission_help" formatted="false">請在系統設定中允許本應用安裝更新，返回後繼續。</string>
@@ -216,4 +214,6 @@
     <string name="ui_download_version_error" formatted="false">安裝套件版本與清單不符，或不高於目前版本。</string>
     <string name="ui_download_signature_error" formatted="false">安裝套件簽章與目前應用不符，已停止安裝。</string>
     <string name="ui_installer_unavailable" formatted="false">無法開啟系統安裝程式或安裝設定，可前往發布頁處理。</string>
+    <string name="ui_current_version" formatted="false">目前版本：{0}</string>
+    <string name="ui_update_size" formatted="false">安裝套件大小：{0}</string>
 </resources>

@@ -422,32 +422,17 @@ public class NativeSettingsTest {
         } finally { instrumentation.runOnMainSync(() -> { settings.destroy(); activity.finish(); }); }
     }
 
-    @Test public void availableUpdateStartsInAppDownloadWithValidatedManifest() throws Exception {
+    @Test public void availableUpdateShowsTargetVersionOnlyOnce() throws Exception {
         MainActivity activity = launch();
-        AtomicReference<Intent> download = new AtomicReference<>();
-        Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {
-            @Override public Instrumentation.ActivityResult onStartActivity(Intent intent) {
-                if (intent.getComponent() == null || !UpdateDownloadActivity.class.getName().equals(intent.getComponent().getClassName())) return null;
-                download.set(intent); return new Instrumentation.ActivityResult(android.app.Activity.RESULT_CANCELED, null);
-            }
-        };
-        instrumentation.addMonitor(monitor);
-        NativeSettingsUi settings = aboutWithChecker(activity, () -> new ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release("v3.3.2")));
+        NativeSettingsUi settings = aboutWithChecker(activity, () -> new ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release("v3.4.0")));
         try {
-            instrumentation.runOnMainSync(() -> ((View) findText(activity.getWindow().getDecorView(), NativeStrings.get(activity, "check_updates"))
-                    .getParent().getParent()).performClick());
-            String label = activity.getString(R.string.ui_download_update);
-            android.view.accessibility.AccessibilityNodeInfo root = waitDialogButton(label);
+            instrumentation.runOnMainSync(settings::checkForUpdates);
+            android.view.accessibility.AccessibilityNodeInfo root = waitDialogButton(activity.getString(R.string.ui_download_update));
+            String contents = nodeText(root);
+            assertEquals(contents, 1, contents.split("v3.4.0", -1).length - 1);
+            assertTrue(contents, contents.contains(activity.getString(R.string.ui_current_version).replace("{0}", BuildConfig.VERSION_NAME)));
             assertNotNull(buttonNode(root, NativeStrings.get(activity, "view_release")));
-            assertTrue(buttonNode(root, label).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
-            instrumentation.waitForIdleSync(); assertNotNull(download.get());
-            org.json.JSONObject manifest = new org.json.JSONObject(download.get().getStringExtra(UpdateDownloadActivity.EXTRA_MANIFEST));
-            assertEquals("v3.3.2", manifest.getString("tag"));
-            assertTrue(manifest.getJSONObject("apk").getString("url").startsWith(ProjectInfo.RELEASES + "/download/v3.3.2/"));
-        } finally {
-            instrumentation.removeMonitor(monitor);
-            instrumentation.runOnMainSync(() -> { settings.destroy(); activity.finish(); });
-        }
+        } finally { instrumentation.runOnMainSync(() -> { settings.destroy(); activity.finish(); }); }
     }
 
     private void navigate(MainActivity activity, String key) throws Exception {

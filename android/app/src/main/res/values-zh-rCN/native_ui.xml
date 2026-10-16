@@ -196,13 +196,11 @@
     <string name="ui_update_invalid" formatted="false">无法识别发布版本，请前往 GitHub 发布页查看。</string>
     <string name="ui_view_release" formatted="false">查看更新</string>
     <string name="ui_view_releases" formatted="false">发布记录</string>
-    <string name="ui_latest_release_label" formatted="false">最新正式版：{0}</string>
     <string name="ui_retry" formatted="false">重试</string>
     <string name="ui_download_update" formatted="false">下载更新</string>
     <string name="ui_downloading_update" formatted="false">正在下载更新…</string>
     <string name="ui_verifying_update" formatted="false">正在校验安装包…</string>
     <string name="ui_verify_help" formatted="false">正在核对文件完整性、应用版本和签名。</string>
-    <string name="ui_download_help" formatted="false">此页面退到后台时下载会继续，退出此页面会取消下载。校验完成后，由系统确认安装。</string>
     <string name="ui_download_ready" formatted="false">安装包已通过校验</string>
     <string name="ui_ready_install_help" formatted="false">请在系统安装器中继续。若取消了安装，可在此再次发起。</string>
     <string name="ui_install_permission_help" formatted="false">请在系统设置中允许本应用安装更新，返回后继续。</string>
@@ -216,4 +214,6 @@
     <string name="ui_download_version_error" formatted="false">安装包版本与清单不一致，或不高于当前版本。</string>
     <string name="ui_download_signature_error" formatted="false">安装包签名与当前应用不一致，已停止安装。</string>
     <string name="ui_installer_unavailable" formatted="false">无法打开系统安装器或安装设置，可前往发布页处理。</string>
+    <string name="ui_current_version" formatted="false">当前版本：{0}</string>
+    <string name="ui_update_size" formatted="false">安装包大小：{0}</string>
 </resources>

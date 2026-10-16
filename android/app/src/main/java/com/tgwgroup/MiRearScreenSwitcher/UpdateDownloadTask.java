@@ -14,7 +14,7 @@ import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** One user-initiated transfer, retained across download activity configuration changes. */
+/** One user-initiated transfer, retained by the update dialog's ViewModel. */
 final class UpdateDownloadTask implements AutoCloseable {
     enum Phase { DOWNLOADING, VERIFYING, READY, ERROR, CANCELLED }
     enum Error { NETWORK, STORAGE, SIZE, HASH, PACKAGE, VERSION, SIGNATURE }

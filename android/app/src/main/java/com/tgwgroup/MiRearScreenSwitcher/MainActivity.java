@@ -49,6 +49,10 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService;
     private NativeSettingsUi nativeUi;
+    ReleaseUpdateChecker createUpdateChecker() { return new ReleaseUpdateChecker(); }
+    UpdateDownloadTask createUpdateTask(UpdatePackage update) { return new UpdateDownloadTask(getApplicationContext(), update); }
+    boolean canInstallUpdates() { return Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls(); }
+    void checkForUpdates() { if (nativeUi != null) nativeUi.checkForUpdates(); }
     private final java.util.concurrent.ExecutorService commandExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
 

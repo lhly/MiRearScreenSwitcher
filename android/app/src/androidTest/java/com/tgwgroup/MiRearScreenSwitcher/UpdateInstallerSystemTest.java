@@ -27,7 +27,7 @@ public class UpdateInstallerSystemTest {
         try {
             UpdateDownloadTask.State state = helpers.done(task);
             assertEquals(UpdateDownloadTask.Phase.READY, state.phase);
-            Intent intent = UpdateDownloadActivity.installerIntent(helpers.context, state.file);
+            Intent intent = UpdateInstaller.intent(helpers.context, state.file);
             instrumentation.runOnMainSync(() -> host.startActivity(intent));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
             long stable = 0;

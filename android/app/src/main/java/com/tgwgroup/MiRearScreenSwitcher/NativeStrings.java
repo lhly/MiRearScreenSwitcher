@@ -18,7 +18,6 @@ final class NativeStrings {
             case "update_invalid": id = R.string.ui_update_invalid; break;
             case "view_release": id = R.string.ui_view_release; break;
             case "view_releases": id = R.string.ui_view_releases; break;
-            case "latest_release_label": id = R.string.ui_latest_release_label; break;
             case "retry": id = R.string.ui_retry; break;
 
             case "project_maintainer": id = R.string.ui_project_maintainer; break;

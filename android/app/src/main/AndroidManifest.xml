@@ -35,7 +35,6 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
         </provider>
-        <activity android:name=".UpdateDownloadActivity" android:exported="false" android:theme="@style/NativeTheme" />
         <!-- 🔑 关键：背屏准入证！已验证有效！ -->
         <meta-data
             android:name="miui.rear.policy"
