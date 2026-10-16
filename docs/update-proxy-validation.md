@@ -1,6 +1,6 @@
 # 更新镜像代理
 
-2026-10-16，本地改动，未推送或发布。
+2026-10-16完成以下本地验收，现已随[ReMRSS v3.3.3](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)发布；公开发布验证见[自动发版记录](github-release.md)。
 
 ## 使用方式
 
@@ -25,4 +25,4 @@
 - Debug/androidTest/R8 Release构建通过，Lint 0错误、63项既有警告；正式APK签名与五套语言键一致性检查通过，生产包不含调试入口或APK样本。
 - 正式包实际通过代理检查更新成功，结果正确且只显示一次版本号；最终中文深浅色与两倍字号实拍已目视核对，开关及说明可见、没有横向截断。
 
-本机材料：`.local/diagnostics/update-proxy/`。仅使用本项目MRSS_Native_API36模拟器，保留用户5554/5556设备。版本号、线上清单、公开附件和CI均不变。
+本机材料：`.local/diagnostics/update-proxy/`。仅使用本项目MRSS_Native_API36模拟器，保留用户5554/5556设备。上述为发布前本地验收记录；现已发布ReMRSS v3.3.3，独立更新清单及代理下载均已实网复核。

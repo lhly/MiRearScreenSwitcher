@@ -4,22 +4,22 @@
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。当前源码更名为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`，正在准备发布 **ReMRSS v3.3.3 / 2015**；此前公开的旧版为 **MRSS v3.3.2 / 2014（2026-10-16）**。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
+本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发，应用名称为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`。最新正式版本为 **v3.3.3 / 2015（2026-10-16）**，已完成云端发布、公开附件及独立更新清单验证。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
 
 本次更新采用 Compose + Miuix 首页与浮动导航，加入左右滑动、点击切页动画及蓝白背屏新图标，精简关于页，增加基于 Raw 版本清单的检查更新、应用内下载进度、APK 校验和系统安装器接入，并恢复原版腾讯文档教程入口。App 不携带 GitHub Token，更新清单由正式发布成功后的 CI 自动生成。改动与验证见 [首页试点记录](docs/compose-home-validation.md)、[应用内更新验证](docs/in-app-update-validation.md)。
 
 交互及图标的专项验证见[交互验证](docs/navigation-interactions-validation.md)和[图标设计说明](docs/app-icon-design.md)。
 
-## 📦 已发布的旧版：MRSS v3.3.2
+## 📦 最新版本：ReMRSS v3.3.3
 
-- [查看 v3.3.2 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)
-- [下载 APK（约 1.39 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/MRSS-v3.3.2.apk)
-- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/SHA256SUMS)
-- [v3.3.2 对应源码](https://github.com/lhly/MiRearScreenSwitcher/tree/v3.3.2) · [下载该版本源码](https://github.com/lhly/MiRearScreenSwitcher/archive/refs/tags/v3.3.2.zip)
+- [查看 v3.3.3 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)
+- [下载 APK（约 1.40 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.3/ReMRSS-v3.3.3.apk)
+- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.3/SHA256SUMS)
+- [v3.3.3 对应源码](https://github.com/lhly/MiRearScreenSwitcher/tree/v3.3.3) · [下载该版本源码](https://github.com/lhly/MiRearScreenSwitcher/archive/refs/tags/v3.3.3.zip)
 
-ReMRSS 提供背屏切换、截图、录屏、通知和充电动画等功能，通过 Shizuku 控制背屏。界面支持深色模式、系统字号、简繁英及横屏；正式 APK 约 1.39 MB，适用于不同 CPU 架构，新包沿用现有签名证书。
+ReMRSS 提供背屏切换、截图、录屏、通知和充电动画等功能，通过 Shizuku 控制背屏。界面支持深色模式、系统字号、简繁英及横屏；正式 APK 约 1.40 MB，适用于不同 CPU 架构，新包沿用现有签名证书。
 
-v3.3.0 已在小米真机安装验证，背屏磁贴、URI 返回和断线重连记录见 [真机验证记录](docs/hyperos4-tile-validation.md)。v3.3.2 的界面、更新下载/校验及安装器流程已完成模拟器回归，云端发布及下载验收见 [自动发版记录](docs/github-release.md)。
+v3.3.0 已在小米真机安装验证，背屏磁贴、URI 返回和断线重连记录见 [真机验证记录](docs/hyperos4-tile-validation.md)。ReMRSS v3.3.3 已完成59项Android回归及公开APK、签名和更新清单校验，详见 [自动发版记录](docs/github-release.md)。
 
 ## 📄 开源协议
 
@@ -35,7 +35,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 
 ---
 
-## ✨ 功能特性 (V3.3.2)
+## ✨ 功能特性
 
 - 🎯 **快捷切换**: 通过控制中心快捷开关一键将应用切换到背屏
 - 📸 **背屏截图**: 一键截取背屏画面并保存到相册（自动收起控制中心，keycode唤醒）
@@ -67,7 +67,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 
 ### 1. 初次设置
 
-1. ReMRSS v3.3.3 正在进行发布验收，可按下方说明构建；上方下载暂为旧 MRSS
+1. 从上方 Release 下载并安装 ReMRSS 正式 APK
 2. 确保Shizuku已启动
 3. 打开ReMRSS应用，授予Shizuku权限
 4. 等待状态显示"一切就绪"
@@ -163,7 +163,7 @@ ReMRSS 正式包名为 `top.zainzh.rearscreen`，调试包名为 `top.zainzh.rea
 
 ## 🛠️ 开发构建
 
-构建需要 JDK **21**、Gradle **9.7.1**、AGP **9.4.1**、Kotlin **2.4.20**、Android SDK **37.0** / Build Tools **37.0.0**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前版本为已发布的 `3.3.2 / 2014`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
+构建需要 JDK **21**、Gradle **9.7.1**、AGP **9.4.1**、Kotlin **2.4.20**、Android SDK **37.0** / Build Tools **37.0.0**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前版本为已发布的 `3.3.3 / 2015`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
 
 Release 需要 `android/key.properties` 和正式签名密钥；参考 `android/key.properties.example`，ReMRSS 正式包名固定，不再追加 `.personal`。缺少正式签名时构建会失败。Android Studio 请打开 `android/`，操作及密钥备份见 [正式 APK 构建说明](docs/android-studio-release.md)。
 
@@ -181,14 +181,14 @@ source .local/env.sh
 
 ### GitHub tag 自动发版
 
-本仓库的四项签名 Secrets 已配置完成。v3.3.2的公开APK、签名和自动更新清单已验收，对应源码由同名tag提供。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，附带 `LICENSE`、`NOTICE` 和对应源码说明，再发布 GitHub Release，并在正式发布成功后更新 Raw 版本清单；普通分支推送不触发发版。
+本仓库的四项签名 Secrets 已配置完成。ReMRSS v3.3.3的公开APK、签名和独立自动更新清单已验收，对应源码由同名tag提供。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，附带 `LICENSE`、`NOTICE` 和对应源码说明，再发布 GitHub Release，并在正式发布成功后更新 Raw 版本清单；普通分支推送不触发发版。
 
-当前 `version.properties` 为 `versionName=3.3.2`、`versionCode=2014`，对应版本已经发布。以下是本次执行记录；后续发版应先递增版本号和构建号，使用新的 tag，不要重复创建 `v3.3.2`：
+当前 `version.properties` 为 `versionName=3.3.3`、`versionCode=2015`，对应版本已经发布。以下是本次执行记录；后续发版应先递增版本号和构建号，使用新的 tag，不要重复创建 `v3.3.3`：
 
 ```bash
 git push origin main
-git tag -a v3.3.2 -m "MRSS 3.3.2"
-git push origin v3.3.2
+git tag -a v3.3.3 -m "ReMRSS 3.3.3"
+git push origin v3.3.3
 ```
 
 tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode 需递增；已发布的 tag 不再重复创建或覆盖。其他仓库需配置自己的签名 Secrets 和预期证书。完整配置及预览版规则见 [自动发版说明](docs/github-release.md)。
@@ -316,7 +316,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ## 📝 更新日志
 
-### V3.3.3（2026-10-16，准备发布）
+### V3.3.3（2026-10-16，ReMRSS首次正式发布）
 
 - 应用更名为 ReMRSS，源码命名空间与正式包名统一为 `top.zainzh.rearscreen`，支持与旧版并存。保留原自动化协议，增加首页及自动化弹窗的冲突警告；新版 CI 使用独立更新清单，详情见[身份迁移说明](docs/remrss-identity-validation.md)。
 

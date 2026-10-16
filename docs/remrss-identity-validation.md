@@ -1,6 +1,6 @@
 # ReMRSS身份迁移与协议冲突检测
 
-2026-10-16，本地改动，尚未推送或发布。
+2026-10-16完成以下本地验收，现已随[ReMRSS v3.3.3](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)发布；公开发布验证见[自动发版记录](github-release.md)。
 
 ## 应用身份
 
@@ -32,4 +32,4 @@
 
 真实系统安装器冒烟另通过1项（3.624秒），新包FileProvider内容URI被系统安装器接受；仅打开后取消，未安装候选APK或批准来源权限。
 
-旧版启用状态、系统字号、主题和语言已恢复；根version.json与版本号逐字节保持不变。本地材料位于`.local/diagnostics/remrss-identity/`，只在项目专用MRSS_Native_API36模拟器运行，保留用户5554/5556设备。
+旧版启用状态、系统字号、主题和语言已恢复；迁移验收时未修改根version.json及版本号；发布时版本已递增为3.3.3/2015，新版独立清单已由CI生成，旧根清单继续保留。本地材料位于`.local/diagnostics/remrss-identity/`，只在项目专用MRSS_Native_API36模拟器运行，保留用户5554/5556设备。

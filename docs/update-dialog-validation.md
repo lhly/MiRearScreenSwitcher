@@ -1,6 +1,6 @@
 # 更新弹窗与下载流程
 
-2026-10-16，当前源码的本地改动，尚未推送或发布新版本。
+2026-10-16完成以下本地验收，现已随[ReMRSS v3.3.3](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)发布；公开发布验证见[自动发版记录](github-release.md)。
 
 ## 交互
 
@@ -26,4 +26,4 @@ Debug/androidTest/启用R8的Release构建与完整Lint通过（0错误、63项�
 
 测试与截图仅在本项目MRSS_Native_API36模拟器执行，使用5558端口，保留用户5554/5556设备。
 
-本地材料：`.local/diagnostics/update-dialog/`。版本号、已发布标签和线上version.json不变，本轮不自动推送或发版。
+本地材料：`.local/diagnostics/update-dialog/`。上述本地验收阶段未修改公开版本；后续已按用户授权发布ReMRSS v3.3.3。

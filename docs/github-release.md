@@ -36,7 +36,7 @@ done
 
 ## 发版操作
 
-当前准备发布 ReMRSS `3.3.3 / 2015`。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 MRSS tag。以下命令对应本轮发布，完成后请勿重复执行。
+当前正式版本为 ReMRSS `3.3.3 / 2015`，已完成发布与公开附件验证。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 MRSS tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
@@ -46,7 +46,7 @@ git push origin v3.3.3
 
 预览版可使用下一版本的`v3.3.4-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)提供`MRSS-v3.3.2.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.2`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)提供`ReMRSS-v3.3.3.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.3`构建产物14天。
 
 ## 构建与签名检查
 
@@ -76,13 +76,13 @@ ReMRSS 匿名读取`https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/
 
 Release提供同tag源码下载/浏览、该版本构建说明、完整GPL与贡献说明，APK可从“关于→诊断信息→开源许可证”离线阅读。已发布的有效tag不重打，后续修改使用新版本。
 
-## 本地验证与云端验收
+## 历史版本 v3.3.2 验收
 
 v3.3.2包含Compose/Miuix首页、页签滑动和动画、蓝白新图标、精简关于页、Raw版本检查、应用内下载校验/系统安装器，以及腾讯文档教程恢复。
 
 发布前本地52项脚本检查、actionlint、Debug/androidTest/Release构建及完整Lint通过（0错误、63项既有警告）。项目专用API36模拟器45项回归通过（98.472秒），覆盖8项首页、12项原生设置、11项更新检查、9项下载校验及5项下载页面交互。正式APK为1,393,442字节，个人签名、包名、3.3.2/2014元数据、非调试及法律资产复核通过。
 
-2026-10-16，v3.3.2由CI完成构建、发布与Raw清单更新。[MRSS v3.3.2](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)已为Latest，对应发布提交为`9323a2b7a2a392a75b2f4d4cb28af1c2cb24b6cc`。
+2026-10-16，v3.3.2由CI完成构建、发布与Raw清单更新。[MRSS v3.3.2](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)当时标记为Latest，对应发布提交为`9323a2b7a2a392a75b2f4d4cb28af1c2cb24b6cc`。
 
 已重新下载公开附件并核对：APK为**1,393,442字节（约1.39MB）**，SHA256为`464a1723c77dd1d09d336dd993d4a0362f86874bbc99f30f4d5292bc85a0672d`；真实字节、SHA256SUMS、GitHub asset digest与CI写入的main/version.json完全一致。公开APK通过个人签名、包名、版本、非调试及法律资产验证。main清单与公开成品元数据一致。
 
@@ -110,8 +110,16 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 
 历史改写不等于清理GitHub缓存：已知旧SHA的页面仍可能打开，本次也观察到这一行为；Git操作无法保证删除这些页面或第三方副本。限制见[GitHub官方说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)。
 
-## ReMRSS v3.3.3 发布准备（2026-10-16）
+## ReMRSS v3.3.3 发布验收（2026-10-16）
 
-当前待发布源码包含应用身份迁移、保留协议后的冲突警告、同弹窗下载与镜像代理、通知文案和URI示例行距修正。版本为3.3.3/2015，包名top.zainzh.rearscreen，保留mrss://并沿用原正式证书。
+本次发布包含应用身份迁移、保留协议后的冲突警告、同弹窗下载与镜像代理、通知文案和URI示例行距修正。版本为3.3.3/2015，包名top.zainzh.rearscreen，保留mrss://并沿用原正式证书。
 
-本地54项发布/清单/服务脚本、actionlint及Debug/androidTest/R8 Release构建通过，Lint为0错误、63项既有警告。已验证本地正式APK包名、版本、非调试、证书和完整许可资产；59项Android运行回归全部通过（61.504秒）；公开发布验收结果完成后补充。根version.json仍对应旧MRSS，ReMRSS清单由CI在正式发布成功后创建。
+本地54项发布/清单/服务脚本、actionlint及Debug/androidTest/R8 Release构建通过，Lint为0错误、63项既有警告。已验证本地正式APK包名、版本、非调试、证书和完整许可资产；59项Android运行回归全部通过（61.504秒）；公开发布验收见下方记录。根version.json仍对应旧MRSS，ReMRSS清单由CI在正式发布成功后创建。
+
+2026-10-16，[ReMRSS v3.3.3](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)已公开并为Latest，[Actions 38857586154](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38857586154)构建、发布和独立清单三个job全部成功。发布源提交为`0b07469417a844d679ef814f6b1dd6a05eecfa70`，tag指向完整构建源码；CI后续提交8d55e86创建`updates/remrss/version.json`。
+
+公开APK为**1,396,390字节（约1.40MB）**，SHA256为`0ad52ebbe75df27b4ecd5f9395c75f2275334303b2840dcf14c75c3218f9441e`。已匿名重新下载APK及SHA256SUMS/LICENSE/NOTICE，真实字节、附件digest、校验文件和CI清单完全一致；证书、包名、版本、非调试及完整法律资产复核通过。直连Raw与gh-proxy.com均读到同一份3.3.3/2015清单，代理下载APK的大小和SHA256也一致。旧根清单仍指向旧MRSS v3.3.2，没有改动旧附件。
+
+公开APK已实际安装到项目API36模拟器；未配置系统代理时，开启应用内镜像后检查更新成功，弹窗仅显示一次3.3.3并提示“当前已是最新正式版本”。宿主机HTTP读取Raw成功时使用了现有本地代理；模拟器Raw直连和临时配置相同代理后的请求均提示网络失败，因此未将模拟器直连计为通过。临时代理设置已逐项恢复，本地日志及实拍位于`.local/diagnostics/release-remrss-333/`。
+
+公开APK的自动化弹窗实拍确认协议冲突提示正常，switch/return示例之间只有一个换行；深色关于页显示ReMRSS/3.3.3和镜像开关，目视检查通过。语言、主题和开关恢复后关闭本项目5558模拟器，保留用户已有设备。
