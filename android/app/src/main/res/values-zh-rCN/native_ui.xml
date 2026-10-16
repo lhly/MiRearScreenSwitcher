@@ -102,7 +102,7 @@
     <string name="ui_notification_settings_help" formatted="false">隐私、勿扰模式和显示时长</string>
     <string name="ui_notification_settings_title" formatted="false">通知设置</string>
     <string name="ui_notification_settings_tooltip" formatted="false">通知设置</string>
-    <string name="ui_notifications_subtitle" formatted="false">选择值得抬眼的信息</string>
+    <string name="ui_notifications_subtitle" formatted="false">选择值得关注的信息</string>
     <string name="ui_notifications_title" formatted="false">通知</string>
     <string name="ui_only_when_locked" formatted="false">仅倒扣手机时通知</string>
     <string name="ui_open_failed" formatted="false">打开失败</string>
