@@ -186,6 +186,8 @@
     <string name="ui_license_load_failed" formatted="false">无法读取本地许可证，请重新安装完整应用。</string>
     <string name="ui_check_updates" formatted="false">检查更新</string>
     <string name="ui_updates_help" formatted="false">查询 GitHub 上的最新正式版本</string>
+    <string name="ui_update_proxy" formatted="false">镜像代理</string>
+    <string name="ui_update_proxy_help" formatted="false">通过第三方 gh-proxy.com 加速更新</string>
     <string name="ui_checking_updates" formatted="false">正在检查更新…</string>
     <string name="ui_update_available" formatted="false">发现新版本：{0}</string>
     <string name="ui_update_current" formatted="false">当前已是最新正式版本。</string>

@@ -74,6 +74,7 @@ public class UpdateDownloadTest {
                     ReleaseUpdateChecker.evaluate(new ReleaseUpdateChecker.Response(200, json.toString()), "v3.3.2", BuildConfig.VERSION_CODE).status);
         }
         for (String url : new String[]{"http://github.com/file.apk", "https://example.invalid/file.apk",
+                UpdateNetwork.PROXY + ProjectInfo.RELEASES + "/download/v3.4.0/app.apk",
                 ProjectInfo.RELEASES + "/download/v9.0.0/app.apk", ProjectInfo.RELEASES + "/download/v3.4.0/../app.apk",
                 ProjectInfo.RELEASES + "/download/v3.4.0/app.apk?token=hidden"}) assertFalse(UpdatePackage.validDownloadUrl(url, "v3.4.0"));
         for (String url : new String[]{"http://release-assets.githubusercontent.com/file", "https://github.com.evil.invalid/file",
@@ -180,6 +181,66 @@ public class UpdateDownloadTest {
             try (InputStream input = context.getContentResolver().openInputStream(intent.getData())) { assertTrue(input.read() >= 0); }
             state.file.delete();
         } finally { task.close(); }
+    }
+
+    @Test public void proxiedSignedApkKeepsCanonicalMetadataAndEntireVerification() throws Exception {
+        byte[] bytes = fixture("candidate.apk"); UpdatePackage update = data(bytes);
+        UpdateDownloadTask task = new UpdateDownloadTask(context, update, true, url -> {
+            assertEquals(UpdateNetwork.PROXY + update.url, url.toString());
+            return new Connection(url, bytes);
+        }, (file, metadata) -> {
+            assertEquals(update.url, metadata.url);
+            UpdateApkVerifier.verifyPackage(context, file, metadata);
+        });
+        try {
+            UpdateDownloadTask.State state = done(task);
+            assertEquals(String.valueOf(state.error), UpdateDownloadTask.Phase.READY, state.phase);
+            assertArrayEquals(bytes, Files.readAllBytes(state.file.toPath())); state.file.delete();
+        } finally { task.close(); }
+    }
+
+    @Test public void proxyRedirectsStayProxiedAndRejectUntrustedUpstreams() throws Exception {
+        byte[] body = new byte[32]; String asset = "https://release-assets.githubusercontent.com/file?signature=temporary";
+        for (String location : new String[]{asset, UpdateNetwork.PROXY + asset, "/" + asset, "another.apk",
+                "http://github.com/file", "https://example.invalid/file", UpdateNetwork.PROXY + "https://example.invalid/file",
+                "https://gh-proxy.com.evil.invalid/" + asset, "https://user@gh-proxy.com/" + asset,
+                "https://gh-proxy.com:444/" + asset}) {
+            boolean allowed = location.equals(asset) || location.equals(UpdateNetwork.PROXY + asset)
+                    || location.equals("/" + asset) || location.equals("another.apk");
+            java.util.List<String> requests = new java.util.ArrayList<>();
+            UpdateDownloadTask task = new UpdateDownloadTask(context, data(body), true, url -> {
+                requests.add(url.toString()); assertEquals("gh-proxy.com", url.getHost());
+                Connection connection = new Connection(url, body);
+                if (requests.size() == 1) { connection.status = 302; connection.location = location; }
+                return connection;
+            }, (file, metadata) -> { });
+            try {
+                UpdateDownloadTask.State state = done(task);
+                assertEquals(location, allowed ? UpdateDownloadTask.Phase.READY : UpdateDownloadTask.Phase.ERROR, state.phase);
+                assertEquals(location, allowed ? 2 : 1, requests.size());
+                if (allowed) assertEquals(UpdateNetwork.PROXY + (location.equals("another.apk")
+                        ? ProjectInfo.RELEASES + "/download/v3.4.0/another.apk" : asset), requests.get(1));
+                if (state.file != null) state.file.delete();
+            } finally { task.close(); }
+        }
+    }
+
+    @Test public void proxyFailureNeverFallsBackAndTamperingNeverReachesPackageVerifier() throws Exception {
+        byte[] expected = new byte[32], tampered = new byte[32]; Arrays.fill(tampered, (byte) 17);
+        for (boolean offline : new boolean[]{true, false}) {
+            java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+            UpdateDownloadTask task = new UpdateDownloadTask(context, data(expected), true, url -> {
+                attempts.incrementAndGet(); assertEquals("gh-proxy.com", url.getHost());
+                if (offline) throw new IOException("Proxy offline");
+                return new Connection(url, tampered);
+            }, (file, metadata) -> fail("Unverified APK inspected"));
+            try {
+                UpdateDownloadTask.State state = done(task);
+                assertEquals(UpdateDownloadTask.Phase.ERROR, state.phase);
+                assertEquals(offline ? UpdateDownloadTask.Error.NETWORK : UpdateDownloadTask.Error.HASH, state.error);
+                assertEquals(1, attempts.get()); assertNull(state.file);
+            } finally { task.close(); }
+        }
     }
 
     @Test public void realWrongSignerWrongPackageAndOldApksAreRejected() throws Exception {

@@ -7,6 +7,8 @@ final class NativeStrings {
         int id;
         switch (key) {
             case "check_updates": id = R.string.ui_check_updates; break;
+            case "update_proxy": id = R.string.ui_update_proxy; break;
+            case "update_proxy_help": id = R.string.ui_update_proxy_help; break;
             case "updates_help": id = R.string.ui_updates_help; break;
             case "checking_updates": id = R.string.ui_checking_updates; break;
             case "update_available": id = R.string.ui_update_available; break;

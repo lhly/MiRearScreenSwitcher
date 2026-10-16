@@ -34,6 +34,7 @@ final class UpdateDownloadTask implements AutoCloseable {
     private final File directory;
     private final Connections connections;
     private final Verifier verifier;
+    private final boolean proxy;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile State state = new State(Phase.DOWNLOADING, 0, null, null);
@@ -42,12 +43,16 @@ final class UpdateDownloadTask implements AutoCloseable {
     private HttpURLConnection active;
 
     UpdateDownloadTask(Context context, UpdatePackage update) {
-        this(context, update, url -> (HttpURLConnection) url.openConnection(),
+        this(context, update, UpdateNetwork.proxyEnabled(context), url -> (HttpURLConnection) url.openConnection(),
                 (file, data) -> UpdateApkVerifier.verifyPackage(context.getApplicationContext(), file, data));
     }
 
     UpdateDownloadTask(Context context, UpdatePackage update, Connections connections, Verifier verifier) {
-        this.update = update; this.connections = connections; this.verifier = verifier;
+        this(context, update, false, connections, verifier);
+    }
+
+    UpdateDownloadTask(Context context, UpdatePackage update, boolean proxy, Connections connections, Verifier verifier) {
+        this.update = update; this.proxy = proxy; this.connections = connections; this.verifier = verifier;
         directory = new File(context.getCacheDir(), "updates");
         worker.execute(this::download);
     }
@@ -73,11 +78,13 @@ final class UpdateDownloadTask implements AutoCloseable {
 
     private HttpURLConnection openDownload() throws IOException {
         URI next;
+        if (!UpdatePackage.validDownloadUrl(update.url, update.tag)) throw new Failure(Error.NETWORK);
         try { next = URI.create(update.url); } catch (IllegalArgumentException invalid) { throw new Failure(Error.NETWORK); }
         for (int redirects = 0; redirects <= 5; redirects++) {
             checkCancelled();
             if (!UpdatePackage.allowedRedirect(next)) throw new Failure(Error.NETWORK);
-            HttpURLConnection connection = connections.open(next.toURL());
+            URI request = UpdateNetwork.route(next, proxy);
+            HttpURLConnection connection = connections.open(request.toURL());
             activate(connection);
             connection.setConnectTimeout(10000); connection.setReadTimeout(20000);
             connection.setInstanceFollowRedirects(false); connection.setUseCaches(false);
@@ -90,7 +97,7 @@ final class UpdateDownloadTask implements AutoCloseable {
             if ((code != 301 && code != 302 && code != 303 && code != 307 && code != 308) || location == null) {
                 throw new Failure(Error.NETWORK);
             }
-            try { next = next.resolve(location); }
+            try { next = UpdateNetwork.redirect(next, location, proxy); }
             catch (IllegalArgumentException invalid) { throw new Failure(Error.NETWORK); }
         }
         throw new Failure(Error.NETWORK);

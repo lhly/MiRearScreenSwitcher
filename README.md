@@ -318,6 +318,8 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ### 未发布
 
+- 关于页“检查更新”下方加入默认关闭的镜像代理开关，记住选择；开启后通过第三方 gh-proxy.com 读取版本清单和下载 APK，继续验证哈希、包名、版本与签名。详见[镜像代理验证](docs/update-proxy-validation.md)。
+
 - 精简更新弹窗，目标版本只展示一次；下载、进度、校验、失败重试和安装授权均在同一弹窗内继续，不再跳转独立下载页面。关闭弹窗会取消下载，屏幕旋转保留任务；详见[弹窗下载验证](docs/update-dialog-validation.md)。
 
 ### V3.3.2（2026-10-16，本分支，已发布）

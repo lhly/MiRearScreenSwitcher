@@ -60,6 +60,8 @@ final class NativeSettingsUi {
     private final UpdateDialogController updateDialog;
     private LinearLayout updateRow;
     private TextView updateSummary;
+    private Switch updateProxy;
+    private LinearLayout updateProxyRow;
     private boolean checkingUpdates;
     private ReleaseUpdateChecker.Result updateResult;
     private int page;
@@ -329,6 +331,21 @@ final class NativeSettingsUi {
         updateSummary.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         updateRow.setEnabled(!checkingUpdates);
         support.addView(updateRow); ui.divider(support);
+        updateProxy = new Switch(activity);
+        updateProxy.setShowText(false);
+        updateProxy.setMinimumWidth(ui.dp(52)); updateProxy.setMinimumHeight(ui.dp(48));
+        ui.styleSwitch(updateProxy);
+        updateProxy.setContentDescription(s("update_proxy") + ". " + s("update_proxy_help"));
+        updateProxy.setChecked(UpdateNetwork.proxyEnabled(activity));
+        updateProxy.setOnCheckedChangeListener((button, enabled) -> {
+            UpdateNetwork.setProxyEnabled(activity, enabled);
+            updateResult = null; refreshUpdateRow();
+        });
+        updateProxyRow = actionRow("shield", s("update_proxy"), s("update_proxy_help"), updateProxy, null);
+        ui.clickable(updateProxyRow, updateProxy::toggle, 18);
+        updateProxyRow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        support.addView(updateProxyRow); ui.divider(support);
+        refreshUpdateRow();
         support.addView(actionRow("bell", s("issue_feedback"), "GitHub Issues", null, () -> action("openFeedback")));
         content.addView(support);
         LinearLayout details = ui.card();
@@ -349,6 +366,8 @@ final class NativeSettingsUi {
     private void refreshUpdateRow() {
         if (updateRow == null) return;
         updateRow.setEnabled(!checkingUpdates);
+        if (updateProxy != null) updateProxy.setEnabled(!checkingUpdates);
+        if (updateProxyRow != null) updateProxyRow.setEnabled(!checkingUpdates);
         updateSummary.setText(updateSummaryText());
         updateRow.setContentDescription(s("check_updates") + ", " + updateSummaryText());
     }

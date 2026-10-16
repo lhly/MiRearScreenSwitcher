@@ -186,6 +186,8 @@
     <string name="ui_license_load_failed" formatted="false">Unable to read the bundled license. Please reinstall the complete app.</string>
     <string name="ui_check_updates" formatted="false">Check for updates</string>
     <string name="ui_updates_help" formatted="false">Check the latest stable release on GitHub</string>
+    <string name="ui_update_proxy" formatted="false">Mirror proxy</string>
+    <string name="ui_update_proxy_help" formatted="false">Check and download updates through third-party gh-proxy.com</string>
     <string name="ui_checking_updates" formatted="false">Checking for updates…</string>
     <string name="ui_update_available" formatted="false">New version available: {0}</string>
     <string name="ui_update_current" formatted="false">You are using the latest stable version.</string>

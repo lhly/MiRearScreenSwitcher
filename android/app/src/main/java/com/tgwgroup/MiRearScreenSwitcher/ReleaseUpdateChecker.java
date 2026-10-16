@@ -2,6 +2,7 @@ package com.tgwgroup.MiRearScreenSwitcher;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.content.Context;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +12,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONException;
@@ -49,6 +51,9 @@ final class ReleaseUpdateChecker implements AutoCloseable {
     private boolean closed, pending;
 
     ReleaseUpdateChecker() { this(new RawManifestFetcher()); }
+    ReleaseUpdateChecker(Context context) {
+        this(new RawManifestFetcher(() -> UpdateNetwork.proxyEnabled(context), url -> (HttpURLConnection) url.openConnection()));
+    }
     ReleaseUpdateChecker(Fetcher fetcher) { this.fetcher = fetcher; }
 
     synchronized boolean check(String installedTag, Callback callback) {
@@ -150,12 +155,17 @@ final class ReleaseUpdateChecker implements AutoCloseable {
     static final class RawManifestFetcher implements Fetcher {
         interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
         private final ConnectionFactory connections;
+        private final BooleanSupplier proxyEnabled;
         private HttpURLConnection active;
         private boolean cancelled;
         RawManifestFetcher() { this(url -> (HttpURLConnection) url.openConnection()); }
-        RawManifestFetcher(ConnectionFactory connections) { this.connections = connections; }
+        RawManifestFetcher(ConnectionFactory connections) { this(() -> false, connections); }
+        RawManifestFetcher(BooleanSupplier proxyEnabled, ConnectionFactory connections) {
+            this.proxyEnabled = proxyEnabled; this.connections = connections;
+        }
         @Override public Response fetch() throws IOException {
-            HttpURLConnection connection = connections.open(new URL(ProjectInfo.VERSION_MANIFEST));
+            HttpURLConnection connection = connections.open(UpdateNetwork.route(
+                    java.net.URI.create(ProjectInfo.VERSION_MANIFEST), proxyEnabled.getAsBoolean()).toURL());
             synchronized (this) {
                 if (cancelled) { connection.disconnect(); throw new IOException("Cancelled"); }
                 active = connection;

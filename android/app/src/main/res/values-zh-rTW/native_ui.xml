@@ -186,6 +186,8 @@
     <string name="ui_license_load_failed" formatted="false">無法讀取本機授權條款，請重新安裝完整應用程式。</string>
     <string name="ui_check_updates" formatted="false">檢查更新</string>
     <string name="ui_updates_help" formatted="false">查詢 GitHub 上的最新正式版本</string>
+    <string name="ui_update_proxy" formatted="false">鏡像代理</string>
+    <string name="ui_update_proxy_help" formatted="false">透過第三方 gh-proxy.com 加速更新</string>
     <string name="ui_checking_updates" formatted="false">正在檢查更新…</string>
     <string name="ui_update_available" formatted="false">發現新版本：{0}</string>
     <string name="ui_update_current" formatted="false">目前已是最新正式版本。</string>

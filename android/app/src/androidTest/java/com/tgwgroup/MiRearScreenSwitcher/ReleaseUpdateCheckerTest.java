@@ -196,4 +196,25 @@ public class ReleaseUpdateCheckerTest {
         try { fetcher.fetch(); fail("Cancelled fetch read the network"); }
         catch (IOException expected) { assertTrue(cancelled.disconnected); }
     }
+
+    @Test public void proxyPreferenceIsReadForEveryCheckAndFailuresNeverFallbackToDirect() throws Exception {
+        AtomicBoolean proxy = new AtomicBoolean(true);
+        java.util.List<String> requests = new java.util.ArrayList<>();
+        ReleaseUpdateChecker.RawManifestFetcher fetcher = new ReleaseUpdateChecker.RawManifestFetcher(proxy::get, url -> {
+            requests.add(url.toString());
+            try { return new FakeConnection(200, manifest("v3.3.2", BuildConfig.VERSION_CODE).getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+            catch (Exception error) { throw new IOException(error); }
+        });
+        assertEquals(200, fetcher.fetch().code);
+        proxy.set(false);
+        assertEquals(200, fetcher.fetch().code);
+        assertEquals(java.util.Arrays.asList(UpdateNetwork.PROXY + ProjectInfo.VERSION_MANIFEST, ProjectInfo.VERSION_MANIFEST), requests);
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            new ReleaseUpdateChecker.RawManifestFetcher(() -> true, url -> {
+                attempts.incrementAndGet(); assertEquals("gh-proxy.com", url.getHost()); throw new IOException("Proxy offline");
+            }).fetch();
+            fail("Proxy failure must be reported");
+        } catch (IOException expected) { assertEquals(1, attempts.get()); }
+    }
 }

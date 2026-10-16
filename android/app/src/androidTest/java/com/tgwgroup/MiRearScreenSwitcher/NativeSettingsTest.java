@@ -155,6 +155,38 @@ public class NativeSettingsTest {
         assertEquals(25, services.getInt("notification_duration", 0));
     }
 
+    @Test public void updateProxyDefaultsOffAndSurvivesPageAndActivityRecreation() throws Exception {
+        Context context = instrumentation.getTargetContext();
+        SharedPreferences prefs = context.getSharedPreferences("mrss_settings", 0);
+        String key = "update_proxy_enabled";
+        boolean hadValue = prefs.contains(key), original = UpdateNetwork.proxyEnabled(context);
+        prefs.edit().remove(key).commit();
+        MainActivity activity = launch();
+        try {
+            navigate(activity, "about");
+            instrumentation.runOnMainSync(() -> {
+                Switch control = findSwitch(activity.getWindow().getDecorView(), NativeStrings.get(activity, "update_proxy"));
+                assertNotNull(control); assertFalse(control.isChecked());
+                ((View) control.getParent()).performClick();
+                assertTrue(UpdateNetwork.proxyEnabled(context));
+            });
+            navigate(activity, "notifications_title"); navigate(activity, "about");
+            instrumentation.runOnMainSync(activity::recreate);
+            instrumentation.waitForIdleSync();
+            MainActivity restored = MainActivity.getCurrentInstance();
+            assertNotSame(activity, restored);
+            waitForNativeText(restored, "update_proxy");
+            instrumentation.runOnMainSync(() -> {
+                Switch control = findSwitch(restored.getWindow().getDecorView(), NativeStrings.get(restored, "update_proxy"));
+                assertTrue(control.isChecked()); control.performClick();
+                assertFalse(UpdateNetwork.proxyEnabled(context));
+            });
+        } finally {
+            if (hadValue) prefs.edit().putBoolean(key, original).commit(); else prefs.edit().remove(key).commit();
+            instrumentation.runOnMainSync(() -> { MainActivity current = MainActivity.getCurrentInstance(); if (current != null) current.finish(); });
+        }
+    }
+
     @Test public void allPagesWorkAndPrivacyToggleSurvivesRecreation() throws Exception {
         MainActivity activity = launch();
         try {
@@ -367,10 +399,12 @@ public class NativeSettingsTest {
                 View row = (View) findText(activity.getWindow().getDecorView(), NativeStrings.get(activity, "check_updates")).getParent().getParent();
                 row.performClick();
                 assertFalse(row.isEnabled());
+                assertFalse(findSwitch(activity.getWindow().getDecorView(), NativeStrings.get(activity, "update_proxy")).isEnabled());
                 assertNotNull(findText(activity.getWindow().getDecorView(), NativeStrings.get(activity, "checking_updates")));
             });
             unblock.countDown();
             android.view.accessibility.AccessibilityNodeInfo root = waitDialogButton(NativeStrings.get(activity, "view_release"));
+            instrumentation.runOnMainSync(() -> assertTrue(findSwitch(activity.getWindow().getDecorView(), NativeStrings.get(activity, "update_proxy")).isEnabled()));
             assertTrue(nodeText(root), nodeText(root).contains("v9999.0.0"));
             assertTrue(buttonNode(root, NativeStrings.get(activity, "view_release"))
                     .performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
