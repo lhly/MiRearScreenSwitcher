@@ -8,17 +8,15 @@
     <string name="ui_always_help" formatted="false">未投放應用時，也讓背屏保持點亮</string>
     <string name="ui_always_wake_up" formatted="false">持續喚醒</string>
     <string name="ui_always_wake_up_title" formatted="false">未投放應用時常亮</string>
-    <string name="ui_app_description" formatted="false">小米雙屏裝置的背屏增強工具</string>
     <string name="ui_app_name" formatted="false">小米背屏切換器</string>
     <string name="ui_app_selection" formatted="false">應用選擇</string>
     <string name="ui_apply" formatted="false">應用</string>
     <string name="ui_apps_access_help" formatted="false">應用清單權限未開啟，可前往系統設定授權後重新整理。</string>
     <string name="ui_apps_loaded" formatted="false">可選擇 {0} 個應用</string>
-    <string name="ui_author_anti" formatted="false">酷安@AntiOblivionis</string>
-    <string name="ui_author_xmz" formatted="false">酷安@汐木澤</string>
+    <string name="ui_author_anti" formatted="false">原始作者：AntiOblivionis</string>
+    <string name="ui_author_xmz" formatted="false">上游測試貢獻：汐木澤</string>
     <string name="ui_auto_destroy_time" formatted="false">自動銷毀時間</string>
     <string name="ui_back" formatted="false">返回</string>
-    <string name="ui_buy_coffee" formatted="false">請作者喝咖啡</string>
     <string name="ui_cancel" formatted="false">取消</string>
     <string name="ui_charging_always_help" formatted="false">充電期間持續顯示動畫和電量</string>
     <string name="ui_charging_always_on" formatted="false">充電動畫常亮</string>
@@ -40,14 +38,13 @@
     <string name="ui_connection_ready" formatted="false">Shizuku 已就緒</string>
     <string name="ui_coolapk" formatted="false">酷安</string>
     <string name="ui_copied" formatted="false">已複製</string>
-    <string name="ui_credits" formatted="false">創作者</string>
+    <string name="ui_credits" formatted="false">原始專案與致謝</string>
     <string name="ui_current_dpi" formatted="false">當前 DPI: %d</string>
     <string name="ui_dark_notification_help" formatted="false">背屏通知使用深色背景</string>
     <string name="ui_deselect_all" formatted="false">全不選</string>
     <string name="ui_diagnostics" formatted="false">診斷資訊</string>
     <string name="ui_display_wake" formatted="false">顯示與喚醒</string>
     <string name="ui_dnd_help" formatted="false">系統開啟勿擾時，暫停背屏通知</string>
-    <string name="ui_donation" formatted="false">打賞支持</string>
     <string name="ui_dpi_caption" formatted="false">背屏 DPI</string>
     <string name="ui_dpi_help" formatted="false">調整背屏上內容的大小</string>
     <string name="ui_dpi_range" formatted="false">請輸入正整數，建議 260–350</string>
@@ -116,8 +113,6 @@
     <string name="ui_privacy_section" formatted="false">隱私與顯示</string>
     <string name="ui_proximity_help" formatted="false">背屏被遮蓋時，將投放應用移回主屏</string>
     <string name="ui_proximity_sensor" formatted="false">接近傳感器</string>
-    <string name="ui_qq_group" formatted="false">QQ 交流群</string>
-    <string name="ui_qq_group_title" formatted="false">MRSS交流群</string>
     <string name="ui_quick_tiles" formatted="false">控制中心快捷磁貼</string>
     <string name="ui_quick_tiles_help" formatted="false">編輯控制中心，加入「切換至背屏」「取得背屏截圖」和「背屏錄影」。在需要投放的應用中下拉控制中心使用。</string>
     <string name="ui_rear_cover_detection_title" formatted="false">背屏遮蓋檢測</string>
@@ -179,4 +174,46 @@
     <string name="ui_nav_notifications" formatted="false">通知</string>
     <string name="ui_angle_value" formatted="false">{0}°</string>
     <string name="ui_apps_summary" formatted="false">已選擇 {0} 個 · 可選擇 {1} 個</string>
+    <string name="ui_project_maintainer" formatted="false">目前維護者：{0}</string>
+    <string name="ui_project_repository" formatted="false">源碼儲存庫</string>
+    <string name="ui_issue_feedback" formatted="false">提交意見回饋</string>
+    <string name="ui_open_source" formatted="false">開源與授權</string>
+    <string name="ui_version_source" formatted="false">對應版本原始碼</string>
+    <string name="ui_source_version" formatted="false">原始碼標籤：{0}</string>
+    <string name="ui_license" formatted="false">開源授權條款</string>
+    <string name="ui_license_summary" formatted="false">GPL-3.0 · 可離線閱讀</string>
+    <string name="ui_legal_notice" formatted="false">本版本採用 GPL-3.0，可依照授權條款修改與再散布，不提供擔保。</string>
+    <string name="ui_license_load_failed" formatted="false">無法讀取本機授權條款，請重新安裝完整應用程式。</string>
+    <string name="ui_check_updates" formatted="false">檢查更新</string>
+    <string name="ui_updates_help" formatted="false">查詢 GitHub 上的最新正式版本</string>
+    <string name="ui_checking_updates" formatted="false">正在檢查更新…</string>
+    <string name="ui_update_available" formatted="false">發現新版本：{0}</string>
+    <string name="ui_update_current" formatted="false">目前已是最新正式版本。</string>
+    <string name="ui_update_local_newer" formatted="false">目前建置比最新發布的正式版本更新。</string>
+    <string name="ui_update_none" formatted="false">更新清單暫不可用，可前往 GitHub 發布頁查看。</string>
+    <string name="ui_update_restricted" formatted="false">更新來源存取受限，請稍後再試。</string>
+    <string name="ui_update_network_error" formatted="false">檢查更新失敗，請檢查網路後再試。</string>
+    <string name="ui_update_invalid" formatted="false">無法識別發布版本，請前往 GitHub 發布頁查看。</string>
+    <string name="ui_view_release" formatted="false">查看更新</string>
+    <string name="ui_view_releases" formatted="false">發布紀錄</string>
+    <string name="ui_latest_release_label" formatted="false">最新正式版：{0}</string>
+    <string name="ui_retry" formatted="false">重試</string>
+    <string name="ui_download_update" formatted="false">下載更新</string>
+    <string name="ui_downloading_update" formatted="false">正在下載更新…</string>
+    <string name="ui_verifying_update" formatted="false">正在驗證安裝套件…</string>
+    <string name="ui_verify_help" formatted="false">正在核對檔案完整性、應用版本和簽章。</string>
+    <string name="ui_download_help" formatted="false">此頁面退到背景時會繼續下載，離開此頁面會取消下載。驗證完成後，由系統確認安裝。</string>
+    <string name="ui_download_ready" formatted="false">安裝套件已通過驗證</string>
+    <string name="ui_ready_install_help" formatted="false">請在系統安裝程式中繼續。若取消了安裝，可在此再次發起。</string>
+    <string name="ui_install_permission_help" formatted="false">請在系統設定中允許本應用安裝更新，返回後繼續。</string>
+    <string name="ui_install_update" formatted="false">安裝更新</string>
+    <string name="ui_allow_install" formatted="false">允許安裝</string>
+    <string name="ui_download_failed" formatted="false">更新未能完成</string>
+    <string name="ui_download_network_error" formatted="false">下載失敗，請檢查網路後再試。</string>
+    <string name="ui_download_storage_error" formatted="false">無法儲存安裝套件，請釋放儲存空間後再試。</string>
+    <string name="ui_download_integrity_error" formatted="false">安裝套件大小或 SHA256 不符，檔案已刪除，請重新下載。</string>
+    <string name="ui_download_package_error" formatted="false">安裝套件與目前應用不符，偵錯版與正式版不能互相覆蓋更新。</string>
+    <string name="ui_download_version_error" formatted="false">安裝套件版本與清單不符，或不高於目前版本。</string>
+    <string name="ui_download_signature_error" formatted="false">安裝套件簽章與目前應用不符，已停止安裝。</string>
+    <string name="ui_installer_unavailable" formatted="false">無法開啟系統安裝程式或安裝設定，可前往發布頁處理。</string>
 </resources>

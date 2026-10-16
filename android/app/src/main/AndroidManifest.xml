@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <!-- Blur is isolated behind API 33 checks; older devices use an opaque navigation surface. -->
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
+    <!-- User-initiated Raw manifest checks and verified release APK downloads. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Shizuku权限（关键！） -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <!-- 唤醒锁权限 -->
@@ -23,6 +28,14 @@
         android:label="${appLabel}"
         android:name=".MyApplication"
         android:icon="@mipmap/ic_launcher">
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
+        <activity android:name=".UpdateDownloadActivity" android:exported="false" android:theme="@style/NativeTheme" />
         <!-- 🔑 关键：背屏准入证！已验证有效！ -->
         <meta-data
             android:name="miui.rear.policy"

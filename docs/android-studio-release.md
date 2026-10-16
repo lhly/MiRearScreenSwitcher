@@ -1,6 +1,6 @@
-# Android Studio 构建原生正式 APK
+# Android Studio 构建正式 APK
 
-当前源码为 v3.3.0，设置界面已改为 Java / Android 原生 View。构建需要 JDK 21、Gradle 8.9、Android SDK 36 / Build Tools 36.0.0；无需 Flutter、Dart 或 NDK。
+当前源码版本为 v3.3.2 / 2014。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0。
 
 ## Android Studio
 
@@ -9,7 +9,7 @@
 3. 在 Build Variants 中选择 `release`，运行 Gradle 任务 `:app:assembleRelease`。
 4. 输出位于项目根目录 `build/app/outputs/apk/release/app-release.apk`。
 
-若仍以项目根目录打开现有 IDE 工程，“构建正式 APK”运行配置继续调用 `tools/build_release.sh`。本轮已经验证命令行构建；迁移后的 Android Studio 图形界面没有重新验收。
+若仍以项目根目录打开现有 IDE 工程，“构建正式 APK”运行配置继续调用 `tools/build_release.sh`。已通过 Android Studio 的 `app` 运行配置在 Medium Phone API 36 模拟器构建、安装并启动调试应用；调试名称为“MRSS 调试版”，版本后缀为 `-debug`。
 
 终端从项目根目录执行：
 
@@ -20,11 +20,17 @@
 脚本自动加载本机 `.local/env.sh`，也允许其他机器使用已有 Java/SDK 环境。版本在根目录 `version.properties` 中设置：
 
 ```properties
-versionName=3.3.0
-versionCode=2012
+versionName=3.3.2
+versionCode=2014
 ```
 
-正式版启用 R8 与资源压缩，包含原生 Java 代码和 Shizuku API，不携带 Flutter 引擎，无需按 CPU 架构打包。
+正式版启用 R8 与资源压缩，包含 Java 代码和 Shizuku API，无需按 CPU 架构打包。
+
+## 许可证与对应源码
+
+Gradle 的 `prepareLegalAssets` 从根目录 LICENSE 和 NOTICE 生成 APK assets；请维护根文件，不手工复制到资源目录。关于页可离线阅读完整文本。`BuildConfig.SOURCE_TAG` 使用 `versionName` 生成 `v<版本号>`，不附加 debug 后缀。
+
+公开发版时必须将该 tag 指向构建所用的完整源码，并保留对应版本的构建说明。v3.3.2 使用同名 tag 提供对应源码；本地修改以工作区为准。正式发布步骤见 [自动发版说明](github-release.md)。
 
 ## 签名和更新
 
@@ -41,10 +47,10 @@ android/key.properties
 6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac
 ```
 
-个人正式版包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，名称 MRSS，URI 为 `mrss://`。可以覆盖同签名的个人 v3.2.1 并导入其旧设置。作者原版和 `.debug` 修复测试版分别保存数据，首次安装个人正式版仍需重新设置和授权 Shizuku。
+个人正式版包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，名称为 MRSS，URI 为 `mrss://`。可以覆盖同签名的个人 v3.2.1 并导入其旧设置。作者原版和 `.debug` 修复测试版分别保存数据，首次安装个人正式版仍需重新设置和授权 Shizuku。
 
 ## 验证与产物
 
-原生 v3.3.0 已完成本机正式构建、Lint、偏好迁移及界面运行测试、签名/包名/版本/非调试/无 Flutter 结构校验。实际测量和验证边界见 [原生版验证记录](native-ui-validation.md)。本轮未安装到小米真机，也未发布到 GitHub。
+[v3.3.0](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.0) 已完成本机正式构建、Lint、偏好迁移及界面运行测试，并通过云端构建、发布和下载成品校验。APK 为 581,195 字节（约 0.58 MB），已在小米真机安装验证，使用未发现问题。详细记录见 [v3.3.0 验证记录](native-ui-validation.md)。
 
 [自动发版说明](github-release.md) · [此前磁贴真机验证](hyperos4-tile-validation.md)

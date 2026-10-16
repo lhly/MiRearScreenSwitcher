@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Local instrumentation fixture only; absent from every release APK. -->
+        <activity android:name=".FixtureUpdateActivity" android:exported="false" android:theme="@style/NativeTheme" />
+    </application>
+</manifest>

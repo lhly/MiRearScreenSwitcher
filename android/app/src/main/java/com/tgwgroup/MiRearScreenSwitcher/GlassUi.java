@@ -276,26 +276,4 @@ final class GlassUi {
         }
     }
 
-    final class DeviceArt extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Shader shell = new LinearGradient(8, 0, 88, 120,
-                new int[]{dark ? 0xFF6475A0 : 0xFFD0DAEF, dark ? 0xFF273554 : 0xFFACBBD8}, null, Shader.TileMode.CLAMP);
-        DeviceArt() { super(context); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
-        @Override protected void onDraw(Canvas c) {
-            c.save(); float k = Math.min(getWidth() / 96f, getHeight() / 120f);
-            c.translate((getWidth() - 96*k)/2, (getHeight() - 120*k)/2); c.scale(k, k);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setShader(shell);
-            c.drawRoundRect(14, 2, 82, 118, 17, 17, paint); paint.setShader(null);
-            paint.setColor(dark ? 0xFF131C30 : 0xFFEDF3FF); c.drawRoundRect(19, 10, 77, 56, 11, 11, paint);
-            paint.setColor(dark ? 0xFF364665 : 0xFF263550);
-            c.drawCircle(31, 23, 7, paint); c.drawCircle(31, 42, 7, paint);
-            paint.setColor(dark ? 0xFF9BBFFF : 0xFF81B3FF); c.drawRoundRect(44, 16, 71, 49, 6, 6, paint);
-            paint.setColor(0xBFFFFFFF); c.drawCircle(57, 28, 6, paint);
-            c.drawRoundRect(49, 38, 65, 42, 2, 2, paint);
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1); paint.setColor(0x88FFFFFF);
-            c.drawRoundRect(14, 2, 82, 118, 17, 17, paint);
-            c.restore();
-        }
-    }
 }

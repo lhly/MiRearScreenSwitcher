@@ -6,6 +6,31 @@ final class NativeStrings {
     static String get(Context context, String key) {
         int id;
         switch (key) {
+            case "check_updates": id = R.string.ui_check_updates; break;
+            case "updates_help": id = R.string.ui_updates_help; break;
+            case "checking_updates": id = R.string.ui_checking_updates; break;
+            case "update_available": id = R.string.ui_update_available; break;
+            case "update_current": id = R.string.ui_update_current; break;
+            case "update_local_newer": id = R.string.ui_update_local_newer; break;
+            case "update_none": id = R.string.ui_update_none; break;
+            case "update_restricted": id = R.string.ui_update_restricted; break;
+            case "update_network_error": id = R.string.ui_update_network_error; break;
+            case "update_invalid": id = R.string.ui_update_invalid; break;
+            case "view_release": id = R.string.ui_view_release; break;
+            case "view_releases": id = R.string.ui_view_releases; break;
+            case "latest_release_label": id = R.string.ui_latest_release_label; break;
+            case "retry": id = R.string.ui_retry; break;
+
+            case "project_maintainer": id = R.string.ui_project_maintainer; break;
+            case "project_repository": id = R.string.ui_project_repository; break;
+            case "issue_feedback": id = R.string.ui_issue_feedback; break;
+            case "open_source": id = R.string.ui_open_source; break;
+            case "version_source": id = R.string.ui_version_source; break;
+            case "source_version": id = R.string.ui_source_version; break;
+            case "license": id = R.string.ui_license; break;
+            case "license_summary": id = R.string.ui_license_summary; break;
+            case "legal_notice": id = R.string.ui_legal_notice; break;
+            case "license_load_failed": id = R.string.ui_license_load_failed; break;
             case "about": id = R.string.ui_about; break;
             case "about_app": id = R.string.ui_about_app; break;
             case "about_subtitle": id = R.string.ui_about_subtitle; break;
@@ -14,7 +39,6 @@ final class NativeStrings {
             case "always_help": id = R.string.ui_always_help; break;
             case "always_wake_up": id = R.string.ui_always_wake_up; break;
             case "always_wake_up_title": id = R.string.ui_always_wake_up_title; break;
-            case "app_description": id = R.string.ui_app_description; break;
             case "app_name": id = R.string.ui_app_name; break;
             case "app_selection": id = R.string.ui_app_selection; break;
             case "apply": id = R.string.ui_apply; break;
@@ -24,7 +48,6 @@ final class NativeStrings {
             case "author_xmz": id = R.string.ui_author_xmz; break;
             case "auto_destroy_time": id = R.string.ui_auto_destroy_time; break;
             case "back": id = R.string.ui_back; break;
-            case "buy_coffee": id = R.string.ui_buy_coffee; break;
             case "cancel": id = R.string.ui_cancel; break;
             case "charging_always_help": id = R.string.ui_charging_always_help; break;
             case "charging_always_on": id = R.string.ui_charging_always_on; break;
@@ -53,7 +76,6 @@ final class NativeStrings {
             case "diagnostics": id = R.string.ui_diagnostics; break;
             case "display_wake": id = R.string.ui_display_wake; break;
             case "dnd_help": id = R.string.ui_dnd_help; break;
-            case "donation": id = R.string.ui_donation; break;
             case "dpi_caption": id = R.string.ui_dpi_caption; break;
             case "dpi_help": id = R.string.ui_dpi_help; break;
             case "dpi_range": id = R.string.ui_dpi_range; break;
@@ -122,8 +144,6 @@ final class NativeStrings {
             case "privacy_section": id = R.string.ui_privacy_section; break;
             case "proximity_help": id = R.string.ui_proximity_help; break;
             case "proximity_sensor": id = R.string.ui_proximity_sensor; break;
-            case "qq_group": id = R.string.ui_qq_group; break;
-            case "qq_group_title": id = R.string.ui_qq_group_title; break;
             case "quick_tiles": id = R.string.ui_quick_tiles; break;
             case "quick_tiles_help": id = R.string.ui_quick_tiles_help; break;
             case "rear_cover_detection_title": id = R.string.ui_rear_cover_detection_title; break;

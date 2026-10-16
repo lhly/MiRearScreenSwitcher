@@ -1,0 +1,37 @@
+MiRearScreenSwitcher (MRSS)
+
+Original project: https://github.com/AntiOblivionis/MiRearScreenSwitcher
+Original author: AntiOblivionis
+Upstream testing contributor: 汐木泽
+
+Current maintainer: 冷火凉烟 (GitHub: lhly)
+Maintained project: https://github.com/lhly/MiRearScreenSwitcher
+Issue tracker: https://github.com/lhly/MiRearScreenSwitcher/issues
+
+This independent fork has been modified since 2026-10-11, including shared
+Shizuku service lifecycle fixes and the Android native settings interface.
+2026-10-13: updated maintainer information, project and feedback links,
+upstream credits, and bundled license and corresponding-source entries.
+2026-10-15: added Compose/Miuix home and navigation, direct GitHub feedback,
+and on-demand stable-release update checks in About.
+
+Copyright (C) 2026 冷火凉烟, for original contributions to this fork.
+Existing upstream copyright and license notices remain applicable.
+This modified program is distributed under the GNU General Public License,
+version 3. See LICENSE for the complete terms, including the absence of warranty.
+
+Source for a published APK is provided at the matching v<version> tag:
+https://github.com/lhly/MiRearScreenSwitcher/tags
+Build instructions are included in docs/android-studio-release.md at that tag.
+Third-party assets retain their respective ownership; see README.md.
+
+Third-party UI components
+
+Miuix 0.9.4, Copyright 2025–2026 compose-miuix-ui contributors.
+https://github.com/compose-miuix-ui/miuix
+Licensed under the Apache License, Version 2.0; full text is bundled as
+MIUIX-LICENSE.txt and retained in third_party/MIUIX-LICENSE.txt.
+Compose UI, AndroidX and Kotlin are used under Apache-2.0.
+MaterialKolor 5.0.1, Copyright Jordon de Hoog, is used under the MIT License;
+see MATERIALKOLOR-LICENSE.txt. https://github.com/jordond/materialkolor
+The application as a whole continues to be distributed under GPL-3.0.

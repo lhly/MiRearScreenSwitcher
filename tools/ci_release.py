@@ -5,6 +5,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -35,7 +36,7 @@ def release_metadata(properties, tag):
         raise ValueError('Tag version must match versionName in version.properties.')
     return {'version': version, 'build_number': number,
             'prerelease': str(match[4] is not None).lower(),
-            'apk_name': f'MRSS-{tag}-native.apk'}
+            'apk_name': f'MRSS-{tag}.apk'}
 
 
 def properties_value(value):
@@ -104,16 +105,16 @@ def prepare_signing(project):
     print('Personal signing key restored and certificate verified.')
 
 
-def verify_apk(apk, metadata, dist):
+def verify_apk(apk, metadata, dist, project=ROOT):
     fingerprint = expected_certificate()
     sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
     if not sdk:
         raise ValueError('ANDROID_HOME or ANDROID_SDK_ROOT is required.')
-    build_tools = Path(sdk) / 'build-tools/36.0.0'
+    build_tools = Path(sdk) / 'build-tools/37.0.0'
     signature = subprocess.run([str(build_tools / 'apksigner'), 'verify', '--print-certs', str(apk)],
                                check=True, capture_output=True, text=True).stdout
-    certificates = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})', signature)
-    if certificates != [fingerprint]:
+    certificates = set(re.findall(r'^(?:V\d(?:\.\d+)? )?Signer(?: #\d+)?:? certificate SHA-256 digest: ([0-9a-f]{64})$', signature, re.MULTILINE))
+    if certificates != {fingerprint}:
         raise ValueError('APK must have exactly the expected personal signing certificate.')
     badging = subprocess.run([str(build_tools / 'aapt'), 'dump', 'badging', str(apk)],
                              check=True, capture_output=True, text=True).stdout
@@ -129,11 +130,28 @@ def verify_apk(apk, metadata, dist):
         if any(p.endswith(('/libflutter.so', '/libapp.so', 'kernel_blob.bin'))
                or p.startswith('assets/flutter_assets/') for p in names):
             raise ValueError('Refusing to publish an APK containing the removed Flutter runtime.')
+        for name in ('LICENSE', 'NOTICE'):
+            if f'assets/{name}' not in names or archive.read(f'assets/{name}') != (project / name).read_bytes():
+                raise ValueError(f'APK must include the complete current {name}.')
     dist.mkdir(parents=True, exist_ok=True)
     target = dist / metadata['apk_name']
     shutil.copy2(apk, target)
-    checksum = hashlib.sha256(target.read_bytes()).hexdigest()
-    (dist / 'SHA256SUMS').write_text(f'{checksum}  {target.name}\n', encoding='ascii')
+    assets = [target]
+    for name in ('LICENSE', 'NOTICE'):
+        shutil.copy2(project / name, dist / name)
+        assets.append(dist / name)
+    checksums = ''.join(f'{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n' for asset in assets)
+    (dist / 'SHA256SUMS').write_text(checksums, encoding='ascii')
+    repository = os.environ.get('GITHUB_REPOSITORY', 'lhly/MiRearScreenSwitcher')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        raise ValueError('Invalid GitHub repository name.')
+    tag = 'v' + metadata['version']
+    # CI artifact only: APK digest/size come from the verified bytes, not hand-entered values.
+    manifest = {'schemaVersion': 1, 'versionName': metadata['version'], 'versionCode': int(metadata['build_number']), 'tag': tag,
+                'apk': {'url': f'https://github.com/{repository}/releases/download/{tag}/{target.name}',
+                        'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'size': target.stat().st_size,
+                        'packageName': PACKAGE_ID}}
+    (dist / 'version-artifact.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     print(f'Verified {target.name}: {PACKAGE_ID}, certificate {fingerprint}')
 
 
@@ -157,7 +175,7 @@ def main():
         else:
             if args.apk is None:
                 parser.error('verify requires an APK path')
-            verify_apk(args.apk, metadata, args.dist)
+            verify_apk(args.apk, metadata, args.dist, args.project)
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
         print(f'Release validation failed: {error}', file=sys.stderr)
         sys.exit(1)

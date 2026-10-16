@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <defs>
+    <linearGradient id="blue" gradientUnits="userSpaceOnUse" x1="14" y1="0" x2="91" y2="108">
+      <stop offset="0" stop-color="#69ADFF" />
+      <stop offset="0.48" stop-color="#387FF0" />
+      <stop offset="1" stop-color="#2455D6" />
+    </linearGradient>
+    <linearGradient id="glass" gradientUnits="userSpaceOnUse" x1="31" y1="32" x2="75" y2="79">
+      <stop offset="0" stop-color="#FFFFFF" />
+      <stop offset="0.45" stop-color="#F2F8FF" />
+      <stop offset="1" stop-color="#C9DFFF" />
+    </linearGradient>
+    <linearGradient id="screen" gradientUnits="userSpaceOnUse" x1="50" y1="37" x2="76" y2="74">
+      <stop offset="0" stop-color="#6FAFFF" />
+      <stop offset="0.48" stop-color="#3D86F2" />
+      <stop offset="1" stop-color="#245DDC" />
+    </linearGradient>
+    <linearGradient id="lens" gradientUnits="userSpaceOnUse" x1="31" y1="40" x2="40" y2="67">
+      <stop offset="0" stop-color="#375478" />
+      <stop offset="1" stop-color="#142C50" />
+    </linearGradient>
+    <clipPath id="tile">
+      <path d="M28,2 H80 Q106,2 106,28 V80 Q106,106 80,106 H28 Q2,106 2,80 V28 Q2,2 28,2 Z" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <path d="M0,0 H108 V108 H0 Z" fill="url(#blue)" />
+    <path d="M0,0 H108 V19 C75,6 33,43 0,30 Z" fill="#FFFFFF" fill-opacity="0.07" />
+    <g transform="translate(54 54) scale(1.32) translate(-54 -54)">
+      <path d="M35,34 H73 Q85,34 85,46 V66 Q85,78 73,78 H35 Q23,78 23,66 V46 Q23,34 35,34 Z" fill="#143D9F" fill-opacity="0.16" />
+      <path d="M35,32 H73 Q85,32 85,44 V64 Q85,76 73,76 H35 Q23,76 23,64 V44 Q23,32 35,32 Z" fill="url(#glass)" stroke="#FFFFFF" stroke-width="0.7" stroke-opacity="0.75" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M29.0,45.5 a6.5,6.5 0,1 0 13.0,0 a6.5,6.5 0,1 0 -13.0,0M29.0,62.5 a6.5,6.5 0,1 0 13.0,0 a6.5,6.5 0,1 0 -13.0,0" fill="#B8D0ED" />
+      <path d="M30.3,45.5 a5.2,5.2 0,1 0 10.4,0 a5.2,5.2 0,1 0 -10.4,0M30.3,62.5 a5.2,5.2 0,1 0 10.4,0 a5.2,5.2 0,1 0 -10.4,0" fill="url(#lens)" />
+      <path d="M32.45,44 a1.65,1.65 0,1 0 3.3,0 a1.65,1.65 0,1 0 -3.3,0M32.45,61 a1.65,1.65 0,1 0 3.3,0 a1.65,1.65 0,1 0 -3.3,0" fill="#A3CDFF" fill-opacity="0.65" />
+      <path d="M54,37 H72 Q79,37 79,44 V64 Q79,71 72,71 H54 Q47,71 47,64 V44 Q47,37 54,37 Z" fill="url(#screen)" stroke="#FFFFFF" stroke-width="0.6" stroke-opacity="0.5" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M54,37 H72 Q79,37 79,44 V46 C66,42 60,52 47,49 V44 Q47,37 54,37 Z" fill="#FFFFFF" fill-opacity="0.12" />
+      <path d="M54,48 H72 M67,43 L72,48 L67,53 M72,60 H54 M59,55 L54,60 L59,65" fill="none" stroke="#FFFFFF" stroke-width="2.7" stroke-opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+  </g>
+</svg>

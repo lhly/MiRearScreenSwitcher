@@ -3,6 +3,7 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val keystoreProperties = Properties()
@@ -17,7 +18,7 @@ val versionProperties = Properties().apply {
 
 android {
     namespace = "com.tgwgroup.MiRearScreenSwitcher"
-    compileSdk = 36
+    compileSdk = 37
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -34,16 +35,22 @@ android {
         manifestPlaceholders["appLabel"] = "MRSS"
         manifestPlaceholders["mrssScheme"] = "mrss"
         buildConfigField("String", "URI_SCHEME", "\"mrss\"")
+        buildConfigField("String", "SOURCE_TAG", "\"v${versionName}\"")
     }
     
     // Shizuku需要
     buildFeatures {
+        compose = true
         aidl = true
         buildConfig = true
     }
     
     lint {
         disable.add("Instantiatable")
+    }
+
+    providers.gradleProperty("mrssUpdateFixtureDir").orNull?.let {
+        sourceSets.getByName("androidTest").assets.srcDir(it)
     }
 
     signingConfigs {
@@ -62,12 +69,13 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-native-debug"
-            manifestPlaceholders["appLabel"] = "MRSS 原生测试"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "MRSS 调试版"
             manifestPlaceholders["mrssScheme"] = "mrss-debug"
             buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
         }
         release {
+            manifestPlaceholders["appLabel"] = "MRSS"
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
@@ -86,7 +94,25 @@ android {
 
 }
 
-val validateReleaseSigning by tasks.registering {
+// Generated assets use the Variant API so IDE and CLI builds share the legal texts.
+abstract class PrepareLegalAssets : DefaultTask() {
+    @get:InputFiles @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val legalTexts: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @get:javax.inject.Inject abstract val fileSystemOperations: FileSystemOperations
+    @TaskAction fun generate() {
+        fileSystemOperations.sync { from(legalTexts); into(outputDirectory) }
+    }
+}
+val prepareLegalAssets = tasks.register<PrepareLegalAssets>("prepareLegalAssets") {
+    legalTexts.from(rootProject.file("../LICENSE"), rootProject.file("../NOTICE"), rootProject.file("../third_party/MIUIX-LICENSE.txt"), rootProject.file("../third_party/MATERIALKOLOR-LICENSE.txt"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/legalAssets"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(prepareLegalAssets) { it.outputDirectory }
+}
+
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
     doLast {
         check(keystorePropertiesFile.exists()) {
             "Release signing is not configured. Create android/key.properties with your release keystore."
@@ -100,6 +126,10 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     // Shizuku API

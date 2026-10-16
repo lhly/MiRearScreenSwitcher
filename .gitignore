@@ -25,6 +25,7 @@ migrate_working_dir/
 
 # Build outputs
 /build/
+/android/build/
 /dist/
 
 # Legacy Flutter caches left by earlier local builds

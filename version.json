@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "versionName": "3.3.0",
+  "versionCode": 2012,
+  "tag": "v3.3.0",
+  "apk": {
+    "url": "https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.0/MRSS-v3.3.0-native.apk",
+    "sha256": "b14a0b0346dadb7124e0f86335df4c00d5149336967216710eb88fca64a0cf7d",
+    "size": 581195,
+    "packageName": "com.tgwgroup.MiRearScreenSwitcher.personal"
+  }
+}

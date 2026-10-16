@@ -1,7 +1,6 @@
 package com.tgwgroup.MiRearScreenSwitcher;
 
 import android.Manifest;
-import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -24,6 +23,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -38,26 +38,35 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import rikka.shizuku.Shizuku;
 
-/** All settings are Android widgets backed by the existing service and Shizuku actions. */
+/** Compose home with existing Android settings pages and unchanged service actions. */
 final class NativeSettingsUi {
     private final MainActivity activity;
     final GlassUi ui;
     final NativePreferences preferences;
     private final GlassUi.Background root;
     private final FrameLayout stage;
-    private final LinearLayout navigation;
+    private final FrameLayout notificationPage, aboutPage;
+    private final ScrollView[] pageScrolls = new ScrollView[3];
+    private final MiuixHomeUi composeUi;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, Switch> switches = new HashMap<>();
+    private final ReleaseUpdateChecker updateChecker;
+    private LinearLayout updateRow;
+    private TextView updateSummary;
+    private boolean checkingUpdates;
+    private ReleaseUpdateChecker.Result updateResult;
     private int page;
     private boolean destroyed, resumed, settingControls, restoringServices, permissionPrompted;
     private boolean checkingDisplay, displayRead, remoteBusy;
     private String lastStatus = "";
     private int currentDpi, rotation;
-    private TextView statusTitle, statusSummary, dpiValue, rotationValue;
-    private Button connectButton;
-    private final ArrayList<Button> rotationButtons = new ArrayList<>();
+    private String connectionSummary = "connection_help", connectionAction = "open_shizuku";
     private ScrollView scroll;
     private NativeAppPicker picker;
     private Bundle pickerState;
@@ -65,7 +74,6 @@ final class NativeSettingsUi {
     private AlertDialog numberModal;
     private EditText numberInput;
     private String numberKind;
-    private int pendingScroll;
     private final Runnable statusTick = new Runnable() {
         @Override public void run() {
             if (!resumed || destroyed) return;
@@ -75,29 +83,43 @@ final class NativeSettingsUi {
     };
 
     NativeSettingsUi(MainActivity activity, Bundle state) {
+        this(activity, state, new ReleaseUpdateChecker());
+    }
+
+    NativeSettingsUi(MainActivity activity, Bundle state, ReleaseUpdateChecker updateChecker) {
         this.activity = activity;
+        this.updateChecker = updateChecker;
         ui = new GlassUi(activity);
         preferences = new NativePreferences(activity);
         page = state == null ? 0 : state.getInt("native_page", 0);
-        pendingScroll = state == null ? 0 : state.getInt("native_scroll", 0);
         currentDpi = state == null ? 0 : state.getInt("native_dpi", 0);
         rotation = state == null ? 0 : state.getInt("native_rotation", 0);
         pickerState = state;
         root = ui.new Background();
         stage = new FrameLayout(activity);
-        root.addView(stage, new FrameLayout.LayoutParams(-1, -1));
-        navigation = ui.row();
-        navigation.setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(6));
-        navigation.setBackground(ui.glass(32, true));
-        navigation.setElevation(ui.dp(8));
-        FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(ui.dp(320), -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        navParams.bottomMargin = ui.dp(12);
-        root.addView(navigation, navParams);
+        notificationPage = new FrameLayout(activity);
+        aboutPage = new FrameLayout(activity);
+        composeUi = new MiuixHomeUi(activity, notificationPage, aboutPage, stage, state, new MiuixHomeUi.Actions() {
+            @Override public void navigate(int target) { NativeSettingsUi.this.navigate(target); }
+            @Override public void settled(int target) { onPageSettled(target); }
+            @Override public void connect() { NativeSettingsUi.this.connect(); }
+            @Override public void details() { showDetails(); }
+            @Override public void dpi() { if (!remoteBusy) showDpi(); }
+            @Override public void rotation(int target) { setRotation(target); }
+            @Override public void toggle(String key, String method, boolean enabled) { NativeSettingsUi.this.toggle(key, method, enabled); }
+            @Override public void tutorial() { action("openTutorial"); }
+        });
+        root.addView(composeUi.getView(), new FrameLayout.LayoutParams(-1, -1));
         configureWindow();
         root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(root);
         });
-        renderPage(false);
+        for (int target = 1; target <= 2; target++) {
+            int fallback = state != null && page == target ? state.getInt("native_scroll", 0) : 0;
+            buildNativePage(target, state == null ? 0 : state.getInt("native_scroll_" + target, fallback));
+        }
+        if (page == 3) navigate(3);
+        else { scroll = pageScrolls[page]; composeUi.showPage(page); refreshStatus(); }
         if (state != null && state.containsKey("native_number_kind")) {
             String kind = state.getString("native_number_kind");
             String draft = state.getString("native_number_draft", "");
@@ -125,25 +147,7 @@ final class NativeSettingsUi {
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             Insets keyboard = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int widthDp = Math.round((root.getWidth() - bars.left - bars.right)
-                    / activity.getResources().getDisplayMetrics().density);
-            int outer = ui.dp(Math.max(0, (widthDp - 680) / 2));
-            FrameLayout.LayoutParams stageParams = (FrameLayout.LayoutParams) stage.getLayoutParams();
-            stageParams.leftMargin = bars.left + outer;
-            stageParams.rightMargin = bars.right + outer;
-            stageParams.topMargin = bars.top;
-            stageParams.bottomMargin = Math.max(bars.bottom, keyboard.bottom);
-            stage.setLayoutParams(stageParams);
-            FrameLayout.LayoutParams nav = (FrameLayout.LayoutParams) navigation.getLayoutParams();
-            nav.width = Math.min(ui.dp(340), Math.max(ui.dp(180), root.getWidth() - bars.left - bars.right - ui.dp(40)));
-            nav.bottomMargin = bars.bottom + ui.dp(12);
-            navigation.setLayoutParams(nav);
-            navigation.setVisibility(page == 3 || keyboard.bottom > bars.bottom ? View.GONE : View.VISIBLE);
-            if (scroll != null && scroll.getChildCount() > 0) {
-                View content = scroll.getChildAt(0);
-                content.setPadding(content.getPaddingLeft(), content.getPaddingTop(), content.getPaddingRight(),
-                        Math.max(ui.dp(112), navigation.getMeasuredHeight() + ui.dp(32)));
-            }
+            composeUi.setInsets(bars.left, bars.top, bars.right, bars.bottom, keyboard.bottom);
             return insets;
         });
     }
@@ -153,20 +157,25 @@ final class NativeSettingsUi {
         handler.removeCallbacks(statusTick);
         handler.post(statusTick);
         if (picker != null) picker.onResume();
-        else if (page == 1) rebuildKeepingPosition();
+        else if (page == 1 && scroll != null && ViewCompat.isLaidOut(scroll)) rebuildKeepingPosition();
     }
 
     void onPause() { resumed = false; handler.removeCallbacks(statusTick); }
     void destroy() {
         destroyed = true;
+        updateChecker.close();
         handler.removeCallbacksAndMessages(null);
         if (picker != null) picker.destroy();
         for (AlertDialog dialog : new ArrayList<>(dialogs)) dialog.dismiss();
     }
 
     void saveState(Bundle state) {
+        composeUi.saveState(state);
         state.putInt("native_page", page);
         state.putInt("native_scroll", scroll == null ? 0 : scroll.getScrollY());
+        for (int target = 1; target <= 2; target++) {
+            state.putInt("native_scroll_" + target, pageScrolls[target].getScrollY());
+        }
         state.putInt("native_dpi", currentDpi);
         state.putInt("native_rotation", rotation);
         if (picker != null) picker.saveState(state);
@@ -183,83 +192,61 @@ final class NativeSettingsUi {
     }
 
     private void navigate(int target) {
-        if (page == target) return;
-        page = target;
-        pendingScroll = 0;
-        hideKeyboard();
-        renderPage(true);
-    }
-
-    private void renderPage(boolean animate) {
         if (destroyed) return;
-        int restoreY = pendingScroll;
-        pendingScroll = 0;
-        if (picker != null) { pickerState = new Bundle(); picker.saveState(pickerState); picker.destroy(); picker = null; }
-        stage.removeAllViews(); switches.clear(); rotationButtons.clear();
-        statusTitle = statusSummary = dpiValue = rotationValue = null;
-        connectButton = null;
-        navigation.setVisibility(page == 3 ? View.GONE : View.VISIBLE);
-        buildNavigation();
-        if (page == 3) {
-            scroll = null;
-            picker = new NativeAppPicker(this, activity, pickerState);
-            stage.addView(picker.getView(), new FrameLayout.LayoutParams(-1, -1));
-            if (resumed) picker.onResume();
-        } else {
-            scroll = new ScrollView(activity);
-            scroll.setFillViewport(true);
-            scroll.setClipToPadding(false);
-            scroll.setVerticalScrollBarEnabled(false);
-            LinearLayout content = ui.column();
-            content.setPadding(ui.dp(20), ui.dp(18), ui.dp(20), ui.dp(112));
-            scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-            stage.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-            if (page == 0) buildScreen(content);
-            else if (page == 1) buildNotifications(content);
-            else buildAbout(content);
-            scroll.post(() -> { if (!destroyed && scroll != null) scroll.scrollTo(0, restoreY); });
+        int previous = page;
+        if (picker != null && target != 3) {
+            pickerState = new Bundle(); picker.saveState(pickerState); picker.destroy(); picker = null;
+            stage.removeAllViews();
         }
+        page = target;
+        hideKeyboard();
+        if (target == 3) {
+            scroll = null;
+            if (picker == null) {
+                picker = new NativeAppPicker(this, activity, pickerState);
+                stage.addView(picker.getView(), new FrameLayout.LayoutParams(-1, -1));
+                if (resumed) picker.onResume();
+            }
+        } else {
+            scroll = pageScrolls[target];
+            if (target == 1 && previous != 1) rebuildKeepingPosition();
+        }
+        composeUi.showPage(target);
         ViewCompat.requestApplyInsets(root);
-        if (animate && (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())) {
-            stage.setAlpha(.65f);
-            stage.animate().alpha(1).setDuration(180).start();
-        } else stage.setAlpha(1);
         refreshStatus();
     }
 
-    private void rebuildKeepingPosition() {
-        pendingScroll = scroll == null ? 0 : scroll.getScrollY();
-        renderPage(false);
+    private void onPageSettled(int target) {
+        if (destroyed || page == 3 || page == target) return;
+        page = target;
+        scroll = pageScrolls[target];
+        if (target == 1) rebuildKeepingPosition();
+        refreshStatus();
     }
 
-    private void buildNavigation() {
-        navigation.removeAllViews();
-        String[] labels = {"nav_screen", "nav_notifications", "about"};
-        String[] icons = {"screen", "bell", "info"};
-        for (int i = 0; i < labels.length; i++) {
-            final int target = i;
-            LinearLayout tab = ui.column();
-            tab.setGravity(Gravity.CENTER);
-            tab.setMinimumHeight(ui.dp(56));
-            tab.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
-            boolean selected = page == i || (page == 3 && i == 1);
-            if (selected) tab.setBackground(ui.pill(ui.dark ? 0x553D5994 : 0xFFDFE9FD, 26));
-            tab.addView(ui.icon(icons[i], selected ? ui.accent : ui.secondary), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
-            TextView label = ui.text(s(labels[i]), 12, selected ? ui.accent : ui.secondary, selected);
-            label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            label.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.topMargin = ui.dp(4); tab.addView(label, lp);
-            tab.setContentDescription(s(i == 0 ? "screen_title" : i == 1 ? "notifications_title" : "about"));
-            tab.setSelected(selected);
-            tab.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-                @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
-                    super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName(Button.class.getName());
-                }
-            });
-            ui.clickable(tab, () -> navigate(target), 26);
-            navigation.addView(tab, new LinearLayout.LayoutParams(0, -2, 1));
-        }
+    private void buildNativePage(int target, int restoreY) {
+        FrameLayout host = target == 1 ? notificationPage : aboutPage;
+        host.removeAllViews();
+        if (target == 1) switches.clear();
+        else { updateRow = null; updateSummary = null; }
+        ScrollView next = new ScrollView(activity);
+        next.setTag("native_scroll_" + target);
+        next.setFillViewport(true);
+        next.setClipToPadding(false);
+        next.setVerticalScrollBarEnabled(false);
+        ViewCompat.setNestedScrollingEnabled(next, true);
+        LinearLayout content = ui.column();
+        content.setPadding(ui.dp(20), ui.dp(18), ui.dp(20), ui.dp(112));
+        next.addView(content, new ScrollView.LayoutParams(-1, -2));
+        host.addView(next, new FrameLayout.LayoutParams(-1, -1));
+        pageScrolls[target] = next;
+        if (page == target) scroll = next;
+        if (target == 1) buildNotifications(content); else buildAbout(content);
+        next.post(() -> { if (!destroyed) next.scrollTo(0, restoreY); });
+    }
+
+    private void rebuildKeepingPosition() {
+        if (page == 1 || page == 2) buildNativePage(page, scroll == null ? 0 : scroll.getScrollY());
     }
 
     private void title(LinearLayout content, String title, String subtitle) {
@@ -273,78 +260,6 @@ final class NativeSettingsUi {
         TextView caption = ui.text(s(subtitle), 14, ui.secondary, false);
         caption.setPadding(0, 0, 0, ui.dp(24));
         content.addView(caption);
-    }
-
-    private void buildScreen(LinearLayout content) {
-        title(content, "screen_title", "screen_subtitle");
-        LinearLayout hero = ui.card();
-        hero.setPadding(ui.dp(20), ui.dp(20), ui.dp(16), ui.dp(20));
-        LinearLayout heroRow = ui.row();
-        LinearLayout info = ui.column();
-        TextView label = ui.text("SHIZUKU", 11, ui.secondary, true); label.setLetterSpacing(.1f);
-        info.addView(label);
-        statusTitle = ui.text(s("check_shizuku"), 21, ui.text, true);
-        statusTitle.setPadding(0, ui.dp(8), 0, ui.dp(8)); info.addView(statusTitle);
-        statusSummary = ui.text(s("connection_help"), 13, ui.secondary, false); info.addView(statusSummary);
-        heroRow.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
-        GlassUi.DeviceArt device = ui.new DeviceArt();
-        LinearLayout.LayoutParams deviceParams = new LinearLayout.LayoutParams(ui.dp(86), ui.dp(112));
-        deviceParams.leftMargin = ui.dp(8);
-        boolean largeText = activity.getResources().getConfiguration().fontScale > 1.25f;
-        if (!largeText) heroRow.addView(device, deviceParams);
-        hero.addView(heroRow);
-        boolean stacked = largeText || activity.getResources().getConfiguration().screenWidthDp < 360;
-        LinearLayout actions = stacked ? ui.column() : ui.row();
-        connectButton = ui.button(s("connect"), true, this::connect);
-        actions.addView(connectButton, stacked ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(0, -2, 1));
-        Button details = ui.button(s("connection_details"), false, this::showDetails);
-        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(stacked ? -1 : -2, -2);
-        if (stacked) detailParams.topMargin = ui.dp(8); else detailParams.leftMargin = ui.dp(8);
-        actions.addView(details, detailParams);
-        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-1, -2); actionParams.topMargin = ui.dp(16);
-        hero.addView(actions, actionParams); content.addView(hero);
-
-        content.addView(ui.heading(s("screen_size")));
-        LinearLayout display = ui.card();
-        dpiValue = ui.text(currentDpi > 0 ? String.valueOf(currentDpi) : "—", 25, ui.accent, true);
-        display.addView(actionRow("density", s("dpi_caption"), s("dpi_help"), dpiValue, this::showDpi));
-        ui.divider(display);
-        rotationValue = ui.text((rotation * 90) + "°", 16, ui.accent, true);
-        display.addView(actionRow("rotate", s("rotation_caption"), null, rotationValue, null));
-        LinearLayout rotations = ui.row();
-        rotations.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(14));
-        for (int i = 0; i < 4; i++) {
-            final int target = i;
-            Button button = ui.button((i * 90) + "°", i == rotation, () -> setRotation(target));
-            button.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10));
-            button.setContentDescription(s("rotation_caption") + " " + i * 90 + "°");
-            button.setSelected(i == rotation);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-            if (i > 0) lp.leftMargin = ui.dp(8);
-            rotations.addView(button, lp); rotationButtons.add(button);
-        }
-        display.addView(rotations); content.addView(display);
-        content.addView(ui.heading(s("display_wake")));
-        LinearLayout wake = ui.card();
-        addSwitch(wake, "eye", "proximity_sensor", "proximity_help", "proximity_sensor_enabled", "setProximitySensorEnabled");
-        ui.divider(wake);
-        addSwitch(wake, "sun", "keep_screen_on", "keep_help", "keep_screen_on_enabled", "setKeepScreenOnEnabled");
-        ui.divider(wake);
-        addSwitch(wake, "sun", "always_wake_up", "always_help", "always_wakeup_enabled", "setAlwaysWakeUpEnabled");
-        content.addView(wake);
-        TextView burnIn = ui.text(s("warning_burn_in"), 12, ui.secondary, false);
-        burnIn.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); content.addView(burnIn);
-        content.addView(ui.heading(s("charging_section")));
-        LinearLayout charging = ui.card();
-        addSwitch(charging, "charge", "charging_animation", "charging_help", "charging_animation_enabled", "toggleChargingService");
-        ui.divider(charging);
-        addSwitch(charging, "sun", "charging_always_on", "charging_always_help", "charging_always_on_enabled", "setChargingAlwaysOnEnabled");
-        content.addView(charging);
-        content.addView(ui.heading(s("quick_tiles")));
-        LinearLayout shortcut = ui.card();
-        shortcut.addView(actionRow("apps", s("quick_tiles"), s("quick_tiles_help"), null, () -> action("openTutorial")));
-        content.addView(shortcut);
     }
 
     private void buildNotifications(LinearLayout content) {
@@ -386,35 +301,95 @@ final class NativeSettingsUi {
     }
 
     private void buildAbout(LinearLayout content) {
-        title(content, "about", "about_subtitle");
-        LinearLayout brand = ui.card(); brand.setPadding(ui.dp(20), ui.dp(24), ui.dp(20), ui.dp(24));
-        LinearLayout line = ui.row();
-        line.addView(ui.new DeviceArt(), new LinearLayout.LayoutParams(ui.dp(64), ui.dp(84)));
+        TextView heading = ui.text(s("about"), 34, ui.text, true);
+        heading.setPadding(0, 0, 0, ui.dp(24));
+        ViewCompat.setAccessibilityHeading(heading, true);
+        content.addView(heading);
+        LinearLayout brand = ui.row();
+        brand.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(28));
+        ImageView appIcon = new ImageView(activity);
+        appIcon.setImageResource(R.drawable.ic_app_logo);
+        appIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        brand.addView(appIcon, new LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)));
         LinearLayout names = ui.column(); names.setPadding(ui.dp(16), 0, 0, 0);
-        names.addView(ui.text("MRSS", 27, ui.text, true));
-        TextView version = ui.text(count("version_label", BuildConfig.VERSION_NAME), 13, ui.secondary, false);
-        version.setPadding(0, ui.dp(6), 0, ui.dp(8)); names.addView(version);
-        names.addView(ui.text(s("app_description"), 13, ui.secondary, false));
-        line.addView(names, new LinearLayout.LayoutParams(0, -2, 1)); brand.addView(line); content.addView(brand);
-        content.addView(ui.heading(s("help_support")));
+        names.addView(ui.text("MRSS", 24, ui.text, true));
+        TextView version = ui.text(count("version_label", BuildConfig.VERSION_NAME), 14, ui.secondary, false);
+        version.setPadding(0, ui.dp(4), 0, 0); names.addView(version);
+        brand.addView(names, new LinearLayout.LayoutParams(0, -2, 1)); content.addView(brand);
         LinearLayout support = ui.card();
-        support.addView(actionRow("info", s("tutorial"), null, null, () -> action("openTutorial"))); ui.divider(support);
-        support.addView(actionRow("bell", s("qq_group_title"), null, null, () -> action("openQQGroup"))); ui.divider(support);
-        support.addView(actionRow("charge", s("buy_coffee"), null, null, () -> action("openDonationPage")));
+        support.addView(actionRow("info", s("project_repository"), "GitHub · lhly/MiRearScreenSwitcher\n"
+                + count("project_maintainer", ProjectInfo.MAINTAINER), null, () -> action("openProject"))); ui.divider(support);
+        updateRow = actionRow("rotate", s("check_updates"), updateSummaryText(), null, this::checkForUpdates);
+        updateSummary = (TextView) ((LinearLayout) updateRow.getChildAt(1)).getChildAt(1);
+        updateSummary.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        updateRow.setEnabled(!checkingUpdates);
+        support.addView(updateRow); ui.divider(support);
+        support.addView(actionRow("bell", s("issue_feedback"), "GitHub Issues", null, () -> action("openFeedback")));
         content.addView(support);
-        content.addView(ui.heading(s("credits")));
-        LinearLayout authors = ui.card();
-        authors.addView(actionRow("info", s("author_anti"), null, null, () -> action("openCoolApkProfile"))); ui.divider(authors);
-        authors.addView(actionRow("info", s("author_xmz"), null, null, () -> action("openCoolApkProfileXmz")));
-        content.addView(authors);
-        content.addView(ui.heading(s("uri_title")));
-        LinearLayout uri = ui.card();
-        uri.addView(actionRow("screen", s("uri_title"), s("uri_help").replace("mrss://", BuildConfig.URI_SCHEME + "://"), null, this::showUri));
-        content.addView(uri);
-        content.addView(ui.heading(s("diagnostics")));
-        LinearLayout diagnostics = ui.card();
-        diagnostics.addView(actionRow("shield", s("connection_details"), null, null, this::showDetails)); ui.divider(diagnostics);
-        diagnostics.addView(actionRow("rotate", s("restart_app"), s("restart_help"), null, this::restart)); content.addView(diagnostics);
+        LinearLayout details = ui.card();
+        details.addView(actionRow("info", s("author_anti"), null, null, () -> action("openOriginalProject"))); ui.divider(details);
+        details.addView(actionRow("screen", s("uri_title"), s("uri_help").replace("mrss://", BuildConfig.URI_SCHEME + "://"), null, this::showUri)); ui.divider(details);
+        details.addView(actionRow("shield", s("diagnostics"), null, null, this::showDetails));
+        LinearLayout.LayoutParams detailsLayout = new LinearLayout.LayoutParams(-1, -2);
+        detailsLayout.topMargin = ui.dp(20);
+        content.addView(details, detailsLayout);
+    }
+
+    private String updateSummaryText() {
+        if (checkingUpdates) return s("checking_updates");
+        if (updateResult == null) return s("updates_help");
+        switch (updateResult.status) {
+            case AVAILABLE: return count("update_available", updateResult.tag);
+            case CURRENT: return s("update_current");
+            case LOCAL_NEWER: return s("update_local_newer");
+            case MANIFEST_UNAVAILABLE: return s("update_none");
+            case RESTRICTED: return s("update_restricted");
+            case INVALID_RESPONSE: return s("update_invalid");
+            default: return s("update_network_error");
+        }
+    }
+
+    private void refreshUpdateRow() {
+        if (updateRow == null) return;
+        updateRow.setEnabled(!checkingUpdates);
+        updateSummary.setText(updateSummaryText());
+        updateRow.setContentDescription(s("check_updates") + ", " + updateSummaryText());
+    }
+
+    private void checkForUpdates() {
+        if (destroyed || checkingUpdates) return;
+        checkingUpdates = true;
+        refreshUpdateRow();
+        updateChecker.check(BuildConfig.SOURCE_TAG, result -> {
+            if (destroyed) return;
+            checkingUpdates = false;
+            updateResult = result;
+            refreshUpdateRow();
+            // A completed background check must not interrupt a different page/app.
+            if (page != 2 || !resumed) return;
+            String message = count("version_label", BuildConfig.VERSION_NAME);
+            if (!result.tag.isEmpty()) message += "\n" + count("latest_release_label", result.tag);
+            message += "\n\n" + updateSummaryText();
+            AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(s("check_updates"))
+                    .setMessage(message).setNegativeButton(s("cancel"), null);
+            boolean failed = result.status == ReleaseUpdateChecker.Status.NETWORK_ERROR
+                    || result.status == ReleaseUpdateChecker.Status.MANIFEST_UNAVAILABLE
+                    || result.status == ReleaseUpdateChecker.Status.RESTRICTED
+                    || result.status == ReleaseUpdateChecker.Status.INVALID_RESPONSE;
+            if (failed) builder.setPositiveButton(s("retry"), (d, w) -> checkForUpdates())
+                    .setNeutralButton(s("view_releases"), (d, w) -> action("openReleases"));
+            else if (result.status == ReleaseUpdateChecker.Status.AVAILABLE) {
+                builder.setPositiveButton(activity.getString(R.string.ui_download_update),
+                        (d, w) -> activity.startActivity(UpdateDownloadActivity.intent(activity, result.apk)))
+                        .setNeutralButton(s("view_release"), (d, w) -> activity.startActivity(
+                                new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(result.releaseUrl()))));
+            } else builder.setPositiveButton(s("view_releases"),
+                    (d, w) -> {
+                        try { activity.startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(result.releaseUrl()))); }
+                        catch (Exception error) { toast(s("operation_failed")); }
+                    });
+            dialog(builder.create());
+        });
     }
 
     LinearLayout actionRow(String icon, String title, String summary, View trailing, Runnable action) {
@@ -460,6 +435,15 @@ final class NativeSettingsUi {
         settingControls = true;
         for (Map.Entry<String, Switch> entry : switches.entrySet()) entry.getValue().setChecked(preferences.getBoolean(entry.getKey()));
         settingControls = false;
+        updateHome();
+    }
+
+    private void updateHome() {
+        Map<String, Boolean> values = new HashMap<>();
+        for (String key : new String[]{"proximity_sensor_enabled", "keep_screen_on_enabled", "always_wakeup_enabled",
+                "charging_animation_enabled", "charging_always_on_enabled"}) values.put(key, preferences.getBoolean(key));
+        composeUi.updateHome(lastStatus.isEmpty() ? "check_shizuku" : lastStatus, connectionSummary, connectionAction,
+                currentDpi, rotation, remoteBusy, values);
     }
 
     private void toggle(String key, String method, boolean enabled) {
@@ -515,9 +499,8 @@ final class NativeSettingsUi {
         boolean ready = authorized && activity.isTaskServiceReady();
         String status = ready ? "connection_ready" : authorized ? "connection_binding"
                 : running ? "shizuku_permission_denied" : "shizuku_not_running";
-        if (statusTitle != null) statusTitle.setText(s(status));
-        if (statusSummary != null) statusSummary.setText(s(ready ? "connection_ok_help" : "connection_help"));
-        if (connectButton != null) connectButton.setText(s(ready ? "refresh" : running ? "grant_permission" : "open_shizuku"));
+        connectionSummary = ready ? "connection_ok_help" : "connection_help";
+        connectionAction = ready ? "refresh" : running ? "grant_permission" : "open_shizuku";
         if (!status.equals(lastStatus)) {
             lastStatus = status;
             if (!ready) displayRead = false;
@@ -544,7 +527,7 @@ final class NativeSettingsUi {
         activity.runAction("getCurrentRearDpi", null, (value, error) -> {
             if (destroyed) return;
             if (value instanceof Number) currentDpi = ((Number) value).intValue();
-            if (dpiValue != null) dpiValue.setText(currentDpi > 0 ? String.valueOf(currentDpi) : "—");
+            updateHome();
             activity.runAction("getDisplayRotation", argument("displayId", 1), (angle, failure) -> {
                 if (destroyed) return;
                 checkingDisplay = false;
@@ -574,7 +557,9 @@ final class NativeSettingsUi {
             if (destroyed) return;
             String message = String.valueOf(error == null ? value : error) + "\nTaskService: " + activity.isTaskServiceReady()
                     + "\nPackage: " + activity.getPackageName() + "\nVersion: " + BuildConfig.VERSION_NAME;
-            dialog(new AlertDialog.Builder(activity).setTitle(s("connection_details")).setMessage(message)
+            dialog(new AlertDialog.Builder(activity).setTitle(s("diagnostics")).setMessage(message)
+                    .setNeutralButton(s("license"), (d, w) -> showLicense())
+                    .setNegativeButton(s("restart_app"), (d, w) -> restart())
                     .setPositiveButton(s("confirm"), null).create());
         });
     }
@@ -582,10 +567,11 @@ final class NativeSettingsUi {
     private void showDpi() {
         numberDialog("dpi", s("dpi_settings"), s("dpi_range"), currentDpi > 0 ? currentDpi : 300, 1, Integer.MAX_VALUE, value -> {
             if (remoteBusy) return;
-            remoteBusy = true; toast(s("saving"));
+            remoteBusy = true; updateHome(); toast(s("saving"));
             activity.runAction("setRearDpi", argument("dpi", value), (result, error) -> {
                 remoteBusy = false;
                 if (destroyed) return;
+                updateHome();
                 if (error == null && Boolean.TRUE.equals(result)) {
                     currentDpi = value; displayRead = false; toast(s("dpi_set_success").replace("%d", String.valueOf(value)));
                     refreshStatus();
@@ -593,10 +579,11 @@ final class NativeSettingsUi {
             });
         }, () -> {
             if (remoteBusy) return;
-            remoteBusy = true; toast(s("saving"));
+            remoteBusy = true; updateHome(); toast(s("saving"));
             activity.runAction("resetRearDpi", null, (result, error) -> {
                 remoteBusy = false;
                 if (destroyed) return;
+                updateHome();
                 if (error == null && Boolean.TRUE.equals(result)) { displayRead = false; toast(s("dpi_reset_success")); refreshStatus(); }
                 else toast(error == null ? s("dpi_reset_failed") : error);
             });
@@ -616,17 +603,7 @@ final class NativeSettingsUi {
         });
     }
 
-    private void updateRotationControls() {
-        if (rotationValue != null) rotationValue.setText(count("angle_value", rotation * 90));
-        for (int i = 0; i < rotationButtons.size(); i++) {
-            Button button = rotationButtons.get(i);
-            boolean selected = i == rotation;
-            button.setSelected(selected); button.setEnabled(!remoteBusy);
-            button.setTextColor(selected ? (ui.dark ? ui.background : Color.WHITE) : ui.accent);
-            button.setBackground(ui.ripple(ui.pill(selected ? ui.accent : (ui.dark ? 0x33245DE3 : 0x0D245DE3), 18), 18));
-            button.setAlpha(remoteBusy ? .5f : 1);
-        }
-    }
+    private void updateRotationControls() { updateHome(); }
 
     private void showDuration() {
         numberDialog("duration", s("auto_destroy_time"), s("duration_range"), preferences.getDuration(), 1, Integer.MAX_VALUE, seconds -> {
@@ -690,6 +667,31 @@ final class NativeSettingsUi {
             if (error != null) toast(error);
             else if (!destroyed) activity.recreate();
         });
+    }
+
+    private void showLicense() {
+        try {
+            String text = readLegalAsset("NOTICE") + "\n\n" + readLegalAsset("MIUIX-LICENSE.txt") + "\n\n" + readLegalAsset("MATERIALKOLOR-LICENSE.txt") + "\n\n" + readLegalAsset("LICENSE");
+            ScrollView body = new ScrollView(activity);
+            TextView document = ui.text(text, 14, ui.text, false);
+            document.setTextIsSelectable(true);
+            document.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(20));
+            body.addView(document, new ScrollView.LayoutParams(-1, -2));
+            dialog(new AlertDialog.Builder(activity).setTitle(s("license")).setView(body)
+                    .setPositiveButton(s("confirm"), null).create());
+        } catch (IOException error) {
+            toast(s("license_load_failed"));
+        }
+    }
+
+    private String readLegalAsset(String name) throws IOException {
+        try (InputStream input = activity.getAssets().open(name);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int size;
+            while ((size = input.read(buffer)) != -1) output.write(buffer, 0, size);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
     private void showUri() {

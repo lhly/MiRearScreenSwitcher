@@ -538,7 +538,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         return new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle(context.getString(R.string.notif_kernel_service))
                 .setContentText(context.getString(R.string.notif_mrss_running))
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_mrss)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .setShowWhen(false)
@@ -570,7 +570,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(appName + " " + getString(R.string.notif_running_on_rear))
                 .setContentText(getString(R.string.notif_click_to_return, appName))
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_mrss)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW) // 低优先级
                 .setOngoing(true) // 持续通知，不可滑动清除

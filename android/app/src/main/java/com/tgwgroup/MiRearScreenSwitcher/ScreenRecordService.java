@@ -138,7 +138,7 @@ public class ScreenRecordService extends Service {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("MRSS内核服务")
             .setContentText("MRSS目前正在运行")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_mrss)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build();

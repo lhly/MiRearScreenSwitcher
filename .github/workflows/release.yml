@@ -48,12 +48,13 @@ jobs:
       - name: Test release checks and service lifecycle
         run: |
           python3 tools/test_ci_release.py
+          python3 tools/test_update_version_manifest.py
           python3 tools/test_task_service_connection.py
 
       - name: Prepare Android toolchain
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-36' 'build-tools;36.0.0'
+            'platforms;android-37.0' 'build-tools;37.0.0'
 
       - name: Restore and validate signing key
         env:
@@ -63,7 +64,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: python3 tools/ci_release.py signing
 
-      - name: Build native release APK
+      - name: Build release APK
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
@@ -110,18 +111,64 @@ jobs:
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           sha256sum --check SHA256SUMS
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
+
+          - Compose + Miuix 首页与玻璃浮动导航，支持左右滑动、点击切页动画和页面状态保留。
+          - 蓝白背屏新图标，统一桌面与关于页，适配单色主题与状态栏。
+          - 精简关于页，提供源码仓库、提交反馈、Raw 版本检查、应用内下载进度、APK 校验和系统安装器。
+          - 保留背屏、通知、截图/录屏、磁贴、URI 自动化及原版腾讯文档教程入口。
+
+          - [对应版本源码](https://github.com/$GH_REPO/tree/$RELEASE_TAG)
+          - [下载对应版本源码](https://github.com/$GH_REPO/archive/refs/tags/$RELEASE_TAG.zip)
+          - [该版本构建说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/android-studio-release.md)
+          - [GPL-3.0 完整许可证](https://github.com/$GH_REPO/blob/$RELEASE_TAG/LICENSE) · [贡献与修改说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/NOTICE)
+
+          APK 内附带可离线阅读的 LICENSE 和 NOTICE，Release 另提供相同文件及 SHA256 校验。本版本允许依照 GPL-3.0 修改与再分发，不提供担保。
+          EOF
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-is-draft"; then
             if [[ "$(cat "$RUNNER_TEMP/release-is-draft")" != 'true' ]]; then
               echo "Release already published; keeping its existing assets."
               exit 0
             fi
-            gh release upload "$RELEASE_TAG" "$APK_NAME" SHA256SUMS --clobber
+            gh release upload "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE --clobber
+            gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" SHA256SUMS \
-              --verify-tag --title "MRSS $RELEASE_TAG" --generate-notes --draft
+            gh release create "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE \
+              --verify-tag --title "MRSS $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --draft
           fi
           if [[ "$PRERELEASE" == 'true' ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
           else
             gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
           fi
+
+  update-version:
+    name: Update stable Raw version manifest
+    needs: [build, release]
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: stable-version-manifest
+      cancel-in-progress: false
+    steps:
+      - name: Checkout release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download verified APK metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist
+
+      - name: Update main/version.json after publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 tools/update_version_manifest.py

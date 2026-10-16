@@ -1,39 +1,41 @@
-# MiRearScreenSwitcher (MRSS)
+# MiRearScreenSwitcher（MRSS）
+
+<img src="pic_res/app-icon.png" alt="MRSS 新图标" width="96" height="96">
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库是 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 的个人维护分支，当前源码为 **v3.3.0 原生版（2026-10-13）**：设置界面已迁移到 Android 原生 View，保留现有 Shizuku 控制、磁贴与背屏服务。正式 APK 约 0.58 MB，使用与 v3.2.1 相同的个人签名；v3.3.0 目前已本地构建，尚未发布至 GitHub。
+本仓库基于 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。最新正式版本为 **v3.3.2 / 2014（2026-10-16）**。
 
-上游原作者的停更公告：
+本次更新采用 Compose + Miuix 首页与浮动导航，加入左右滑动、点击切页动画及蓝白背屏新图标，精简关于页，增加基于 Raw 版本清单的检查更新、应用内下载进度、APK 校验和系统安装器接入，并恢复原版腾讯文档教程入口。App 不携带 GitHub Token，更新清单由正式发布成功后的 CI 自动生成。改动与验证见 [首页试点记录](docs/compose-home-validation.md)、[应用内更新验证](docs/in-app-update-validation.md)。
 
-> 鉴于小米3.8解锁节形势，加之shizuku限制实在过多，本项目无限期停更。
+交互及图标的专项验证见[交互验证](docs/navigation-interactions-validation.md)和[图标设计说明](docs/app-icon-design.md)。
 
-## 📦 最新版本：v3.3.0 原生版
+## 📦 最新版本：v3.3.2
 
-- [查看 v3.3.0 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.0)
-- [下载正式 APK（Android 原生，约 0.58 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.0/MRSS-v3.3.0-native.apk)
-- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.0/SHA256SUMS)
+- [查看 v3.3.2 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)
+- [下载 APK（约 1.39 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/MRSS-v3.3.2.apk)
+- [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/SHA256SUMS)
+- [v3.3.2 对应源码](https://github.com/lhly/MiRearScreenSwitcher/tree/v3.3.2) · [下载该版本源码](https://github.com/lhly/MiRearScreenSwitcher/archive/refs/tags/v3.3.2.zip)
 
-v3.3.0 将设置、通知、应用选择与关于界面迁移到 Android 原生 View，移除 Flutter 引擎和 Dart AOT，正式 APK 从 **17.69 MB 缩至约 0.58 MB，减少 96.72%**。界面采用柔光玻璃卡片和悬浮导航，支持深色模式、系统字号、简繁英及横屏；保留现有功能、Shizuku 控制和 v3.2.1 的共享服务连接修复。不同 CPU 架构使用同一份 APK。
+MRSS 提供背屏切换、截图、录屏、通知和充电动画等功能，通过 Shizuku 控制背屏。界面支持深色模式、系统字号、简繁英及横屏；正式 APK 约 1.39 MB，适用于不同 CPU 架构，沿用个人正式包名和签名。
 
-原生版已完成本机正式构建、30 项测试及 Lint/验签；模拟器同签名覆盖升级后保留旧设置，系统显示总占用约 1.18 MB。此次未安装到小米真机，模拟器占用不能代替真机测量。详见 [原生版迁移与验证记录](docs/native-ui-validation.md)。此前修复测试版已在 HyperOS 4 / Android 17 的小米双屏设备验证磁贴切屏、URI 返回和断线重连，见 [历史真机记录](docs/hyperos4-tile-validation.md)。
+v3.3.0 已在小米真机安装验证，背屏磁贴、URI 返回和断线重连记录见 [真机验证记录](docs/hyperos4-tile-validation.md)。v3.3.2 的界面、更新下载/校验及安装器流程已完成模拟器回归，云端发布及下载验收见 [自动发版记录](docs/github-release.md)。
 
 ## 📄 开源协议
 
-**⚠️ 重要协议变更通知**
+本项目沿用 **GPL-3.0**，完整条款见 [LICENSE](LICENSE)，原始项目归属、维护贡献和修改日期见 [NOTICE](NOTICE)。可以依照许可证修改与再分发，不提供担保。上游 V3.0.0 以前版本采用 MIT；本项目基于 GPL-3.0 版本继续开发。
 
-- **V3.0.0及以后版本**: 采用 **GPL-3.0** 开源协议
-- **V3.0.0以前版本**: 仍受 **MIT** 协议保护
+APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → 开源许可证”离线阅读。源码仓库统一从“关于 → 源码仓库”访问，对应版本的源码可在仓库的 `v<版本号>` tag 中查看。Release 会同时提供完整许可证、贡献说明，以及对应 tag 的源码与构建说明入口。对应版本的线上源码以 Release 所指向的 tag 为准。
 
-此变更旨在保护项目的核心创新，同时保持开源精神。V3.0.0以前的所有版本将继续按照MIT协议自由使用。
+**💬 项目与反馈**
 
-**💬 交流与支持**
-- QQ交流群：**932738927** - [加入群聊](https://tgwgroup.ltd/2025/10/21/%e5%85%b3%e4%ba%8emrss%e4%ba%a4%e6%b5%81%e7%be%a4/)
-- 打赏支持：[请作者喝杯咖啡](https://tgwgroup.ltd/2025/10/19/%e5%85%b3%e4%ba%8e%e6%89%93%e8%b5%8f/) ☕
+- 项目主页：[lhly/MiRearScreenSwitcher](https://github.com/lhly/MiRearScreenSwitcher)
+- 问题反馈：[GitHub Issues](https://github.com/lhly/MiRearScreenSwitcher/issues)
+- 使用方法：见下方教程；维护分支的问题请提交到本仓库。
 
 ---
 
-## ✨ 功能特性 (V3.3.0)
+## ✨ 功能特性 (V3.3.2)
 
 - 🎯 **快捷切换**: 通过控制中心快捷开关一键将应用切换到背屏
 - 📸 **背屏截图**: 一键截取背屏画面并保存到相册（自动收起控制中心，keycode唤醒）
@@ -42,7 +44,7 @@ v3.3.0 将设置、通知、应用选择与关于界面迁移到 Android 原生 
 - 📢 **通知推送**: 收到通知时自动在背屏显示通知内容（支持应用选择+隐私模式+动态重载）
 - 🔓 **后台可用**: 即使应用在后台也能正常触发切换
 - 🚀 **无需ROOT**: 基于Shizuku实现，无需ROOT权限
-- 🎨 **原生UI**: 柔光玻璃卡片、悬浮导航，支持深色模式、系统字体缩放和简体/繁体中文/英文
+- 🎨 **界面与主题**: 柔光玻璃卡片、悬浮导航，支持深色模式、系统字体缩放和简体/繁体中文/英文
 - 🛡️ **智能保护**: 防止系统Launcher覆盖投射的应用
 - 💡 **背屏常亮**: 可选的背屏常亮功能，防止自动息屏
 - 🔄 **智能监控**: 背屏应用退出或切换时自动清除通知
@@ -129,7 +131,8 @@ v3.3.0 将设置、通知、应用选择与关于界面迁移到 Android 原生 
 
 ## 🔧 技术实现
 
-- **Android 原生 View**: Java 设置界面、系统对话框/开关、回收式应用列表，Canvas 绘制柔光玻璃；无 Flutter 引擎或 Dart AOT
+- **Compose + Miuix**: 首页卡片、开关和底部导航；Android 13 起支持内容背景模糊，旧系统使用实体材质。
+- **Android View**: Java 保留通知、关于、应用列表、系统对话框和既有背屏服务。
 - **Shizuku**: 提供shell权限执行特权操作
 - **TaskServiceManager**: 统一共享 UserService 连接，检查 Binder 存活并在断开后重连；磁贴通过连接回调执行，切屏后校验任务实际显示屏
 - **Quick Settings Tile**: Android系统级快捷开关服务（切换/截图/录屏）
@@ -160,32 +163,32 @@ v3.3.0 将设置、通知、应用选择与关于界面迁移到 Android 原生 
 
 ## 🛠️ 开发构建
 
-构建需要 JDK **21**、Gradle **8.9**、Android SDK / Build Tools **36**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前为 `3.3.0 / 2012`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
+构建需要 JDK **21**、Gradle **9.7.1**、AGP **9.4.1**、Kotlin **2.4.20**、Android SDK **37.0** / Build Tools **37.0.0**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前版本为已发布的 `3.3.2 / 2014`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
 
 Release 需要 `android/key.properties` 和正式签名密钥；参考 `android/key.properties.example`，个人正式版使用 `releaseApplicationIdSuffix=.personal`。缺少正式签名时构建会失败。Android Studio 请打开 `android/`，操作及密钥备份见 [正式 APK 构建说明](docs/android-studio-release.md)。
 
 ```bash
 source .local/env.sh
 
-# 原生测试版（.debug 包名、mrss-debug://）
+# 调试版（.debug 包名、mrss-debug://）
 ./android/gradlew -p android :app:assembleDebug
 
 # 正式 APK（R8 混淆与资源压缩，无 CPU 架构限制）
 ./tools/build_release.sh
 ```
 
-输出：`build/app/outputs/apk/debug/app-debug.apk`、`build/app/outputs/apk/release/app-release.apk`。旧 Flutter 设置在同包名覆盖升级时自动导入；不同包名之间不会自动迁移数据。迁移对应表和体积测量见 [原生版验证记录](docs/native-ui-validation.md)。
+输出：`build/app/outputs/apk/debug/app-debug.apk`、`build/app/outputs/apk/release/app-release.apk`。同包名覆盖升级时自动导入旧设置；不同包名之间不会自动迁移数据。迁移对应表和体积测量见 [v3.3.0 验证记录](docs/native-ui-validation.md)。
 
 ### GitHub tag 自动发版
 
-本仓库的四项签名 Secrets 已配置完成，`v3.2.1` 的 [自动发版任务](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38348746002) 已成功完成。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，再发布 GitHub Release；普通分支推送不触发发版。
+本仓库的四项签名 Secrets 已配置完成。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，附带 `LICENSE`、`NOTICE` 和对应源码说明，再发布 GitHub Release，并在正式发布成功后更新 Raw 版本清单；普通分支推送不触发发版。
 
-v3.3.0 原生构建工作流已更新，尚未触发云端发版。确认 `version.properties` 为 `versionName=3.3.0`、`versionCode=2012`，提交修改后可执行：
+当前 `version.properties` 为 `versionName=3.3.2`、`versionCode=2014`，对应版本已经发布。以下是本次执行记录；后续发版应先递增版本号和构建号，使用新的 tag，不要重复创建 `v3.3.2`：
 
 ```bash
 git push origin main
-git tag -a v3.3.0 -m "MRSS 3.3.0"
-git push origin v3.3.0
+git tag -a v3.3.2 -m "MRSS 3.3.2"
+git push origin v3.3.2
 ```
 
 tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode 需递增；已发布的 tag 不再重复创建或覆盖。其他仓库需配置自己的签名 Secrets 和预期证书。完整配置及预览版规则见 [自动发版说明](docs/github-release.md)。
@@ -301,7 +304,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 - ✅ 代码混淆（ProGuard/R8）
 - ✅ 资源压缩
-- ✅ 原生 Java，无需捆绑任何 CPU 架构的渲染引擎
+- ✅ Kotlin / Java，移除 Flutter 渲染引擎，保留多架构支持
 - ✅ APK体积优化
 
 ## 📄 许可证
@@ -313,13 +316,27 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ## 📝 更新日志
 
-### V3.3.0 (2026-10-13，本分支，已本地构建)
+### V3.3.2（2026-10-16，本分支）
+
+- 正式应用名称简化为 MRSS，当前维护者仅在关于页“源码仓库”栏展示，移除其他界面及后续发版标题的重复个人标识。
+- 重新设计蓝白背屏图标，统一桌面/关于页，支持自适应形状、单色主题和状态栏轮廓；移除旧密度PNG，正式APK约1.39MB，见[图标说明](docs/app-icon-design.md)。
+- 三个主页面支持跟手左右滑动、点击切页动画与联动导航指示；保留各页滚动位置和设置，支持快速反向操作及系统关闭动画，详见[交互验证](docs/navigation-interactions-validation.md)。
+
+- 首页与底部导航采用 Compose + Miuix 0.9.4，保留设置/服务行为，支持实时背景模糊及旧系统降级，详见 [验证记录](docs/compose-home-validation.md)。
+
+- 关于页精简为当前版本与维护者、源码仓库、检查更新、提交反馈、原始作者、自动化入口和诊断信息；离线许可证与重启功能收进诊断弹窗。背屏页“控制中心快捷磁贴”恢复打开原版腾讯文档教程。
+- 关于页“检查更新”按需读取 GitHub Raw 的 `version.json`，区分可更新、版本相同、本地构建较新、清单不可用与网络失败，发现新版后可在应用内下载并查看进度，校验大小、SHA256、包名、版本及签名后唤起系统安装器，由用户确认安装；支持取消、失败重试与发布页入口。清单及下载/校验信息由 CI 在正式发布成功后更新，App 不携带 Token。
+- 移除原作者的打赏与 QQ 群入口，保留 AntiOblivionis 和汐木泽的原始项目/测试贡献致谢。
+- APK 打包完整 GPL-3.0 和 NOTICE，支持离线阅读；Release 附对应版本 tag 的源码和构建文档链接。
+- 保留原始源码署名，追加维护贡献与修改日期；正式包名和签名保持不变。
+
+### V3.3.0 (2026-10-13，本分支，已发布)
 
 - 设置界面迁移到 Android 原生，移除 Flutter 引擎、Dart AOT 和旧界面资源，正式 APK 由 17.69 MB 缩至约 0.58 MB。
 - 重新设计背屏、通知、关于三页及应用选择，采用轻量柔光玻璃视觉，支持深色/系统字号/简繁英/横屏。
 - 保留 DPI/方向、遮盖检测、常亮、充电动画、通知隐私/条件/时长、应用搜索/批量选择、教程/支持/URI/诊断等功能，以及既有 Shizuku 与背屏控制逻辑。
 - 同包名升级自动导入旧设置，继续兼容旧磁贴和服务偏好键；沿用个人正式签名。
-- 本机正式构建、运行测试和验签通过；新版尚未发布或安装到小米真机。
+- 本机 30 项测试、Lint、正式构建与验签通过；tag 自动发版和公开下载复核通过，APK 为 581,195 字节。已在小米真机安装验证，使用未发现问题。
 
 ### V3.2.1 (2026-10-13，本分支)
 
@@ -409,27 +426,26 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 - URI协议支持：支持外部应用控制（Tasker等）
 - 精美UI：四色渐变 + 超椭圆圆角设计
 
-## 👥 团队
+## 👥 维护者与原始贡献
 
-### 作者
-**AntiOblivionis**
-- 🎮 QQ: 319641317
-- 📱 酷安: [@AntiOblivionis](http://www.coolapk.com/u/8158212)
-- 🐙 Github: [GoldenglowSusie](https://github.com/GoldenglowSusie/)
-- 📺 Bilibili: [罗德岛T0驭械术师澄闪](https://space.bilibili.com/407059627)
+### 当前源码
 
-### 首席测试官
-**汐木泽**
-- 📱 酷安: [@汐木泽](http://www.coolapk.com/u/4279097)
-- 提供关键测试反馈和功能建议
+[当前源码仓库](https://github.com/lhly/MiRearScreenSwitcher)
 
-## 🤖 AI协作开发
+- 自 2026-10-11 起维护本分支，修改包括共享 Shizuku 服务连接修复、正式构建与自动发版、Android 原生界面迁移。
+- 2026-10-13 调整维护者身份、项目与反馈入口、原始项目致谢和开源声明，详见上方更新日志与 [NOTICE](NOTICE)。
+- 本分支独立维护；当前版本的反馈和发布由本仓库负责。
 
-本项目由作者与以下AI助手共同开发：
-- Cursor
-- Claude-4.5-Sonnet
-- GPT-5
-- Gemini-2.5-Pro
+### 原始项目与致谢
+
+- **原始作者：AntiOblivionis** — [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) · [酷安主页](https://www.coolapk.com/u/8158212)。感谢其创作并开源 MRSS；上游已公告无限期停更。
+- **上游测试贡献者：汐木泽** — [酷安主页](https://www.coolapk.com/u/4279097)。感谢其提供的关键测试反馈和功能建议。
+
+保留上游 Git 历史和源文件中的原始作者声明。本分支新增贡献与原始项目贡献的归属说明见 [NOTICE](NOTICE)。
+
+### 上游历史 AI 协作记录
+
+上游 README 记录其历史版本使用 Cursor、Claude-4.5-Sonnet、GPT-5 和 Gemini-2.5-Pro 协作开发；此记录归属于上游版本。维护分支的具体改动以 Git 提交和更新日志为准。
 
 ## 🙏 致谢
 
@@ -451,7 +467,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ### 免责声明
 
-本应用为开源项目，基于Shizuku实现背屏功能扩展，仅供学习交流使用。使用本应用即表示您理解并同意：
+本应用为 GPL-3.0 开源项目，基于Shizuku实现背屏功能扩展，可依照许可证使用、修改与再分发。使用本应用即表示您理解并同意：
 - 本应用非小米官方应用，与小米公司无任何关联
 - 使用本应用的风险由用户自行承担
 - 开发者不对使用本应用造成的任何损失负责

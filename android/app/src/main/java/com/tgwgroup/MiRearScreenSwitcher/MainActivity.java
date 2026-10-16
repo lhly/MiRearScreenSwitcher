@@ -1,5 +1,7 @@
 /*
  * Author: AntiOblivionis
+ * Maintainer: 冷火凉烟 (GitHub: lhly), independent fork
+ * Modified: 2026-10-13; see NOTICE for maintenance and contribution history.
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
  * Bilibili: 罗德岛T0驭械术师澄闪
@@ -33,7 +35,7 @@ import android.app.Activity;
 
 import rikka.shizuku.Shizuku;
 
-public class MainActivity extends Activity {
+public class MainActivity extends androidx.activity.ComponentActivity {
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
     
@@ -82,7 +84,11 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         nativeUi = new NativeSettingsUi(this, savedInstanceState);
         setContentView(nativeUi.getView());
-        if (Build.VERSION.SDK_INT >= 33) BackApi33.register(this);
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (!nativeUi.navigateBack()) finish();
+            }
+        });
         bindTaskService();
 
         // 保存实例
@@ -257,20 +263,6 @@ public class MainActivity extends Activity {
         super.onSaveInstanceState(state);
     }
 
-    @Override
-    public void onBackPressed() {
-        if (!nativeUi.navigateBack()) super.onBackPressed();
-    }
-
-    @androidx.annotation.RequiresApi(33)
-    private static final class BackApi33 {
-        static void register(MainActivity activity) {
-            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                    () -> { if (!activity.nativeUi.navigateBack()) activity.finish(); });
-        }
-    }
-
     boolean isTaskServiceReady() {
         ITaskService service = taskService;
         return service != null && service.asBinder().isBinderAlive();
@@ -432,81 +424,25 @@ public class MainActivity extends Activity {
                         break;
                     }
                     
-                    case "openCoolApkProfile": {
+                    case "openProject":
+                    case "openFeedback":
+                    case "openReleases":
+                    case "openTutorial":
+                    case "openVersionSource":
+                    case "openOriginalProject":
+                    case "openTesterProfile": {
                         try {
-                            Intent intent = new Intent();
-                            intent.setClassName("com.coolapk.market", "com.coolapk.market.view.AppLinkActivity");
-                            intent.setAction(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("coolmarket://u/8158212"));
+                            Intent intent = new Intent(Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(ProjectInfo.urlForAction(call.method)));
                             startActivity(intent);
                             result.success(null);
                         } catch (Exception e) {
-                            Log.e(TAG, "Failed to open CoolApk profile", e);
-                            result.error("ERROR", "请先安装酷安应用", null);
+                            Log.e(TAG, "Failed to open project link", e);
+                            result.error("ERROR", NativeStrings.get(this, "operation_failed"), null);
                         }
                         break;
                     }
-                    
-                    case "openCoolApkProfileXmz": {
-                        try {
-                            Intent intent = new Intent();
-                            intent.setClassName("com.coolapk.market", "com.coolapk.market.view.AppLinkActivity");
-                            intent.setAction(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("coolmarket://u/4279097"));
-                            startActivity(intent);
-                            result.success(null);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to open CoolApk profile", e);
-                            result.error("ERROR", "请先安装酷安应用", null);
-                        }
-                        break;
-                    }
-                    
-                    case "openTutorial": {
-                        // 打开腾讯文档使用教程
-                        try {
-                            Intent intent = new Intent(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("https://docs.qq.com/doc/DVWxpT3hQdHNPR3Zy?dver="));
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
-                            result.success(null);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to open tutorial", e);
-                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
-                        }
-                        break;
-                    }
-                    
-                    case "openDonationPage": {
-                        // 打开打赏页面
-                        try {
-                            Intent intent = new Intent(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/19/%e5%85%b3%e4%ba%8e%e6%89%93%e8%b5%8f/"));
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
-                            result.success(null);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to open donation page", e);
-                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
-                        }
-                        break;
-                    }
-                    
-                    case "openQQGroup": {
-                        // 打开MRSS交流群页面
-                        try {
-                            Intent intent = new Intent(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/21/%e5%85%b3%e4%ba%8emrss%e4%ba%a4%e6%b5%81%e7%be%a4/"));
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
-                            result.success(null);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to open QQ group page", e);
-                            result.error("ERROR", "打开失败: " + e.getMessage(), null);
-                        }
-                        break;
-                    }
-                    
+
                     case "ensureTaskServiceConnected": {
                         // 确保TaskService连接正常
                         try {
