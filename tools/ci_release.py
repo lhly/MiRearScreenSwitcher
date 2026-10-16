@@ -15,7 +15,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ID = 'com.tgwgroup.MiRearScreenSwitcher.personal'
+PACKAGE_ID = 'top.zainzh.rearscreen'
 SEMVER = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
 
 
@@ -36,7 +36,7 @@ def release_metadata(properties, tag):
         raise ValueError('Tag version must match versionName in version.properties.')
     return {'version': version, 'build_number': number,
             'prerelease': str(match[4] is not None).lower(),
-            'apk_name': f'MRSS-{tag}.apk'}
+            'apk_name': f'ReMRSS-{tag}.apk'}
 
 
 def properties_value(value):
@@ -98,7 +98,6 @@ def prepare_signing(project):
         'storeFile': str(key_path), 'storeType': 'PKCS12',
         'storePassword': os.environ['KEYSTORE_PASSWORD'],
         'keyAlias': os.environ['KEY_ALIAS'], 'keyPassword': os.environ['KEY_PASSWORD'],
-        'releaseApplicationIdSuffix': '.personal',
     }
     content = ''.join(f'{key}={properties_value(value)}\n' for key, value in properties.items())
     write_private(project / 'android/key.properties', content.encode('ascii'))

@@ -1,23 +1,23 @@
-# MiRearScreenSwitcher（MRSS）
+# ReMRSS
 
-<img src="pic_res/app-icon.png" alt="MRSS 新图标" width="96" height="96">
+<img src="pic_res/app-icon.png" alt="ReMRSS 图标" width="96" height="96">
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库基于 [上游项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。最新正式版本为 **v3.3.2 / 2014（2026-10-16）**。
+本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。当前源码更名为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`，此次更名尚未发布；最近公开的旧版仍为 **MRSS v3.3.2 / 2014（2026-10-16）**。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
 
 本次更新采用 Compose + Miuix 首页与浮动导航，加入左右滑动、点击切页动画及蓝白背屏新图标，精简关于页，增加基于 Raw 版本清单的检查更新、应用内下载进度、APK 校验和系统安装器接入，并恢复原版腾讯文档教程入口。App 不携带 GitHub Token，更新清单由正式发布成功后的 CI 自动生成。改动与验证见 [首页试点记录](docs/compose-home-validation.md)、[应用内更新验证](docs/in-app-update-validation.md)。
 
 交互及图标的专项验证见[交互验证](docs/navigation-interactions-validation.md)和[图标设计说明](docs/app-icon-design.md)。
 
-## 📦 最新版本：v3.3.2
+## 📦 已发布的旧版：MRSS v3.3.2
 
 - [查看 v3.3.2 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)
 - [下载 APK（约 1.39 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/MRSS-v3.3.2.apk)
 - [下载 SHA256 校验文件](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.2/SHA256SUMS)
 - [v3.3.2 对应源码](https://github.com/lhly/MiRearScreenSwitcher/tree/v3.3.2) · [下载该版本源码](https://github.com/lhly/MiRearScreenSwitcher/archive/refs/tags/v3.3.2.zip)
 
-MRSS 提供背屏切换、截图、录屏、通知和充电动画等功能，通过 Shizuku 控制背屏。界面支持深色模式、系统字号、简繁英及横屏；正式 APK 约 1.39 MB，适用于不同 CPU 架构，沿用个人正式包名和签名。
+ReMRSS 提供背屏切换、截图、录屏、通知和充电动画等功能，通过 Shizuku 控制背屏。界面支持深色模式、系统字号、简繁英及横屏；正式 APK 约 1.39 MB，适用于不同 CPU 架构，新包沿用现有签名证书。
 
 v3.3.0 已在小米真机安装验证，背屏磁贴、URI 返回和断线重连记录见 [真机验证记录](docs/hyperos4-tile-validation.md)。v3.3.2 的界面、更新下载/校验及安装器流程已完成模拟器回归，云端发布及下载验收见 [自动发版记录](docs/github-release.md)。
 
@@ -52,7 +52,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 - 🤚 **背屏遮盖检测**: 可选的接近传感器检测功能
 - 🔄 **背屏旋转**: 支持背屏0°/90°/180°/270°旋转，应用自动复活
 - 🚫 **任务隐藏**: 主应用不在最近任务列表显示，防止误清理
-- 🌐 **URI调用**: 支持通过mrss://协议从外部应用控制MRSS（Tasker/MacroDroid等）
+- 🌐 **URI调用**: 支持通过mrss://协议从外部应用控制ReMRSS（Tasker/MacroDroid等）
 - 🔔 **智能通知**: 支持跟随系统勿扰模式和仅倒扣手机时通知（基于主屏接近传感器检测）
 - 🎬 **媒体库集成**: 截图和录制自动刷新到相册，方便查看
 
@@ -67,12 +67,12 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 
 ### 1. 初次设置
 
-1. 从上方 Release 下载并安装正式 APK
+1. 当前 ReMRSS 尚未发布，可按下方说明构建；上方 Release 下载为旧 MRSS
 2. 确保Shizuku已启动
-3. 打开MRSS应用，授予Shizuku权限
+3. 打开ReMRSS应用，授予Shizuku权限
 4. 等待状态显示"一切就绪"
 
-当前 Release 使用个人正式签名，包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，与作者原版和 `.debug` 修复测试版分别保存数据。首次安装个人正式版需要配置应用并授予 Shizuku 权限；从个人正式 v3.2.1 同签名覆盖升级时，会自动导入原有设置和应用选择。作者原版的数据保留与恢复说明见 [验证文档](docs/hyperos4-tile-validation.md#测试包与原版数据)。
+ReMRSS 正式包名为 `top.zainzh.rearscreen`，调试包名为 `top.zainzh.rearscreen.debug`，与旧 MRSS 分别保存数据，可同时安装。更换包名后无法覆盖旧版，首次使用需重新配置、授权 Shizuku/通知等权限并添加磁贴；暂不自动读取旧包私有配置。`mrss://`（调试版 `mrss-debug://`）保持不变，若检测到其他应用也能处理该协议，首页顶部和自动化弹窗会提示冲突并列出相关应用。自动化工具可指定目标包名，避免打开旧版。
 
 ### 2. 添加快捷开关
 
@@ -105,7 +105,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 2. 点击"**背屏录制**"快捷开关
 3. 悬浮窗出现，点击红色圆形按钮开始录制
 4. 录制中按钮变为方形，再次点击停止录制
-5. 视频保存到Movies/MRSS_*.mp4
+5. 视频保存到Movies/ReMRSS_*.mp4
 
 **返回主屏：**
 - 方法1: 点击通知"点击将应用切换回主屏"
@@ -122,8 +122,8 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 - 背屏遮盖检测: 可在应用内开关（基于接近传感器）
 
 **💡 提示**: 
-- 即使MRSS应用在后台或已关闭，快捷开关依然可以正常使用！
-- MRSS不会出现在最近任务列表，避免误清理
+- 即使ReMRSS应用在后台或已关闭，快捷开关依然可以正常使用！
+- ReMRSS不会出现在最近任务列表，避免误清理
 - 背屏常亮功能可在应用内开关
 - 应用退出或切换时，通知会自动清除
 - 充电动画和通知推送都可独立开关
@@ -165,7 +165,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 
 构建需要 JDK **21**、Gradle **9.7.1**、AGP **9.4.1**、Kotlin **2.4.20**、Android SDK **37.0** / Build Tools **37.0.0**，不再需要 Flutter、Dart 或 NDK。版本在 `version.properties` 中维护，当前版本为已发布的 `3.3.2 / 2014`。项目本机工具和缓存位于被 Git 忽略的 `.local/`，换机器时需准备 Java/SDK 并调整路径。
 
-Release 需要 `android/key.properties` 和正式签名密钥；参考 `android/key.properties.example`，个人正式版使用 `releaseApplicationIdSuffix=.personal`。缺少正式签名时构建会失败。Android Studio 请打开 `android/`，操作及密钥备份见 [正式 APK 构建说明](docs/android-studio-release.md)。
+Release 需要 `android/key.properties` 和正式签名密钥；参考 `android/key.properties.example`，ReMRSS 正式包名固定，不再追加 `.personal`。缺少正式签名时构建会失败。Android Studio 请打开 `android/`，操作及密钥备份见 [正式 APK 构建说明](docs/android-studio-release.md)。
 
 ```bash
 source .local/env.sh
@@ -225,7 +225,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
    - 悬浮窗控制，红色圆形/方形按钮
    - 使用screenrecord录制背屏画面
    - 持续唤醒背屏防止录制中断
-   - 视频保存到Movies/MRSS_*.mp4
+   - 视频保存到Movies/ReMRSS_*.mp4
    - 可拖动悬浮窗位置
 
 5. **前台Service保活** 🛡️
@@ -317,6 +317,8 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 ## 📝 更新日志
 
 ### 未发布
+
+- 应用更名为 ReMRSS，源码命名空间与正式包名统一为 `top.zainzh.rearscreen`，支持与旧版并存。保留原自动化协议，增加首页及自动化弹窗的冲突警告；新版 CI 使用独立更新清单，详情见[身份迁移说明](docs/remrss-identity-validation.md)。
 
 - 关于页“检查更新”下方加入默认关闭的镜像代理开关，记住选择；开启后通过第三方 gh-proxy.com 读取版本清单和下载 APK，继续验证哈希、包名、版本与签名。详见[镜像代理验证](docs/update-proxy-validation.md)。
 

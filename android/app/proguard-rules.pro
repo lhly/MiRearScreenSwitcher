@@ -4,20 +4,20 @@
 -keep class android.content.pm.** { *; }
 
 # AIDL
--keep class com.tgwgroup.MiRearScreenSwitcher.ITaskService { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.ITaskService$Stub { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.ITaskService$Stub$Proxy { *; }
+-keep class top.zainzh.rearscreen.ITaskService { *; }
+-keep class top.zainzh.rearscreen.ITaskService$Stub { *; }
+-keep class top.zainzh.rearscreen.ITaskService$Stub$Proxy { *; }
 
 # TaskService
--keep class com.tgwgroup.MiRearScreenSwitcher.TaskService { *; }
--keepclassmembers class com.tgwgroup.MiRearScreenSwitcher.TaskService {
+-keep class top.zainzh.rearscreen.TaskService { *; }
+-keepclassmembers class top.zainzh.rearscreen.TaskService {
     public <init>();
 }
 
 # Services and Activities
--keep class com.tgwgroup.MiRearScreenSwitcher.MainActivity { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.MyApplication { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.**Service { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.**Activity { *; }
--keep class com.tgwgroup.MiRearScreenSwitcher.**Receiver { *; }
+-keep class top.zainzh.rearscreen.MainActivity { *; }
+-keep class top.zainzh.rearscreen.MyApplication { *; }
+-keep class top.zainzh.rearscreen.**Service { *; }
+-keep class top.zainzh.rearscreen.**Activity { *; }
+-keep class top.zainzh.rearscreen.**Receiver { *; }
 

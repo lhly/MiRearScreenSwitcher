@@ -1,6 +1,6 @@
 # Android Studio 构建正式 APK
 
-当前源码版本为 v3.3.2 / 2014。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0。
+当前源码已迁移为 ReMRSS，构建版本仍为 v3.3.2 / 2014，仅供本地验收；已发布的同名旧 tag 对应 MRSS。此次更名尚未发版。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0。
 
 ## Android Studio
 
@@ -9,7 +9,7 @@
 3. 在 Build Variants 中选择 `release`，运行 Gradle 任务 `:app:assembleRelease`。
 4. 输出位于项目根目录 `build/app/outputs/apk/release/app-release.apk`。
 
-若仍以项目根目录打开现有 IDE 工程，“构建正式 APK”运行配置继续调用 `tools/build_release.sh`。已通过 Android Studio 的 `app` 运行配置在 Medium Phone API 36 模拟器构建、安装并启动调试应用；调试名称为“MRSS 调试版”，版本后缀为 `-debug`。
+若仍以项目根目录打开现有 IDE 工程，“构建正式 APK”运行配置继续调用 `tools/build_release.sh`。已通过 Android Studio 的 `app` 运行配置在 Medium Phone API 36 模拟器构建、安装并启动调试应用；调试名称为“ReMRSS 调试版”，版本后缀为 `-debug`。
 
 终端从项目根目录执行：
 
@@ -47,7 +47,9 @@ android/key.properties
 6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac
 ```
 
-个人正式版包名为 `com.tgwgroup.MiRearScreenSwitcher.personal`，名称为 MRSS，URI 为 `mrss://`。可以覆盖同签名的个人 v3.2.1 并导入其旧设置。作者原版和 `.debug` 修复测试版分别保存数据，首次安装个人正式版仍需重新设置和授权 Shizuku。
+ReMRSS 正式包名与源码 namespace 为 `top.zainzh.rearscreen`，调试包追加 `.debug`，名称分别为 ReMRSS 和 ReMRSS 调试版。正式构建不读取旧的 releaseApplicationIdSuffix 属性，可从旧签名配置中删去该项；密钥/别名不变。
+
+自动化协议继续使用 `mrss://`，调试版使用 `mrss-debug://`。与旧 MRSS 并存时，首页及自动化弹窗会提示其他协议处理应用。可在自动化工具中指定新包名。更改包名意味着独立安装，不能覆盖旧版或自动继承其配置/权限，需要重新设置和授权、重新添加磁贴。[迁移验收说明](remrss-identity-validation.md)。
 
 ## 验证与产物
 

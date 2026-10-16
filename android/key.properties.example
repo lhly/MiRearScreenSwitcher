@@ -5,5 +5,4 @@ keyPassword=REPLACE_WITH_YOUR_KEY_PASSWORD
 keyAlias=mrss-release
 storeFile=../../.local/signing/mrss-release.p12
 storeType=PKCS12
-# Omit this line only when you deliberately build the original application ID.
-releaseApplicationIdSuffix=.personal
+# ReMRSS release application ID is fixed at top.zainzh.rearscreen.

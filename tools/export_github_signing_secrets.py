@@ -16,8 +16,8 @@ def main():
         if line.strip() and not line.lstrip().startswith(('#', '!')):
             key, value = line.split('=', 1)
             props[key.strip()] = value
-    if props.get('storeType') != 'PKCS12' or props.get('releaseApplicationIdSuffix') != '.personal':
-        raise ValueError('Expected the local PKCS12 personal release configuration.')
+    if props.get('storeType') != 'PKCS12':
+        raise ValueError('Expected the local PKCS12 release configuration.')
     if any('\\' in props[key] for key in ('storeFile', 'storePassword', 'keyAlias', 'keyPassword')):
         raise ValueError('This exporter expects unescaped values from the locally generated key.properties.')
     keystore = (ROOT / 'android/app' / props['storeFile']).resolve()

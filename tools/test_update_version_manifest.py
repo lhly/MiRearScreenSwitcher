@@ -13,17 +13,17 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from ci_release import release_metadata
-from update_version_manifest import ApiError, GitHubApi, publish, validate_manifest
+from update_version_manifest import ApiError, FEED_PATH, GitHubApi, publish, validate_manifest
 
 REPO = 'lhly/MiRearScreenSwitcher'
 TAG = 'v3.3.2'
 METADATA = release_metadata('versionName=3.3.2\nversionCode=2014\n', TAG)
 CURRENT = {'schemaVersion': 1, 'versionName': '3.3.0', 'versionCode': 2012, 'tag': 'v3.3.0'}
 CANDIDATE = dict(CURRENT, versionName='3.3.2', versionCode=2014, tag=TAG,
-                 apk={'url': f'https://github.com/{REPO}/releases/download/{TAG}/MRSS-{TAG}.apk',
-                      'sha256': '1' * 64, 'size': 123, 'packageName': 'com.tgwgroup.MiRearScreenSwitcher.personal'})
+                 apk={'url': f'https://github.com/{REPO}/releases/download/{TAG}/ReMRSS-{TAG}.apk',
+                      'sha256': '1' * 64, 'size': 123, 'packageName': 'top.zainzh.rearscreen'})
 NEWER = dict(CANDIDATE, versionName='3.4.0', versionCode=2015, tag='v3.4.0',
-             apk=dict(CANDIDATE['apk'], url=f'https://github.com/{REPO}/releases/download/v3.4.0/MRSS-v3.4.0.apk'))
+             apk=dict(CANDIDATE['apk'], url=f'https://github.com/{REPO}/releases/download/v3.4.0/ReMRSS-v3.4.0.apk'))
 
 
 def release():
@@ -32,7 +32,7 @@ def release():
             'html_url': f'https://github.com/{REPO}/releases/tag/{TAG}',
             'assets': [{'name': name, 'state': 'uploaded', 'size': 123, 'digest': 'sha256:' + '1' * 64,
                         'browser_download_url': f'https://github.com/{REPO}/releases/download/{TAG}/{name}'}
-                       for name in ('MRSS-v3.3.2.apk', 'SHA256SUMS', 'LICENSE', 'NOTICE')]}
+                       for name in ('ReMRSS-v3.3.2.apk', 'SHA256SUMS', 'LICENSE', 'NOTICE')]}
 
 
 def contents(manifest, sha='original-sha'):
@@ -71,12 +71,13 @@ class FakeApi:
 
 
 class ManifestChecks(unittest.TestCase):
-    def test_published_stable_release_updates_only_main_version_json(self):
+    def test_published_stable_release_updates_only_isolated_remrss_feed(self):
         api = FakeApi()
         self.assertTrue(publish(api, REPO, TAG, METADATA, CANDIDATE))
         self.assertEqual(len(api.writes), 1)
         _, path, payload = api.writes[0]
-        self.assertEqual(path, f'/repos/{REPO}/contents/version.json')
+        self.assertEqual(path, f'/repos/{REPO}/contents/updates/remrss/version.json')
+        self.assertTrue(all('/contents/version.json' not in call[1] for call in api.calls))
         self.assertEqual(payload['branch'], 'main')
         self.assertEqual(payload['sha'], 'original-sha')
         self.assertEqual(json.loads(base64.b64decode(payload['content'])), CANDIDATE)
@@ -174,10 +175,16 @@ class ManifestChecks(unittest.TestCase):
         with self.assertRaises(ValueError): publish(api, '../other?secret', TAG, METADATA, CANDIDATE)
         self.assertEqual(api.calls, [])
 
-    def test_checked_in_manifest_is_valid_and_not_a_future_build(self):
+    def test_legacy_feed_keeps_its_identity_and_new_feed_cannot_use_legacy_package(self):
         root = Path(__file__).resolve().parents[1]
-        manifest = json.loads((root / 'version.json').read_text())
-        validate_manifest(manifest)
+        legacy = json.loads((root / 'version.json').read_text())
+        self.assertEqual(legacy['apk']['packageName'], 'com.tgwgroup.MiRearScreenSwitcher.personal')
+        with self.assertRaisesRegex(ValueError, 'package name'):
+            validate_manifest(legacy, require_apk=True)
+        if not (root / FEED_PATH).exists():
+            return  # The first successful ReMRSS release creates the feed, without a placeholder APK.
+        manifest = json.loads((root / FEED_PATH).read_text())
+        validate_manifest(manifest, require_apk=True)
         properties = (root / 'version.properties').read_text()
         name = next(line.split('=', 1)[1] for line in properties.splitlines() if line.startswith('versionName='))
         working = release_metadata(properties, 'v' + name)

@@ -1,6 +1,6 @@
 # 推送 tag 自动发布 APK
 
-工作流为 `.github/workflows/release.yml`，替代旧的 `build.yml`。推送 `v*` tag 时，GitHub Actions 会构建并发布个人正式 APK。普通分支推送不会触发此工作流。
+工作流为 `.github/workflows/release.yml`，替代旧的 `build.yml`。推送 `v*` tag 时，GitHub Actions 会构建并发布 ReMRSS 正式 APK。普通分支推送不会触发此工作流。
 
 ## 首次配置 GitHub Secrets
 
@@ -36,7 +36,7 @@ done
 
 ## 发版操作
 
-当前版本为 `3.3.2 / 2014`。先提交应用、配置与文档，再推送新的同名tag；tag必须指向完整构建源码。下方为本次发布命令，已发布后不要重复执行；后续发布须递增版本与构建号。
+当前源码已更名为 ReMRSS，但尚未发布，版本仍为 `3.3.2 / 2014`。下一次正式发布必须先递增版本与构建号，不能重复使用已有 MRSS tag。下方仅保留旧 MRSS 的历史发布命令；ReMRSS 的新 tag 必须指向迁移完成的源码。
 
 ```sh
 git push origin main
@@ -54,19 +54,19 @@ git push origin v3.3.2
 
 构建前执行发布参数、清单和服务连接测试。签名凭据缺失、格式错误或证书不符即失败。成品必须满足：
 
-- 包名`com.tgwgroup.MiRearScreenSwitcher.personal`，版本与tag和version.properties一致，不可调试。
-- 证书SHA256为`6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac`，沿用个人正式签名，可覆盖升级并保留数据。
+- ReMRSS 包名必须为 `top.zainzh.rearscreen`，版本与 tag 和 version.properties 一致，不可调试；附件名称为 `ReMRSS-<tag>.apk`。
+- 证书SHA256为`6479192fc1646532afc357f27d1581832bef5e6ad15e2f44501d883f04c783ac`，沿用现有签名；仅相同包名的后续 ReMRSS 版本可覆盖升级并保留数据，新包不能覆盖旧 MRSS。
 - 包含DEX，不含Flutter引擎/Dart AOT，内置LICENSE/NOTICE与根文件逐字节一致。
 
 工作流包含构建、发布、更新清单三个job。构建job仅有仓库读取权限，发布job只接收已验证的附件；先上传草稿，再公开。重跑可补齐草稿，已公开的相同tag不替换附件。正式公开后，清单job才写入新版本。
 
 ## Raw版本清单与应用内更新
 
-App匿名读取`https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/version.json`，不含Token，不请求GitHub Release API。清单含schemaVersion、versionName、versionCode、tag，以及apk.url/sha256/size/packageName。下载必须来自本仓库对应tag的HTTPS APK附件。
+ReMRSS 匿名读取`https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json`，不含Token，不请求GitHub Release API。清单含schemaVersion、versionName、versionCode、tag，以及apk.url/sha256/size/packageName。下载必须来自本仓库对应tag的HTTPS APK附件。
 
-`version.properties`表示构建版本，`version.json`只描述已公开的正式成品。新版本的URL、大小和SHA256由CI在公开成功后填写，不能用本地预览包提前生成线上清单。撤下问题发布时，可将清单恢复为已核验且仍公开的上一稳定版；新版本成功后仍由CI替换，不修改客户端协议或防回退逻辑。
+`version.properties`表示构建版本，`updates/remrss/version.json`只描述已公开的 ReMRSS 正式成品；由首次成功发布自动创建，不写虚构的待发布APK。根目录旧 `version.json` 留给旧 MRSS，继续指向原公开附件。新版本的URL、大小和SHA256由CI在公开成功后填写，不能用本地预览包提前生成线上清单。撤下问题发布时，可将清单恢复为已核验且仍公开的上一稳定版；新版本成功后仍由CI替换，不修改客户端协议或防回退逻辑。
 
-清单job读取公开Release，确认不是草稿或预览，APK/SHA256SUMS/LICENSE/NOTICE附件齐全且上传结束；再将下载URL、digest和size与构建job生成的version-artifact.json对照。全部一致才使用内置GITHUB_TOKEN和contents: write权限，仅提交main/version.json；Token不进入APK或清单。
+清单job读取公开Release，确认不是草稿或预览，APK/SHA256SUMS/LICENSE/NOTICE附件齐全且上传结束；再将下载URL、digest和size与构建job生成的version-artifact.json对照。全部一致才使用内置GITHUB_TOKEN和contents: write权限，仅提交main/updates/remrss/version.json；Token不进入APK或清单。
 
 同一清单更新串行执行，版本号和versionCode阻止延迟任务回退；重复运行不产生额外提交，SHA冲突重读后最多重试三次。CI提交后，本地需同步main再继续开发。
 

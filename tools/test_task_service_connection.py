@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = 'com/tgwgroup/MiRearScreenSwitcher'
+PACKAGE = 'top/zainzh/rearscreen'
 STUBS = {
 'android/content/ComponentName.java': '''package android.content; public class ComponentName { public ComponentName(String p,String c){} }''',
 'android/content/Context.java': '''package android.content; public class Context {
@@ -54,21 +54,21 @@ STUBS = {
  public static void bindUserService(UserServiceArgs a,ServiceConnection c){binds.add(c);} public static void unbindUserService(UserServiceArgs a,ServiceConnection c,boolean remove){unbinds++;if(remove)kills++;}
  public static void ready(int index,IBinder b){binds.get(index).onServiceConnected(new ComponentName("test","TaskService"),b);}
 }''',
-f'{PACKAGE}/ITaskService.java': '''package com.tgwgroup.MiRearScreenSwitcher; public interface ITaskService {
+f'{PACKAGE}/ITaskService.java': '''package top.zainzh.rearscreen; public interface ITaskService {
  android.os.IBinder asBinder(); String getForegroundAppOnDisplay(int d); String getCurrentForegroundApp(); boolean disableSubScreenLauncher(); boolean enableSubScreenLauncher(); boolean moveTaskToDisplay(int t,int d); boolean launchWakeActivity(int d); boolean collapseStatusBar();
  class Stub { public static ITaskService asInterface(android.os.IBinder b){return (ITaskService)b;} }
 }''',
-f'{PACKAGE}/TaskService.java': '''package com.tgwgroup.MiRearScreenSwitcher; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
+f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
  public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores; public int links; public Runnable beforeTarget; public final List<DeathRecipient> recipients=new ArrayList<>();
  public boolean isBinderAlive(){return alive;} public void linkToDeath(DeathRecipient r,int f) throws RemoteException {if(failLink)throw new RemoteException();recipients.add(r);links++;} public boolean unlinkToDeath(DeathRecipient r,int f){return recipients.remove(r);}
  public void die(){alive=false;for(DeathRecipient r:new ArrayList<>(recipients))r.binderDied();}
  public IBinder asBinder(){return this;} public String getForegroundAppOnDisplay(int d){return null;} public String getCurrentForegroundApp(){if(beforeTarget!=null)beforeTarget.run();return "com.test:42";}
  public boolean disableSubScreenLauncher(){return true;} public boolean enableSubScreenLauncher(){restores++;return true;} public boolean moveTaskToDisplay(int t,int d){moves++;return moveSuccess;} public boolean launchWakeActivity(int d){return true;} public boolean collapseStatusBar(){return true;}
 }''',
-f'{PACKAGE}/RearScreenKeeperService.java': '''package com.tgwgroup.MiRearScreenSwitcher; public class RearScreenKeeperService {}''',
-f'{PACKAGE}/R.java': '''package com.tgwgroup.MiRearScreenSwitcher; public class R { public static class string { public static int toast_please_switch_back=1,toast_cast_to_rear=2; } }''',
+f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {}''',
+f'{PACKAGE}/R.java': '''package top.zainzh.rearscreen; public class R { public static class string { public static int toast_please_switch_back=1,toast_cast_to_rear=2; } }''',
 }
-HARNESS = '''package com.tgwgroup.MiRearScreenSwitcher;
+HARNESS = '''package top.zainzh.rearscreen;
 import android.content.*; import android.os.*; import rikka.shizuku.Shizuku;
 import java.util.concurrent.*;
 public class ConnectionRegressionTest {
@@ -161,7 +161,7 @@ class ConnectionTests(unittest.TestCase):
 
     def run_scenario(self, name):
         result = subprocess.run([self.java, '-cp', str(self.classes),
-                                 'com.tgwgroup.MiRearScreenSwitcher.ConnectionRegressionTest', name],
+                                 'top.zainzh.rearscreen.ConnectionRegressionTest', name],
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('PASS ' + name, result.stdout)

@@ -16,7 +16,8 @@ from ci_release import prepare_signing, properties_value, release_metadata, writ
 
 
 class ReleaseChecks(unittest.TestCase):
-    def check_legal_assets(self, license_content=b'complete GPL text', notice_content=b'upstream and maintainer credits', signature=None):
+    def check_legal_assets(self, license_content=b'complete GPL text', notice_content=b'upstream and maintainer credits', signature=None,
+                           package_name='top.zainzh.rearscreen'):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             (project / 'LICENSE').write_bytes(b'complete GPL text')
@@ -30,7 +31,7 @@ class ReleaseChecks(unittest.TestCase):
             metadata = release_metadata('versionName=3.3.2\nversionCode=2014\n', 'v3.3.2')
             def inspect(command, **kwargs):
                 output = ((signature or 'Signer #1 certificate SHA-256 digest: ' + '1' * 64) if 'apksigner' in command[0]
-                          else "package: name='com.tgwgroup.MiRearScreenSwitcher.personal' versionCode='2014' versionName='3.3.2'")
+                          else f"package: name='{package_name}' versionCode='2014' versionName='3.3.2'")
                 return subprocess.CompletedProcess(command, 0, stdout=output)
             dist = project / 'dist'
             with patch.dict(os.environ, {'RELEASE_CERT_SHA256': '1' * 64, 'ANDROID_HOME': directory}), patch('ci_release.subprocess.run', side_effect=inspect):
@@ -44,7 +45,7 @@ class ReleaseChecks(unittest.TestCase):
             manifest = json.loads((dist / 'version-artifact.json').read_text())
             self.assertEqual(manifest['apk']['sha256'], hashlib.sha256((dist / metadata['apk_name']).read_bytes()).hexdigest())
             self.assertEqual(manifest['apk']['size'], (dist / metadata['apk_name']).stat().st_size)
-            self.assertEqual(manifest['apk']['packageName'], 'com.tgwgroup.MiRearScreenSwitcher.personal')
+            self.assertEqual(manifest['apk']['packageName'], 'top.zainzh.rearscreen')
             lines = (dist / 'SHA256SUMS').read_text().splitlines()
             self.assertEqual(len(lines), 3)
             for line in lines:
@@ -57,6 +58,25 @@ class ReleaseChecks(unittest.TestCase):
     def test_missing_apk_license_prevents_release(self):
         with self.assertRaisesRegex(ValueError, 'complete current LICENSE'):
             self.check_legal_assets(license_content=None)
+
+    def test_legacy_package_cannot_be_published_as_remrss(self):
+        with self.assertRaisesRegex(ValueError, 'package or version'):
+            self.check_legal_assets(package_name='com.tgwgroup.MiRearScreenSwitcher.personal')
+
+    def test_signing_config_keeps_credentials_without_personal_suffix(self):
+        certificate = b'public test certificate'
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory); (project / 'android').mkdir()
+            with patch.dict(os.environ, {
+                'KEYSTORE_FILE': 'dGVzdCBrZXk=', 'KEYSTORE_PASSWORD': 'test-password',
+                'KEY_ALIAS': 'test', 'KEY_PASSWORD': 'test-key-password', 'RUNNER_TEMP': directory,
+                'RELEASE_CERT_SHA256': hashlib.sha256(certificate).hexdigest(),
+            }, clear=True), patch('ci_release.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=certificate)):
+                prepare_signing(project)
+            configuration = (project / 'android/key.properties').read_text()
+            self.assertNotIn('releaseApplicationIdSuffix', configuration)
+            self.assertIn('keyAlias=test\n', configuration)
+            self.assertEqual((project / 'android/key.properties').stat().st_mode & 0o777, 0o600)
 
     def test_outdated_apk_credits_prevent_release(self):
         with self.assertRaisesRegex(ValueError, 'complete current NOTICE'):
@@ -75,7 +95,7 @@ class ReleaseChecks(unittest.TestCase):
         self.assertEqual(stable['prerelease'], 'false')
         prerelease = release_metadata('versionName=3.2.2-rc.1\nversionCode=2012\n', 'v3.2.2-rc.1')
         self.assertEqual(prerelease['prerelease'], 'true')
-        self.assertEqual(prerelease['apk_name'], 'MRSS-v3.2.2-rc.1.apk')
+        self.assertEqual(prerelease['apk_name'], 'ReMRSS-v3.2.2-rc.1.apk')
 
     def test_mismatched_tag(self):
         with self.assertRaisesRegex(ValueError, 'must match'):

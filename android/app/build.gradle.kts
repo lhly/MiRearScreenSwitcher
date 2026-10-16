@@ -17,7 +17,7 @@ val versionProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.tgwgroup.MiRearScreenSwitcher"
+    namespace = "top.zainzh.rearscreen"
     compileSdk = 37
 
     compileOptions {
@@ -26,13 +26,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.tgwgroup.MiRearScreenSwitcher"
+        applicationId = "top.zainzh.rearscreen"
         minSdk = 24  // Shizuku需要最低24
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
         versionCode = (project.findProperty("mrssVersionCode")?.toString() ?: versionProperties.getProperty("versionCode")).toInt()
         versionName = project.findProperty("mrssVersionName")?.toString() ?: versionProperties.getProperty("versionName")
-        manifestPlaceholders["appLabel"] = "MRSS"
+        manifestPlaceholders["appLabel"] = "ReMRSS"
         manifestPlaceholders["mrssScheme"] = "mrss"
         buildConfigField("String", "URI_SCHEME", "\"mrss\"")
         buildConfigField("String", "SOURCE_TAG", "\"v${versionName}\"")
@@ -70,19 +70,17 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            manifestPlaceholders["appLabel"] = "MRSS 调试版"
+            manifestPlaceholders["appLabel"] = "ReMRSS 调试版"
             manifestPlaceholders["mrssScheme"] = "mrss-debug"
             buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
         }
         release {
-            manifestPlaceholders["appLabel"] = "MRSS"
+            manifestPlaceholders["appLabel"] = "ReMRSS"
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
                 null
             }
-            // A local suffix allows a personal signing key without replacing the author's app.
-            applicationIdSuffix = keystoreProperties.getProperty("releaseApplicationIdSuffix", "")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

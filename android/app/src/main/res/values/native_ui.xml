@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ui_about" formatted="false">About</string>
-    <string name="ui_about_app" formatted="false">About MRSS</string>
+    <string name="ui_about_app" formatted="false">About ReMRSS</string>
     <string name="ui_about_subtitle" formatted="false">A little more possibility for two screens</string>
     <string name="ui_access_granted" formatted="false">Granted</string>
     <string name="ui_access_pending" formatted="false">Not granted</string>
@@ -33,7 +33,7 @@
     <string name="ui_connect" formatted="false">Connect Shizuku</string>
     <string name="ui_connection_binding" formatted="false">Connecting to control service</string>
     <string name="ui_connection_details" formatted="false">Connection details</string>
-    <string name="ui_connection_help" formatted="false">Start Shizuku and authorize MRSS to control the rear screen.</string>
+    <string name="ui_connection_help" formatted="false">Start Shizuku and authorize ReMRSS to control the rear screen.</string>
     <string name="ui_connection_ok_help" formatted="false">Control service connected. Your rear screen is ready.</string>
     <string name="ui_connection_ready" formatted="false">Shizuku is ready</string>
     <string name="ui_coolapk" formatted="false">CoolApk</string>
@@ -57,7 +57,7 @@
     <string name="ui_duration_range" formatted="false">Enter a positive number of seconds</string>
     <string name="ui_ensure_shizuku" formatted="false">Ensure Shizuku is running</string>
     <string name="ui_error_check_timeout" formatted="false">Check Timeout</string>
-    <string name="ui_error_grant_in_shizuku" formatted="false">Please grant MRSS in Shizuku</string>
+    <string name="ui_error_grant_in_shizuku" formatted="false">Please grant ReMRSS in Shizuku</string>
     <string name="ui_error_permission_denied" formatted="false">Permission Denied</string>
     <string name="ui_error_service_call_failed" formatted="false">Service Call Failed</string>
     <string name="ui_error_shizuku_communication" formatted="false">Shizuku Communication Error</string>
@@ -168,6 +168,9 @@
     <string name="ui_uri_copy" formatted="false">Copy this version’s URI</string>
     <string name="ui_uri_help" formatted="false">Use mrss:// for casting, returning, screenshots and display configuration in automation tools.</string>
     <string name="ui_uri_title" formatted="false">Automation</string>
+    <string name="ui_uri_conflict_title" formatted="false">Automation protocol conflict</string>
+    <string name="ui_uri_conflict_help" formatted="false">Other apps also handle {0} links, so commands may open another app. Specify the ReMRSS package in your automation tool.</string>
+    <string name="ui_uri_conflict_details" formatted="false">{0}\n\nOther apps:\n{1}\n\nReMRSS package: {2}</string>
     <string name="ui_version_label" formatted="false">Version {0}</string>
     <string name="ui_warning_burn_in" formatted="false">Warning: May cause burn-in and battery drain</string>
     <string name="ui_nav_screen" formatted="false">Screen</string>

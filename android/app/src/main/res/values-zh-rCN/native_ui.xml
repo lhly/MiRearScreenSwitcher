@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ui_about" formatted="false">关于</string>
-    <string name="ui_about_app" formatted="false">关于 MRSS</string>
+    <string name="ui_about_app" formatted="false">关于 ReMRSS</string>
     <string name="ui_about_subtitle" formatted="false">为双屏，多一点可能</string>
     <string name="ui_access_granted" formatted="false">已授权</string>
     <string name="ui_access_pending" formatted="false">待授权</string>
@@ -33,7 +33,7 @@
     <string name="ui_connect" formatted="false">连接 Shizuku</string>
     <string name="ui_connection_binding" formatted="false">正在连接控制服务</string>
     <string name="ui_connection_details" formatted="false">连接详情</string>
-    <string name="ui_connection_help" formatted="false">启动 Shizuku 并授权 MRSS，启用背屏控制。</string>
+    <string name="ui_connection_help" formatted="false">启动 Shizuku 并授权 ReMRSS，启用背屏控制。</string>
     <string name="ui_connection_ok_help" formatted="false">控制服务已连接，可以调整背屏显示。</string>
     <string name="ui_connection_ready" formatted="false">Shizuku 已就绪</string>
     <string name="ui_coolapk" formatted="false">酷安</string>
@@ -57,7 +57,7 @@
     <string name="ui_duration_range" formatted="false">请输入大于 0 的秒数</string>
     <string name="ui_ensure_shizuku" formatted="false">请确保 Shizuku 正在运行</string>
     <string name="ui_error_check_timeout" formatted="false">检查超时</string>
-    <string name="ui_error_grant_in_shizuku" formatted="false">请在Shizuku中授权MRSS</string>
+    <string name="ui_error_grant_in_shizuku" formatted="false">请在Shizuku中授权ReMRSS</string>
     <string name="ui_error_permission_denied" formatted="false">权限不足</string>
     <string name="ui_error_service_call_failed" formatted="false">服务调用失败</string>
     <string name="ui_error_shizuku_communication" formatted="false">Shizuku通信异常</string>
@@ -168,6 +168,9 @@
     <string name="ui_uri_copy" formatted="false">复制当前版本 URI</string>
     <string name="ui_uri_help" formatted="false">使用 mrss:// 调用切屏、返回、截图和显示配置。可接入自动化工具。</string>
     <string name="ui_uri_title" formatted="false">自动化入口</string>
+    <string name="ui_uri_conflict_title" formatted="false">自动化协议冲突</string>
+    <string name="ui_uri_conflict_help" formatted="false">其他应用也能处理 {0} 链接，调用时可能打开其他应用。可在自动化工具中指定 ReMRSS 的包名。</string>
+    <string name="ui_uri_conflict_details" formatted="false">{0}\n\n相关应用：\n{1}\n\n当前应用包名：{2}</string>
     <string name="ui_version_label" formatted="false">版本 {0}</string>
     <string name="ui_warning_burn_in" formatted="false">警告：可能导致烧屏和额外耗电</string>
     <string name="ui_nav_screen" formatted="false">背屏</string>

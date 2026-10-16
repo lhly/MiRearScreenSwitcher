@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""After a stable release succeeds, update only main/version.json using the CI token."""
+"""After a stable ReMRSS release succeeds, update its isolated feed using the CI token."""
 
 import base64
 import argparse
@@ -11,10 +11,11 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from ci_release import release_metadata
+from ci_release import PACKAGE_ID, release_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 BRANCH = 'main'  # Must match ProjectInfo.VERSION_MANIFEST in the Android client.
+FEED_PATH = 'updates/remrss/version.json'  # Keep the old app's root version.json unchanged.
 
 
 class ApiError(Exception):
@@ -42,7 +43,7 @@ class GitHubApi:
                                    'Accept': 'application/vnd.github+json',
                                    'Content-Type': 'application/json',
                                    'X-GitHub-Api-Version': '2026-03-10',
-                                   'User-Agent': 'MRSS-release-manifest'})
+                                   'User-Agent': 'ReMRSS-release-manifest'})
         try:
             with self.opener.open(request, timeout=30) as response:
                 data = response.read(1024 * 1024 + 1)
@@ -68,7 +69,7 @@ def validate_manifest(manifest, require_apk=False):
             raise ValueError('Invalid APK SHA256 metadata.')
         if type(apk.get('size')) is not int or not 0 < apk['size'] <= 256 * 1024 * 1024:
             raise ValueError('Invalid APK size metadata.')
-        if apk.get('packageName') != 'com.tgwgroup.MiRearScreenSwitcher.personal':
+        if apk.get('packageName') != PACKAGE_ID:
             raise ValueError('Invalid release package name.')
         # Check the repository-specific prefix against the published asset below.
         if not isinstance(apk.get('url'), str) or not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/'
@@ -128,7 +129,7 @@ def publish(api, repository, tag, metadata, artifact):
                        'versionCode': int(metadata['build_number']), 'tag': tag})
     release = api('GET', f'/repos/{repository}/releases/tags/{tag}')
     candidate = published_manifest(metadata, tag, release, repository, artifact)
-    endpoint = f'/repos/{repository}/contents/version.json'
+    endpoint = f'/repos/{repository}/contents/{FEED_PATH}'
     for attempt in range(3):
         sha = None
         try:
@@ -144,7 +145,7 @@ def publish(api, repository, tag, metadata, artifact):
                 return False
             sha = file['sha']
         content = json.dumps(candidate, ensure_ascii=False, indent=2) + '\n'
-        payload = {'message': f'chore: update stable version manifest to {tag}',
+        payload = {'message': f'chore: update ReMRSS stable manifest to {tag}',
                    'branch': BRANCH,
                    'content': base64.b64encode(content.encode('utf-8')).decode('ascii')}
         if sha:

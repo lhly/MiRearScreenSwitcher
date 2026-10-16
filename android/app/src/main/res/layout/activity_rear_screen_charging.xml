@@ -7,7 +7,7 @@
     android:background="#000000">
     
     <!-- 全屏液体填充（带重力感应和波浪） -->
-    <com.tgwgroup.MiRearScreenSwitcher.LightningShapeView
+    <top.zainzh.rearscreen.LightningShapeView
         android:id="@+id/full_screen_liquid"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

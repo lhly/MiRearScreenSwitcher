@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild MRSS vector icon resources and the editable SVG from one geometry."""
+"""Rebuild ReMRSS vector icon resources and the editable SVG from one geometry."""
 from pathlib import Path
 import xml.etree.ElementTree as ET
 

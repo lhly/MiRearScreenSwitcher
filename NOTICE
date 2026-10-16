@@ -1,4 +1,4 @@
-MiRearScreenSwitcher (MRSS)
+ReMRSS (independent fork of MiRearScreenSwitcher / MRSS)
 
 Original project: https://github.com/AntiOblivionis/MiRearScreenSwitcher
 Original author: AntiOblivionis
@@ -14,6 +14,9 @@ Shizuku service lifecycle fixes and the Android native settings interface.
 upstream credits, and bundled license and corresponding-source entries.
 2026-10-15: added Compose/Miuix home and navigation, direct GitHub feedback,
 and on-demand stable-release update checks in About.
+2026-10-16: renamed this fork to ReMRSS, migrated its application ID and
+source namespace to top.zainzh.rearscreen, and isolated its update feed
+from earlier MRSS installations; the automation URI scheme is retained.
 
 Copyright (C) 2026 冷火凉烟, for original contributions to this fork.
 Existing upstream copyright and license notices remain applicable.
