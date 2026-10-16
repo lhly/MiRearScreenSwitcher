@@ -711,7 +711,7 @@ final class NativeSettingsUi {
         uriWarningDetails.setPadding(0, ui.dp(8), 0, 0);
         uriWarningDetails.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         uriWarning.addView(uriWarningDetails); content.addView(uriWarning);
-        TextView commands = ui.text(uri + "\n\n" + BuildConfig.URI_SCHEME + "://return?current=1\n"
+        TextView commands = ui.text(uri + "\n" + BuildConfig.URI_SCHEME + "://return?current=1\n"
                 + BuildConfig.URI_SCHEME + "://screenshot\n" + BuildConfig.URI_SCHEME + "://config?dpi=300&rotation=0", 15, ui.text, false);
         commands.setPadding(0, ui.dp(16), 0, 0); commands.setTextIsSelectable(true); content.addView(commands);
         body.addView(content); updateUriConflicts(uriConflictApps);
