@@ -181,7 +181,7 @@ source .local/env.sh
 
 ### GitHub tag 自动发版
 
-本仓库的四项签名 Secrets 已配置完成。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，附带 `LICENSE`、`NOTICE` 和对应源码说明，再发布 GitHub Release，并在正式发布成功后更新 Raw 版本清单；普通分支推送不触发发版。
+本仓库的四项签名 Secrets 已配置完成。v3.3.2的公开APK、签名和自动更新清单已验收，对应源码由同名tag提供。工作流只在推送 `v*` tag 时触发，构建正式 APK、检查签名/版本/包名、生成 `SHA256SUMS`，附带 `LICENSE`、`NOTICE` 和对应源码说明，再发布 GitHub Release，并在正式发布成功后更新 Raw 版本清单；普通分支推送不触发发版。
 
 当前 `version.properties` 为 `versionName=3.3.2`、`versionCode=2014`，对应版本已经发布。以下是本次执行记录；后续发版应先递增版本号和构建号，使用新的 tag，不要重复创建 `v3.3.2`：
 
@@ -316,7 +316,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ## 📝 更新日志
 
-### V3.3.2（2026-10-16，本分支）
+### V3.3.2（2026-10-16，本分支，已发布）
 
 - 正式应用名称简化为 MRSS，当前维护者仅在关于页“源码仓库”栏展示，移除其他界面及后续发版标题的重复个人标识。
 - 重新设计蓝白背屏图标，统一桌面/关于页，支持自适应形状、单色主题和状态栏轮廓；移除旧密度PNG，正式APK约1.39MB，见[图标说明](docs/app-icon-design.md)。

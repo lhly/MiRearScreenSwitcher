@@ -78,9 +78,17 @@ Release提供同tag源码下载/浏览、该版本构建说明、完整GPL与贡
 
 ## 本地验证与云端验收
 
-v3.3.2包含Compose/Miuix首页、页签滑动和动画、蓝白新图标、精简关于页、Raw版本检查、应用内下载校验/系统安装器，以及腾讯文档教程恢复。构建和本地验证完成后推送tag，云端发布及公开附件验收结果在本节追加；云端文件的校验信息以CI输出为准。
+v3.3.2包含Compose/Miuix首页、页签滑动和动画、蓝白新图标、精简关于页、Raw版本检查、应用内下载校验/系统安装器，以及腾讯文档教程恢复。
 
 发布前本地52项脚本检查、actionlint、Debug/androidTest/Release构建及完整Lint通过（0错误、63项既有警告）。项目专用API36模拟器45项回归通过（98.472秒），覆盖8项首页、12项原生设置、11项更新检查、9项下载校验及5项下载页面交互。正式APK为1,393,442字节，个人签名、包名、3.3.2/2014元数据、非调试及法律资产复核通过。
+
+2026-10-16，v3.3.2由CI完成构建、发布与Raw清单更新。[MRSS v3.3.2](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)已为Latest，对应发布提交为`9323a2b7a2a392a75b2f4d4cb28af1c2cb24b6cc`。
+
+已重新下载公开附件并核对：APK为**1,393,442字节（约1.39MB）**，SHA256为`464a1723c77dd1d09d336dd993d4a0362f86874bbc99f30f4d5292bc85a0672d`；真实字节、SHA256SUMS、GitHub asset digest与CI写入的main/version.json完全一致。公开APK通过个人签名、包名、版本、非调试及法律资产验证。main清单与公开成品元数据一致。
+
+实际覆盖安装公开APK后，关于页显示3.3.2；点击“检查更新”读到v3.3.2，并提示“当前已是最新正式版本”。浅深色和桌面图标实拍通过。部分独立HTTP请求曾命中Raw的max-age=300旧稳定版缓存，CI/API与正式App的读取结果均已确认更新。
+
+问题发布的Release、附件、标签和对应Actions构建记录已撤下；发布页、APK地址、标签源码页和CI运行页均确认404。当前文件中相应版本引用已清理；按后续授权整理开发历史，保留两个旧稳定版本及当前正式源码，不声称能撤回他人的下载、缓存或既有克隆。本地验收日志和实拍位于`.local/diagnostics/release-332/`。
 
 历史稳定版v3.3.0的[云端运行](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38376513962)成功，APK为581,195字节，SHA256为`b14a0b0346dadb7124e0f86335df4c00d5149336967216710eb88fca64a0cf7d`，个人签名、包名和3.3.0/2012元数据已核验，真机记录见[磁贴验证](hyperos4-tile-validation.md)。
 
@@ -93,3 +101,7 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 ```
 
 参考：[GitHub Actions Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[GitHub CLI创建Release](https://cli.github.com/manual/gh_release_create)、[发布草稿](https://cli.github.com/manual/gh_release_edit)。
+
+## 发布源码校验
+
+历史整理后，v3.3.2的源码树仍为`fcdd5e198b1bc5a63d25d2d0649c05a362493f91`，与原先构建公开APK的文件逐字节一致；仅提交关系与提交哈希改变。APK、LICENSE、NOTICE、SHA256SUMS附件以及version.json的下载/校验信息保持不变。旧稳定tag未改写。旧构建记录因引用已整理的提交关系而移除，后续发版工作流保持启用。
