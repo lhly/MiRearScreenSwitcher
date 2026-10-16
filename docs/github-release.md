@@ -36,17 +36,17 @@ done
 
 ## 发版操作
 
-当前正式版本为 ReMRSS `3.3.3 / 2015`，已完成发布与公开附件验证。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 MRSS tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布 ReMRSS `3.3.4 / 2016`，包含充电动画、方向设置和充电/通知稳定性修复。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.3.3 -m "ReMRSS 3.3.3"
-git push origin v3.3.3
+git tag -a v3.3.4 -m "ReMRSS 3.3.4"
+git push origin v3.3.4
 ```
 
-预览版可使用下一版本的`v3.3.4-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.3.5-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.3)提供`ReMRSS-v3.3.3.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.3`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.4)提供`ReMRSS-v3.3.4.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.4`构建产物14天。
 
 ## 构建与签名检查
 
@@ -123,3 +123,11 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 公开APK已实际安装到项目API36模拟器；未配置系统代理时，开启应用内镜像后检查更新成功，弹窗仅显示一次3.3.3并提示“当前已是最新正式版本”。宿主机HTTP读取Raw成功时使用了现有本地代理；模拟器Raw直连和临时配置相同代理后的请求均提示网络失败，因此未将模拟器直连计为通过。临时代理设置已逐项恢复，本地日志及实拍位于`.local/diagnostics/release-remrss-333/`。
 
 公开APK的自动化弹窗实拍确认协议冲突提示正常，switch/return示例之间只有一个换行；深色关于页显示ReMRSS/3.3.3和镜像开关，目视检查通过。语言、主题和开关恢复后关闭本项目5558模拟器，保留用户已有设备。
+
+## ReMRSS v3.3.4 发布准备（2026-10-16）
+
+发布版本3.3.4/2016，沿用包名与正式证书。包含充电动画生命周期与普通模式退场、实际显示方向设置与旋转布局，以及充电/通知免杀官方进程和会话交接修复。修复已通过75项自动化回归、7组无线真机受控场景，详细边界见[充电/通知验收](charging-notification-stability-validation.md)与[方向验收](display-rotation-validation.md)。App投放的偶发覆盖未纳入本次稳定性修复。
+
+发布工作流的说明已更新为本轮变更；公开APK、SHA256SUMS、签名和稳定更新清单将在CI完成后核验，清单不提前填写本地构建信息。
+
+本地发布预检：78项主机回归（发布16、清单22、连接16、旋转24）、actionlint、R8签名Release构建与Lint通过（0错误、57项既有警告）。本地3.3.4/2016 APK通过包名、非调试、证书及完整法律资产验证；最终公开文件以CI产物为准。
