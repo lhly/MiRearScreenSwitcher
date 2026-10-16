@@ -4,7 +4,7 @@
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。当前源码更名为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`，此次更名尚未发布；最近公开的旧版仍为 **MRSS v3.3.2 / 2014（2026-10-16）**。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
+本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发。当前源码更名为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`，正在准备发布 **ReMRSS v3.3.3 / 2015**；此前公开的旧版为 **MRSS v3.3.2 / 2014（2026-10-16）**。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
 
 本次更新采用 Compose + Miuix 首页与浮动导航，加入左右滑动、点击切页动画及蓝白背屏新图标，精简关于页，增加基于 Raw 版本清单的检查更新、应用内下载进度、APK 校验和系统安装器接入，并恢复原版腾讯文档教程入口。App 不携带 GitHub Token，更新清单由正式发布成功后的 CI 自动生成。改动与验证见 [首页试点记录](docs/compose-home-validation.md)、[应用内更新验证](docs/in-app-update-validation.md)。
 
@@ -67,7 +67,7 @@ APK 内附带完整 LICENSE 和 NOTICE，可在“关于 → 诊断信息 → �
 
 ### 1. 初次设置
 
-1. 当前 ReMRSS 尚未发布，可按下方说明构建；上方 Release 下载为旧 MRSS
+1. ReMRSS v3.3.3 正在进行发布验收，可按下方说明构建；上方下载暂为旧 MRSS
 2. 确保Shizuku已启动
 3. 打开ReMRSS应用，授予Shizuku权限
 4. 等待状态显示"一切就绪"
@@ -316,7 +316,7 @@ tag 的版本必须与 `version.properties` 的 versionName 一致，versionCode
 
 ## 📝 更新日志
 
-### 未发布
+### V3.3.3（2026-10-16，准备发布）
 
 - 应用更名为 ReMRSS，源码命名空间与正式包名统一为 `top.zainzh.rearscreen`，支持与旧版并存。保留原自动化协议，增加首页及自动化弹窗的冲突警告；新版 CI 使用独立更新清单，详情见[身份迁移说明](docs/remrss-identity-validation.md)。
 

@@ -36,15 +36,15 @@ done
 
 ## 发版操作
 
-当前源码已更名为 ReMRSS，但尚未发布，版本仍为 `3.3.2 / 2014`。下一次正式发布必须先递增版本与构建号，不能重复使用已有 MRSS tag。下方仅保留旧 MRSS 的历史发布命令；ReMRSS 的新 tag 必须指向迁移完成的源码。
+当前准备发布 ReMRSS `3.3.3 / 2015`。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 MRSS tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.3.2 -m "MRSS 3.3.2"
-git push origin v3.3.2
+git tag -a v3.3.3 -m "ReMRSS 3.3.3"
+git push origin v3.3.3
 ```
 
-预览版可使用下一版本的`v3.3.3-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.3.4-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
 [Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.2)提供`MRSS-v3.3.2.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.2`构建产物14天。
 
@@ -109,3 +109,9 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 已经从GitHub重新克隆并扫描全部可达提交的消息和文本，源码及tag对应关系、更新清单和Git连接完整性检查均通过。本地工程已同步新历史；其他旧克隆应先保存自己的修改，再重新克隆或迁移到新历史，避免将旧提交合并回main。
 
 历史改写不等于清理GitHub缓存：已知旧SHA的页面仍可能打开，本次也观察到这一行为；Git操作无法保证删除这些页面或第三方副本。限制见[GitHub官方说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)。
+
+## ReMRSS v3.3.3 发布准备（2026-10-16）
+
+当前待发布源码包含应用身份迁移、保留协议后的冲突警告、同弹窗下载与镜像代理、通知文案和URI示例行距修正。版本为3.3.3/2015，包名top.zainzh.rearscreen，保留mrss://并沿用原正式证书。
+
+本地54项发布/清单/服务脚本、actionlint及Debug/androidTest/R8 Release构建通过，Lint为0错误、63项既有警告。已验证本地正式APK包名、版本、非调试、证书和完整许可资产；59项Android运行回归全部通过（61.504秒）；公开发布验收结果完成后补充。根version.json仍对应旧MRSS，ReMRSS清单由CI在正式发布成功后创建。

@@ -1,6 +1,6 @@
 # Android Studio 构建正式 APK
 
-当前源码已迁移为 ReMRSS，构建版本仍为 v3.3.2 / 2014，仅供本地验收；已发布的同名旧 tag 对应 MRSS。此次更名尚未发版。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0。
+当前源码已迁移为 ReMRSS，构建版本为 v3.3.3 / 2015，正在进行首次正式发布验收；旧 v3.3.2 tag 对应 MRSS。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0。
 
 ## Android Studio
 
@@ -20,8 +20,8 @@
 脚本自动加载本机 `.local/env.sh`，也允许其他机器使用已有 Java/SDK 环境。版本在根目录 `version.properties` 中设置：
 
 ```properties
-versionName=3.3.2
-versionCode=2014
+versionName=3.3.3
+versionCode=2015
 ```
 
 正式版启用 R8 与资源压缩，包含 Java 代码和 Shizuku API，无需按 CPU 架构打包。

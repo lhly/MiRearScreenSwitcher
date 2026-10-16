@@ -114,11 +114,12 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
           ReMRSS 基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
 
-          - 独立包名 top.zainzh.rearscreen，自动化协议 mrss://，首次安装需重新配置和授权。
-          - Compose + Miuix 首页与玻璃浮动导航，支持左右滑动、点击切页动画和页面状态保留。
-          - 蓝白背屏新图标，统一桌面与关于页，适配单色主题与状态栏。
-          - 精简关于页，提供源码仓库、提交反馈、Raw 版本检查、应用内下载进度、APK 校验和系统安装器。
-          - 保留背屏、通知、截图/录屏、磁贴、URI 自动化及原版腾讯文档教程入口。
+          - 应用更名为 ReMRSS，正式包名 top.zainzh.rearscreen，可与旧 MRSS 并存；首次使用需重新配置、授权 Shizuku/通知等权限并添加磁贴，旧版配置不会自动迁移。
+          - 更新结果只显示一次目标版本，下载进度、取消、重试和安装授权集中在同一弹窗，校验 APK 后唤起系统安装器。
+          - 增加默认关闭且记住选择的镜像代理开关，通过第三方 gh-proxy.com 检查及下载更新；App 不携带 Token。
+          - 保留 mrss:// 协议，首页与自动化弹窗提示其他应用的协议冲突；安装、卸载或启停相关应用后自动刷新。
+          - 统一自动化 URI 示例行距，更新通知页说明；保留现有背屏、通知、截图/录屏、磁贴和教程功能。
+          - 沿用 Compose + Miuix 界面、滑动/点击切页交互和蓝白背屏图标，支持深浅色与系统字号。
 
           - [对应版本源码](https://github.com/$GH_REPO/tree/$RELEASE_TAG)
           - [下载对应版本源码](https://github.com/$GH_REPO/archive/refs/tags/$RELEASE_TAG.zip)
