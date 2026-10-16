@@ -419,11 +419,14 @@ public class ChargingAnimationTest {
                 new Class<?>[]{ITaskService.class}, (proxy, method, args) -> {
                     shellOnMain |= Looper.myLooper() == Looper.getMainLooper();
                     switch (method.getName()) {
-                        case "disableSubScreenLauncher": if (beforeStop != null) beforeStop.run(); return true;
+                        case "disableSubScreenLauncher": throw new AssertionError("Animation must not restart the official process");
                         case "enableSubScreenLauncher": restores.incrementAndGet(); return true;
                         case "executeShellCommand":
                             String command = (String) args[0];
-                            if (command.contains("KEYCODE_WAKEUP")) wakeups.incrementAndGet();
+                            if (command.contains("KEYCODE_WAKEUP")) {
+                                if (beforeStop != null) beforeStop.run();
+                                wakeups.incrementAndGet();
+                            }
                             if (command.startsWith("am start")) { launchCommand = command; starts.incrementAndGet(); }
                             return success;
                         case "executeShellCommandWithResult":
@@ -432,7 +435,7 @@ public class ChargingAnimationTest {
                             return "";
                         case "isTaskOnDisplay": return success;
                         case "moveTaskToDisplay": moves.incrementAndGet(); return success;
-                        case "getForegroundAppOnDisplay": return null;
+                        case "getForegroundAppOnDisplay": return starts.get() > 0 ? context.getPackageName() + ":99" : null;
                         case "asBinder": return new android.os.Binder();
                         default: return null;
                     }

@@ -36,9 +36,14 @@ public class RearScreenNotificationActivity extends Activity {
     private static volatile RearScreenNotificationActivity currentInstance = null;
     
     private String packageName;
+    private long animationId;
+    private int rearTaskId = -1;
+    private final android.os.Handler lifecycleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable autoFinish = this::finish;
+    private final java.util.concurrent.ExecutorService wakeupWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean contentInitialized = false;  // 标记内容是否已初始化
     
-    // 通知动画期间持续唤醒和杀死launcher
+    // 通知动画期间短时保亮，保留官方进程。
     private android.os.Handler wakeupHandler;
     private Runnable wakeupRunnable;
     private boolean isWakeupRunning = false;
@@ -47,10 +52,10 @@ public class RearScreenNotificationActivity extends Activity {
     private android.content.BroadcastReceiver interruptReceiver = new android.content.BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
-            if ((BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION").equals(intent.getAction())) {
-                Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
-                finish();
-            }
+            long target = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
+            if (target != 0 && target != animationId) return;
+            if ((BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION").equals(intent.getAction())
+                    || !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) finish();
         }
     };
     
@@ -66,12 +71,14 @@ public class RearScreenNotificationActivity extends Activity {
         Log.d(TAG, String.format("[%tT.%tL] 🟡 onCreate开始", onCreateStartTime, onCreateStartTime));
         
         super.onCreate(savedInstanceState);
+        animationId = getIntent().getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, RearAnimationManager.getGeneration());
+        rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
+        if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
+            finish(); return;
+        }
         
         // 判断当前所在的屏幕
-        int displayId = 0;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            displayId = getDisplay().getDisplayId();
-        }
+        int displayId = currentDisplayId();
         Log.d(TAG, String.format("[%tT.%tL] 📍 当前displayId=%d", onCreateStartTime, onCreateStartTime, displayId));
         
         // 获取Intent数据
@@ -121,6 +128,7 @@ public class RearScreenNotificationActivity extends Activity {
             
             // 注册广播接收器（即使是占位符也要注册）
             android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
+            interruptFilter.addAction(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION");
             androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
             currentInstance = this;
@@ -291,7 +299,8 @@ public class RearScreenNotificationActivity extends Activity {
         
         // V3.4: 根据设置的时间自动关闭
         int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
-        container.postDelayed(this::finish, duration * 1000L);
+        lifecycleHandler.removeCallbacks(autoFinish);
+        lifecycleHandler.postDelayed(autoFinish, duration * 1000L);
         
         long onCreateEndTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ✓ onCreate完成 (总耗时%dms)", 
@@ -299,7 +308,8 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 注册广播接收器（监听打断事件）
         android.content.IntentFilter interruptFilter = new android.content.IntentFilter(BuildConfig.APPLICATION_ID + ".INTERRUPT_NOTIFICATION_ANIMATION");
-        androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
+        interruptFilter.addAction(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION");
+            androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, String.format("[%tT.%tL] ✓ 已注册通知动画广播接收器", onCreateEndTime, onCreateEndTime));
         
@@ -311,7 +321,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 如果在背屏，立即启动wakeup循环
         if (displayId == 1) {
-            startWakeupAndKillLoop();
+            startWakeupLoop();
         }
     }
     
@@ -409,7 +419,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 检查是否已从主屏移动到背屏（占位符变为实际显示）
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            int currentDisplayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
+            int currentDisplayId = currentDisplayId();
             View container = findViewById(R.id.notification_container);
             
             Log.d(TAG, String.format("[%tT.%tL] 🔍 检查移动: displayId=%d, contentInitialized=%s, container=%s", 
@@ -582,15 +592,16 @@ public class RearScreenNotificationActivity extends Activity {
                 
                 // V3.4: 根据设置的时间自动关闭
                 int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
-                container.postDelayed(this::finish, duration * 1000L);
+                lifecycleHandler.removeCallbacks(autoFinish);
+        lifecycleHandler.postDelayed(autoFinish, duration * 1000L);
                 
                 // 启动wakeup循环
-                startWakeupAndKillLoop();
+                startWakeupLoop();
                 
                 Log.d(TAG, String.format("[%tT.%tL] ✓ 移动后初始化完成", resumeTime, resumeTime));
             } else if (currentDisplayId == 1 && !isWakeupRunning) {
                 // 如果已经在背屏但循环未启动，也启动（防止遗漏）
-                startWakeupAndKillLoop();
+                startWakeupLoop();
             }
         }
     }
@@ -602,7 +613,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 记录配置变化（用于调试）
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            int currentDisplayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
+            int currentDisplayId = currentDisplayId();
             int densityDpi = newConfig.densityDpi;
             
             Log.d(TAG, String.format("[%tT.%tL] ⚙️ 配置变化: displayId=%d, densityDpi=%d", 
@@ -610,79 +621,37 @@ public class RearScreenNotificationActivity extends Activity {
         }
     }
     
-    @Override
-    protected void onDestroy() {
-        long destroyTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🔴 onDestroy被调用", destroyTime, destroyTime));
-        
-        // 停止wakeup循环
+    protected int currentDisplayId() { return getWindowManager().getDefaultDisplay().getDisplayId(); }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        long nextId = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
+        if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, nextId)) return;
+        setIntent(intent);
+        lifecycleHandler.removeCallbacks(autoFinish);
         stopWakeupLoop();
-        
-        // 注销广播接收器
-        try {
-            unregisterReceiver(interruptReceiver);
-            Log.d(TAG, String.format("[%tT.%tL] ✓ 已注销通知动画广播接收器", destroyTime, destroyTime));
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to unregister interrupt receiver: " + e.getMessage());
-        }
-        
-        super.onDestroy();
-        
-        // 检查是否是当前实例
-        if (this != currentInstance) {
-            Log.w(TAG, String.format("[%tT.%tL] ⚠️ 这是旧实例，跳过恢复操作", destroyTime, destroyTime));
-            return;
-        }
-        
-        // 通知动画管理器：通知动画结束
-        boolean shouldRestore = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
-        
-        // 只有正常结束时才恢复Launcher，被打断时不恢复
-        if (!shouldRestore) {
-            Log.d(TAG, String.format("[%tT.%tL] 🔄 通知动画被打断，跳过恢复Launcher", destroyTime, destroyTime));
-            return;
-        }
-        
-        // V3.5: 检查是否需要恢复充电动画（常亮模式）
-        if (RearAnimationManager.shouldResumeChargingAnimation()) {
-            Log.d(TAG, String.format("[%tT.%tL] 🔋 检测到充电动画常亮模式，发送恢复广播", destroyTime, destroyTime));
-            
-            // 发送恢复充电动画的广播
-            android.content.Intent resumeIntent = new android.content.Intent(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION");
-            resumeIntent.setPackage(getPackageName());
-            sendBroadcast(resumeIntent);
-            
-            // 清除标记
-            RearAnimationManager.clearChargingAlwaysOnFlag();
-            return;  // 不恢复官方Launcher
-        }
-        
-        // 在背屏恢复官方Launcher
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            int currentDisplayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
-            Log.d(TAG, String.format("[%tT.%tL] 📍 当前displayId=%d", destroyTime, destroyTime, currentDisplayId));
-            
-            if (currentDisplayId == 1) {
-                new Thread(() -> {
-                    try {
-                        // 通过ChargingService获取TaskService（NotificationService也绑定了）
-                        ITaskService taskService = ChargingService.getTaskService();
-                        if (taskService != null) {
-                            taskService.executeShellCommand(
-                                "am start --display 1 -n com.xiaomi.mirror/.SubscreenLauncher"
-                            );
-                            Log.d(TAG, "✓ Official launcher restored");
-                        } else {
-                            Log.w(TAG, "TaskService not available");
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Failed to restore launcher", e);
-                    }
-                }).start();
-            }
-        }
+        recreate();
     }
-    
+
+    @Override protected void onDestroy() {
+        lifecycleHandler.removeCallbacksAndMessages(null);
+        stopWakeupLoop();
+        wakeupWorker.shutdown();
+        try { unregisterReceiver(interruptReceiver); } catch (IllegalArgumentException ignored) { }
+        super.onDestroy();
+        if (this != currentInstance || isChangingConfigurations()) return;
+        currentInstance = null;
+        if (!RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) return;
+        if (RearAnimationManager.shouldResumeChargingAnimation()) {
+            RearAnimationManager.clearChargingAlwaysOnFlag();
+            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION").setPackage(getPackageName()));
+            return;
+        }
+        ITaskService service = NotificationService.getTaskService();
+        if (service == null) service = ChargingService.getTaskService();
+        if (service != null) ChargingService.restoreAfterAnimation(service, rearTaskId, animationId);
+    }
+
     @Override
     public void finish() {
         super.finish();
@@ -1013,7 +982,7 @@ public class RearScreenNotificationActivity extends Activity {
     /**
      * 启动通知动画期间的唤醒循环
      */
-    private void startWakeupAndKillLoop() {
+    private void startWakeupLoop() {
         if (isWakeupRunning) {
             Log.w(TAG, "⚠️ Wakeup loop already running");
             return;
@@ -1024,7 +993,7 @@ public class RearScreenNotificationActivity extends Activity {
         wakeupRunnable = new Runnable() {
             @Override
             public void run() {
-                if (!isWakeupRunning) return;
+                if (!isWakeupRunning || !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) return;
                 
                 // 检查Activity是否还在运行
                 if (isFinishing()) {
@@ -1035,18 +1004,14 @@ public class RearScreenNotificationActivity extends Activity {
                 // 获取TaskService
                 ITaskService taskService = NotificationService.getTaskService();
                 
-                if (taskService != null) {
-                    // 发送wakeup命令
-                    try {
-                        taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                        Log.d(TAG, "✓ Wakeup sent");
-                    } catch (Throwable t) {
-                        Log.w(TAG, "发送wakeup失败: " + t.getMessage());
-                    }
-                } else {
-                    Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
+                if (taskService != null && !wakeupWorker.isShutdown()) {
+                    wakeupWorker.execute(() -> {
+                        if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) return;
+                        try { taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP"); }
+                        catch (Exception error) { Log.w(TAG, "wakeup_failed", error); }
+                    });
                 }
-                
+
                 // 100ms后继续
                 if (wakeupHandler != null) {
                     wakeupHandler.postDelayed(this, 100);

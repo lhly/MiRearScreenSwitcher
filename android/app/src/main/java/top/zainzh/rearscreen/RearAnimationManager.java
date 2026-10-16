@@ -30,43 +30,49 @@ public class RearAnimationManager {
         NOTIFICATION    // 通知动画
     }
     
-    // 当前正在播放的动画类型
+    static final String EXTRA_SESSION_ID = "rearAnimationSessionId";
+    private static final Object DISPLAY_ACTION_LOCK = new Object();
+    private static long generation = System.nanoTime();
     private static volatile AnimationType currentAnimation = AnimationType.NONE;
-    
-    // 当前动画是否应该恢复官方Launcher（被新动画打断则不恢复）
-    private static volatile boolean shouldRestoreOnDestroy = true;
-    
-    // V3.5: 被打断的充电动画是否是常亮模式
-    private static volatile boolean interruptedChargingWasAlwaysOn = false;
-    
-    /**
-     * 开始播放动画
-     * @param type 动画类型
-     * @return 被打断的旧动画类型（NONE表示没有旧动画）
-     */
-    public static synchronized AnimationType startAnimation(AnimationType type) {
-        if (type == AnimationType.NONE) {
-            Log.w(TAG, "⚠️ 尝试启动NONE类型的动画，忽略");
-            return AnimationType.NONE;
+    private static Session currentSession = new Session(generation, AnimationType.NONE, AnimationType.NONE, -1);
+    private static volatile boolean interruptedChargingWasAlwaysOn;
+
+    static final class Session {
+        final long id;
+        final AnimationType type, previous;
+        volatile int rearTaskId;
+        Session(long id, AnimationType type, AnimationType previous, int rearTaskId) {
+            this.id = id; this.type = type; this.previous = previous; this.rearTaskId = rearTaskId;
         }
-        
-        AnimationType oldAnimation = currentAnimation;
-        
-        if (oldAnimation != AnimationType.NONE) {
-            Log.d(TAG, String.format("🔄 新动画[%s]打断旧动画[%s]", type, oldAnimation));
-            // 标记旧动画不需要恢复官方Launcher
-            shouldRestoreOnDestroy = false;
-        } else {
-            Log.d(TAG, String.format("▶️ 开始播放动画[%s]", type));
-        }
-        
-        // 设置新动画为当前动画
-        currentAnimation = type;
-        shouldRestoreOnDestroy = true;  // 新动画默认需要恢复
-        
-        return oldAnimation;  // 返回被打断的旧动画
     }
-    
+
+    static synchronized Session beginAnimation(AnimationType type) {
+        if (type == AnimationType.NONE) throw new IllegalArgumentException("Cannot begin NONE");
+        Session session = new Session(++generation, type, currentAnimation,
+                currentAnimation == AnimationType.NONE ? -1 : currentSession.rearTaskId);
+        currentSession = session;
+        currentAnimation = type;
+        if (type == AnimationType.CHARGING) interruptedChargingWasAlwaysOn = false;
+        return session;
+    }
+
+    public static synchronized AnimationType startAnimation(AnimationType type) {
+        return type == AnimationType.NONE ? AnimationType.NONE : beginAnimation(type).previous;
+    }
+
+    static synchronized long getGeneration() { return currentSession.id; }
+    static synchronized boolean isCurrent(AnimationType type, long id) {
+        return currentAnimation == type && currentSession.id == id;
+    }
+    static synchronized boolean isIdle(long id) {
+        return currentAnimation == AnimationType.NONE && currentSession.id == id;
+    }
+
+    // 只串行化充电/通知改变前台的操作；主线程领取新会话不等待Binder调用。
+    static void runDisplayAction(Runnable action) {
+        synchronized (DISPLAY_ACTION_LOCK) { action.run(); }
+    }
+
     /**
      * V3.5: 标记被打断的充电动画是常亮模式
      */
@@ -95,25 +101,15 @@ public class RearAnimationManager {
      * @return 是否需要恢复官方Launcher
      */
     public static synchronized boolean endAnimation(AnimationType type) {
-        if (currentAnimation != type) {
-            Log.w(TAG, String.format("⚠️ 尝试结束动画[%s]，但当前动画是[%s]", type, currentAnimation));
-            return false;  // 不是当前动画，不需要恢复
-        }
-        
-        boolean shouldRestore = shouldRestoreOnDestroy;
-        
-        if (shouldRestore) {
-            Log.d(TAG, String.format("⏹️ 动画[%s]正常结束，需要恢复官方Launcher", type));
-        } else {
-            Log.d(TAG, String.format("⏹️ 动画[%s]被打断结束，不需要恢复官方Launcher", type));
-        }
-        
-        currentAnimation = AnimationType.NONE;
-        shouldRestoreOnDestroy = true;
-        
-        return shouldRestore;
+        return endAnimation(type, currentSession.id);
     }
-    
+
+    static synchronized boolean endAnimation(AnimationType type, long id) {
+        if (!isCurrent(type, id)) return false;
+        currentAnimation = AnimationType.NONE;
+        return true;
+    }
+
     /**
      * 检查是否有动画正在播放
      */

@@ -52,13 +52,16 @@ public class ChargingService extends Service {
     private final Runnable readyCheck = this::executePending;
 
     private static final class ChargingRequest {
-        final long id = SystemClock.elapsedRealtimeNanos();
+        final long id;
+        final RearAnimationManager.Session session;
         final long createdAt = SystemClock.elapsedRealtime();
         final int level;
         volatile boolean cancelled;
         boolean executing; // 主线程状态
         int rearTaskId = -1; // 由启动线程读取并写入
-        ChargingRequest(int level) { this.level = level; }
+        ChargingRequest(int level, RearAnimationManager.Session session) {
+            this.level = level; this.session = session; this.id = session.id;
+        }
     }
 
     public static ITaskService getTaskService() {
@@ -74,7 +77,7 @@ public class ChargingService extends Service {
 
     private boolean isCurrent(ChargingRequest request) {
         return !destroyed && activeRequest == request && !request.cancelled
-                && RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.CHARGING;
+                && RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.CHARGING, request.id);
     }
 
     static boolean onAnimationFinished(long id) {
@@ -177,9 +180,10 @@ public class ChargingService extends Service {
         if (destroyed || !prefs.getBoolean("charging_animation_enabled", true)) return;
         cancelRequest();
         BatteryManager battery = (BatteryManager) getSystemService(BATTERY_SERVICE);
-        ChargingRequest request = new ChargingRequest(battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY));
+        RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.CHARGING);
+        ChargingRequest request = new ChargingRequest(battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY), session);
         activeRequest = request;
-        RearAnimationManager.AnimationType previous = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
+        RearAnimationManager.AnimationType previous = session.previous;
         if (previous == RearAnimationManager.AnimationType.NOTIFICATION) {
             RearAnimationManager.sendInterruptBroadcast(this, previous);
         }
@@ -191,7 +195,7 @@ public class ChargingService extends Service {
         ChargingRequest request = activeRequest;
         if (request != null) {
             request.cancelled = true;
-            if (!request.executing) RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING);
+            if (!request.executing) RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, request.id);
         }
         stopWakeupLoop();
     }
@@ -203,7 +207,7 @@ public class ChargingService extends Service {
         if (service == null) {
             if (SystemClock.elapsedRealtime() - request.createdAt >= READY_TIMEOUT_MS) {
                 request.cancelled = true;
-                RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING);
+                RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, request.id);
                 Log.w(TAG, "launch_failed reason=service_timeout request=" + request.id);
             } else {
                 handler.postDelayed(readyCheck, 100);
@@ -211,42 +215,28 @@ public class ChargingService extends Service {
             return;
         }
         request.executing = true;
-        worker.execute(() -> launchOnRearScreen(service, request));
+        worker.execute(() -> RearAnimationManager.runDisplayAction(() -> launchOnRearScreen(service, request)));
     }
 
     private void launchOnRearScreen(ITaskService service, ChargingRequest request) {
-        boolean launcherStopped = false;
+        boolean rearPrepared = false;
         boolean started = false;
         try {
             if (!isCurrent(request)) return;
             DisplayInfoCache.getInstance().initialize(service);
-            String lastTask = SwitchToRearTileService.getLastMovedTask();
-            String foreground = service.getForegroundAppOnDisplay(1);
-            if (lastTask != null && (lastTask.equals(foreground)
-                    || (foreground != null && foreground.startsWith(getPackageName() + ":")))) {
-                int taskId = Integer.parseInt(lastTask.substring(lastTask.lastIndexOf(':') + 1));
-                if (service.isTaskOnDisplay(taskId, 1)) request.rearTaskId = taskId;
-            }
             if (!isCurrent(request)) return;
             RearScreenKeeperService.pauseMonitoring();
             acquireWakeLock();
-            launcherStopped = true;
-            service.disableSubScreenLauncher();
+            rearPrepared = true;
+            RearAnimationDisplay.prepare(service, request.session, getPackageName());
+            request.rearTaskId = request.session.rearTaskId;
             if (!isCurrent(request)) return;
             String component = getPackageName() + "/" + RearScreenChargingActivity.class.getName();
             String command = "am start --display 1 -n " + component
                     + " --ei batteryLevel " + request.level + " --ei rearTaskId " + request.rearTaskId
                     + " --el " + RearScreenChargingActivity.EXTRA_REQUEST_ID + " " + request.id;
             if (!service.executeShellCommand(command)) throw new IllegalStateException("am start failed");
-            // 验证实际display，避免只凭shell退出码报告成功。
-            for (int attempt = 0; attempt < 20 && isCurrent(request); attempt++) {
-                int taskId = findChargingTask(service);
-                if (taskId > 0 && service.isTaskOnDisplay(taskId, 1)) {
-                    started = true;
-                    break;
-                }
-                Thread.sleep(50);
-            }
+            started = RearAnimationDisplay.awaitForeground(service, component, getPackageName(), () -> isCurrent(request));
             if (!started) throw new IllegalStateException("charging activity not on rear display");
             Log.i(TAG, "launch_verified display_id=1 request=" + request.id);
             handler.post(() -> {
@@ -260,22 +250,11 @@ public class ChargingService extends Service {
                 finishChargingAnimation(request.id);
                 if (activeRequest == request) {
                     request.cancelled = true;
-                    RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING);
+                    RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, request.id);
                 }
-                if (launcherStopped) restoreRearScreen(service, request.rearTaskId);
+                if (rearPrepared) restoreRearScreen(service, request.rearTaskId, request.id);
             }
         }
-    }
-
-    private int findChargingTask(ITaskService service) throws android.os.RemoteException {
-        String stacks = service.executeShellCommandWithResult("am stack list");
-        if (stacks == null) return -1;
-        for (String line : stacks.split("\n")) {
-            if (!line.contains(getPackageName() + "/" + RearScreenChargingActivity.class.getName())) continue;
-            java.util.regex.Matcher match = java.util.regex.Pattern.compile("taskId=(\\d+)").matcher(line);
-            if (match.find()) return Integer.parseInt(match.group(1));
-        }
-        return -1;
     }
 
     private void finishChargingAnimation(long requestId) {
@@ -286,7 +265,11 @@ public class ChargingService extends Service {
     }
 
     static void restoreRearScreen(ITaskService service, int taskId) {
-        if (RearAnimationManager.isAnimationPlaying()) return;
+        restoreRearScreen(service, taskId, RearAnimationManager.getGeneration());
+    }
+
+    static void restoreRearScreen(ITaskService service, int taskId, long sessionId) {
+        if (!RearAnimationManager.isIdle(sessionId)) return;
         try {
             if (taskId > 0 && service.isTaskOnDisplay(taskId, 1)
                     && service.moveTaskToDisplay(taskId, 1)) {
@@ -300,17 +283,19 @@ public class ChargingService extends Service {
             try { service.enableSubScreenLauncher(); }
             catch (Exception fallback) { Log.w(TAG, "launcher_restore_failed", fallback); }
         } finally {
-            new Handler(Looper.getMainLooper()).post(RearScreenKeeperService::resumeMonitoring);
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (RearAnimationManager.isIdle(sessionId)) RearScreenKeeperService.resumeMonitoring();
+            });
         }
     }
 
-    static void restoreAfterAnimation(ITaskService service, int taskId) {
+    static void restoreAfterAnimation(ITaskService service, int taskId, long sessionId) {
         ChargingService owner = instance;
         if (owner != null && !owner.destroyed) {
             // 与下一次启动串行，防止旧页面的恢复操作抢占新动画。
-            owner.worker.execute(() -> restoreRearScreen(service, taskId));
+            owner.worker.execute(() -> RearAnimationManager.runDisplayAction(() -> restoreRearScreen(service, taskId, sessionId)));
         } else {
-            new Thread(() -> restoreRearScreen(service, taskId), "charging-restore").start();
+            new Thread(() -> RearAnimationManager.runDisplayAction(() -> restoreRearScreen(service, taskId, sessionId)), "animation-restore").start();
         }
     }
 

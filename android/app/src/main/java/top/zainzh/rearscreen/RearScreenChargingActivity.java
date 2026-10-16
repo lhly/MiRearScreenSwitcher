@@ -49,6 +49,7 @@ public class RearScreenChargingActivity extends Activity {
     private boolean exitInProgress;
     private int rearTaskId = -1;
     private long requestId;
+    private long animationId;
     private int displayedLevel = -1;
     private ITaskService restoreService;
 
@@ -66,6 +67,7 @@ public class RearScreenChargingActivity extends Activity {
             if (target != 0 && target != requestId) return;
             String action = intent.getAction();
             if ((BuildConfig.APPLICATION_ID + ".INTERRUPT_CHARGING_ANIMATION").equals(action)) {
+                if (RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.CHARGING, animationId)) return;
                 interrupted = true;
                 ChargingService.cancelForNotification();
                 finish();
@@ -99,6 +101,7 @@ public class RearScreenChargingActivity extends Activity {
     private void readIntent() {
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         requestId = getIntent().getLongExtra(EXTRA_REQUEST_ID, 0);
+        animationId = requestId == 0 ? RearAnimationManager.getGeneration() : requestId;
     }
 
     protected int currentDisplayId() {
@@ -237,11 +240,11 @@ public class RearScreenChargingActivity extends Activity {
         if (isChangingConfigurations()) return;
         boolean ownsAnimation = ChargingService.onAnimationFinished(requestId);
         if (!ownsAnimation || interrupted
-                || !RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING)) return;
+                || !RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, animationId)) return;
         ITaskService service = ChargingService.getTaskService();
         if (service == null) service = NotificationService.getTaskService();
         if (service == null) service = restoreService;
-        if (service != null) ChargingService.restoreAfterAnimation(service, rearTaskId);
+        if (service != null) ChargingService.restoreAfterAnimation(service, rearTaskId, animationId);
     }
 
     /**

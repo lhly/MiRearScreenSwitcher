@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <activity android:name=".FixtureNotificationActivity" android:exported="false" tools:targetApi="27"
+            android:excludeFromRecents="true" android:launchMode="singleInstance"
+            android:taskAffinity="${applicationId}.notification.fixture" android:theme="@style/Theme.Transparent"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
+            android:showWhenLocked="true" android:turnScreenOn="true" android:hardwareAccelerated="true" />
         <!-- Local instrumentation fixture only; absent from every release APK. -->
         <activity android:name=".FixtureUpdateActivity" android:exported="false" android:theme="@style/NativeTheme" />
         <activity android:name=".FixtureChargingActivity" android:exported="false" tools:targetApi="27"
