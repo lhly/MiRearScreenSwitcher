@@ -169,6 +169,7 @@ class HomeComposeTest {
         aboveNavigation(ninety).performClick()
         compose.waitUntil(5000) { !ninety.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) }
         ninety.assertIsNotSelected()
-        compose.onNodeWithContentDescription(s("rotation_caption") + " 0°").assertIsSelected()
+        compose.onNodeWithContentDescription(s("rotation_caption") + " 0°").assertIsNotSelected()
+        compose.onNodeWithTag("rotation_value").assertTextEquals("—").assertIsDisplayed()
     }
 }

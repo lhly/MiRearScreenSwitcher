@@ -139,6 +139,40 @@ public class ChargingAnimationTest {
         await(activity::isDestroyed, 3000);
     }
 
+    @Test public void rotatedChargingInsetsReplaceOldMarginsAndKeepPercentageOnOneLine() throws Exception {
+        org.junit.Assume.assumeNotNull(virtualDisplay);
+        activity = launch(1, 100);
+        try {
+            virtualDisplay.resize(596, 976, 450);
+            await(() -> activity.findViewById(R.id.charging_container).getWidth() == 596, 3000);
+            instrumentation.runOnMainSync(() -> {
+                android.view.View container = activity.findViewById(R.id.charging_container);
+                TextView text = activity.findViewById(R.id.battery_text);
+                for (android.graphics.Rect edge : new android.graphics.Rect[]{
+                        new android.graphics.Rect(296, 0, 0, 0), new android.graphics.Rect(0, 0, 0, 296),
+                        new android.graphics.Rect(0, 0, 296, 0), new android.graphics.Rect(0, 296, 0, 0),
+                        new android.graphics.Rect()}) {
+                    androidx.core.view.WindowInsetsCompat insets = new androidx.core.view.WindowInsetsCompat.Builder()
+                            .setInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout(),
+                                    androidx.core.graphics.Insets.of(edge.left, edge.top, edge.right, edge.bottom))
+                            .build();
+                    androidx.core.view.ViewCompat.dispatchApplyWindowInsets(container, insets);
+                    android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) text.getLayoutParams();
+                    assertEquals(edge.left, params.leftMargin); assertEquals(edge.top, params.topMargin);
+                    assertEquals(edge.right, params.rightMargin); assertEquals(edge.bottom, params.bottomMargin);
+                }
+            });
+            instrumentation.waitForIdleSync();
+            instrumentation.runOnMainSync(() -> {
+                TextView text = activity.findViewById(R.id.battery_text);
+                assertEquals("100%", text.getText().toString());
+                assertEquals(1, text.getLineCount());
+                assertTrue("Percentage must fit the portrait width", text.getPaint().measureText("100%")
+                        <= text.getWidth() - text.getCompoundPaddingLeft() - text.getCompoundPaddingRight());
+            });
+        } finally { virtualDisplay.resize(976, 596, 450); }
+    }
+
     @Test public void repeatedStartReusesWindowButReloadsBatteryAndTimer() throws Exception {
         prefs.edit().putBoolean("charging_always_on_enabled", false).commit();
         activity = launch(1, 42);

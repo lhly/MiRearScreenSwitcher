@@ -102,7 +102,7 @@ final class NativeSettingsUi {
         uriConflicts = new UriConflictMonitor(activity, this::updateUriConflicts);
         page = state == null ? 0 : state.getInt("native_page", 0);
         currentDpi = state == null ? 0 : state.getInt("native_dpi", 0);
-        rotation = state == null ? 0 : state.getInt("native_rotation", 0);
+        rotation = state == null ? -1 : state.getInt("native_rotation", -1);
         pickerState = state;
         root = ui.new Background();
         stage = new FrameLayout(activity);
@@ -164,6 +164,7 @@ final class NativeSettingsUi {
 
     void onResume() {
         resumed = true;
+        displayRead = false;
         uriConflicts.start();
         updateDialog.onResume();
         handler.removeCallbacks(statusTick);
@@ -446,7 +447,7 @@ final class NativeSettingsUi {
         for (String key : new String[]{"proximity_sensor_enabled", "keep_screen_on_enabled", "always_wakeup_enabled",
                 "charging_animation_enabled", "charging_always_on_enabled"}) values.put(key, preferences.getBoolean(key));
         composeUi.updateHome(lastStatus.isEmpty() ? "check_shizuku" : lastStatus, connectionSummary, connectionAction,
-                currentDpi, rotation, remoteBusy, values);
+                currentDpi, rotation, remoteBusy || checkingDisplay, values);
     }
 
     private void toggle(String key, String method, boolean enabled) {
@@ -506,7 +507,7 @@ final class NativeSettingsUi {
         connectionAction = ready ? "refresh" : running ? "grant_permission" : "open_shizuku";
         if (!status.equals(lastStatus)) {
             lastStatus = status;
-            if (!ready) displayRead = false;
+            if (!ready) { displayRead = false; rotation = -1; }
         }
         if (ready && !displayRead && !checkingDisplay) readDisplay();
         if (ready && !restoringServices) {
@@ -527,6 +528,7 @@ final class NativeSettingsUi {
 
     private void readDisplay() {
         checkingDisplay = true;
+        updateHome();
         activity.runAction("getCurrentRearDpi", null, (value, error) -> {
             if (destroyed) return;
             if (value instanceof Number) currentDpi = ((Number) value).intValue();
@@ -534,8 +536,10 @@ final class NativeSettingsUi {
             activity.runAction("getDisplayRotation", argument("displayId", 1), (angle, failure) -> {
                 if (destroyed) return;
                 checkingDisplay = false;
-                displayRead = error == null && failure == null;
-                if (angle instanceof Number) rotation = Math.max(0, Math.min(3, ((Number) angle).intValue()));
+                // 本次读取已完成；未知状态保持未选中，重新进入/连接时再读取。
+                displayRead = true;
+                int actual = failure == null && angle instanceof Number ? ((Number) angle).intValue() : -1;
+                rotation = actual >= 0 && actual <= 3 ? actual : -1;
                 updateRotationControls();
             });
         });
@@ -594,14 +598,18 @@ final class NativeSettingsUi {
     }
 
     private void setRotation(int target) {
-        if (remoteBusy) return;
+        if (remoteBusy || checkingDisplay) return;
         remoteBusy = true; updateRotationControls();
         Map<String, Object> arguments = argument("displayId", 1); arguments.put("rotation", target);
         activity.runAction("setDisplayRotation", arguments, (value, error) -> {
             remoteBusy = false;
             if (destroyed) return;
             if (error == null && Boolean.TRUE.equals(value)) rotation = target;
-            else toast(error == null ? s("toast_rotation_failed") : error);
+            else {
+                toast(error == null ? s("toast_rotation_failed") : error);
+                // 回滚也可能受系统权限变化影响，重新读取实际状态。
+                readDisplay();
+            }
             updateRotationControls();
         });
     }

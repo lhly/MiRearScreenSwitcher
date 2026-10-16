@@ -81,7 +81,7 @@ class MiuixHomeUi(
     }
     private data class HomeState(
         val status: String = "check_shizuku", val summary: String = "connection_help",
-        val action: String = "open_shizuku", val dpi: Int = 0, val rotation: Int = 0,
+        val action: String = "open_shizuku", val dpi: Int = 0, val rotation: Int = -1,
         val busy: Boolean = false, val values: Map<String, Boolean> = emptyMap(),
     )
     private data class SafeInsets(val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 0, val ime: Int = 0)
@@ -277,7 +277,8 @@ class MiuixHomeUi(
                     Row(Modifier.padding(18.dp, 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         IconTile("rotate", dark)
                         Label("rotation_caption", dark, Modifier.weight(1f))
-                        Text("${state.rotation * 90}°", fontSize = 14.sp, color = secondary(dark))
+                        Text(if (state.rotation in 0..3) "${state.rotation * 90}°" else "—",
+                            modifier = Modifier.testTag("rotation_value"), fontSize = 14.sp, color = secondary(dark))
                     }
                     Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         repeat(4) { index ->

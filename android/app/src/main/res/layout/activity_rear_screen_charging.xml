@@ -19,6 +19,7 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:text="100%"
+        android:maxLines="1"
         android:textSize="60sp"
         android:textStyle="bold"
         android:textColor="#FFFFFF"

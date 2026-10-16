@@ -26,6 +26,8 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
+    private final DisplayRotationController rotationController = new DisplayRotationController(
+            DisplayRotationController::runCommand, Thread::sleep, message -> Log.i(TAG, message));
 
     @Keep
     public TaskService() {
@@ -788,6 +790,7 @@ public class TaskService extends ITaskService.Stub {
      */
     @Override
     public boolean setDisplayRotation(int displayId, int rotation) throws RemoteException {
+        if (displayId < 0 || rotation < 0 || rotation > 3) return false;
         try {
             // 获取当前背屏前台应用（如果有）
             String currentApp = null;
@@ -802,30 +805,10 @@ public class TaskService extends ITaskService.Stub {
                 }
             }
             
-            // 使用 wm user-rotation 命令设置旋转
-            String cmd = "wm user-rotation -d " + displayId + " lock " + rotation;
-            
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
-            Process process = pb.start();
-            
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()), 8192
-            );
-            BufferedReader errorReader = new BufferedReader(
-                new InputStreamReader(process.getErrorStream()), 8192
-            );
-            
-            String line;
-            while ((line = reader.readLine()) != null) {}
-            while ((line = errorReader.readLine()) != null) {}
-            
-            reader.close();
-            errorReader.close();
-            
-            int exitCode = process.waitFor();
-            
+            boolean applied = rotationController.setRotation(displayId, rotation);
+
             // 如果是背屏且有应用在运行，等待500ms后检查并复活
-            if (displayId == 1 && exitCode == 0 && currentTaskId > 0) {
+            if (displayId == 1 && applied && currentTaskId > 0) {
                 Thread.sleep(500);
                 
                 // 检查应用是否还在背屏
@@ -837,9 +820,10 @@ public class TaskService extends ITaskService.Stub {
                 }
             }
             
-            return (exitCode == 0);
+            return applied;
             
         } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             Log.e(TAG, "设置旋转异常", e);
             return false;
         }
@@ -852,37 +836,7 @@ public class TaskService extends ITaskService.Stub {
      */
     @Override
     public int getDisplayRotation(int displayId) throws RemoteException {
-        try {
-            // 使用 wm user-rotation 命令直接读取，输出格式: "lock 2" 或 "free"
-            String cmd = "wm user-rotation -d " + displayId;
-            
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
-            Process process = pb.start();
-            
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()), 8192
-            );
-            
-            String line = reader.readLine();
-            reader.close();
-            process.waitFor();
-            
-            if (line != null && !line.isEmpty()) {
-                // 解析 "lock 2" 或 "free" 格式
-                String[] parts = line.trim().split("\\s+");
-                if (parts.length >= 2) {
-                    try {
-                        return Integer.parseInt(parts[1]);
-                    } catch (Exception ignored) {}
-                }
-            }
-            
-            return 0;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "获取旋转异常", e);
-            return 0;
-        }
+        return rotationController.getRotation(displayId);
     }
     
     @Override

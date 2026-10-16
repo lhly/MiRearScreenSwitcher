@@ -28,6 +28,11 @@ import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.TextView;
+import android.util.TypedValue;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.widget.TextViewCompat;
 
 /** 背屏液体充电动画，普通模式显示8秒，常亮模式在拔线时退出。 */
 public class RearScreenChargingActivity extends Activity {
@@ -116,7 +121,15 @@ public class RearScreenChargingActivity extends Activity {
         contentInitialized = true;
         LightningShapeView liquid = findViewById(R.id.full_screen_liquid);
         liquid.setFullScreenMode(true);
-        applySafeAreaToText(findViewById(R.id.battery_text));
+        TextView batteryText = findViewById(R.id.battery_text);
+        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(batteryText, 24, 60, 1,
+                TypedValue.COMPLEX_UNIT_SP);
+        View container = findViewById(R.id.charging_container);
+        ViewCompat.setOnApplyWindowInsetsListener(container, (view, insets) -> {
+            applySafeAreaToText(batteryText, insets.getInsets(WindowInsetsCompat.Type.displayCutout()));
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(container);
         playAnimation();
         Log.i(TAG, "content_ready display_id=" + currentDisplayId() + " request=" + requestId);
     }
@@ -166,7 +179,7 @@ public class RearScreenChargingActivity extends Activity {
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
         ensureRearContent();
-        if (contentInitialized) applySafeAreaToText(findViewById(R.id.battery_text));
+        if (contentInitialized) ViewCompat.requestApplyInsets(findViewById(R.id.charging_container));
     }
 
     @Override public void onAttachedToWindow() {
@@ -298,39 +311,18 @@ public class RearScreenChargingActivity extends Activity {
     }
     
     /**
-     * V3.5: 应用安全区域到电量数字（确保数字显示在安全区域中央）
+     * 使用当前窗口的安全区域；缓存的物理屏幕Cutout方向不会随旋转更新。
      */
-    private void applySafeAreaToText(TextView textView) {
-        try {
-            // 从缓存获取背屏信息
-            RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
-            
-            if (info == null) {
-                Log.w(TAG, "⚠️ 背屏信息缓存为空");
-                return;
-            }
-            
-            if (!info.hasCutout()) {
-                Log.d(TAG, "ℹ️ 背屏无Cutout，数字自动居中");
-                return;
-            }
-            
-            // 设置margin让数字居中在安全区域
-            if (textView.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
-                android.widget.FrameLayout.LayoutParams params = 
-                    (android.widget.FrameLayout.LayoutParams) textView.getLayoutParams();
-                
-                params.leftMargin = info.cutout.left;
-                params.topMargin = info.cutout.top;
-                params.rightMargin = info.cutout.right;
-                params.bottomMargin = info.cutout.bottom;
-                textView.setLayoutParams(params);
-                
-                Log.d(TAG, String.format("✅ 电量数字已应用安全区域: left=%d, top=%d, right=%d, bottom=%d",
-                    info.cutout.left, info.cutout.top, info.cutout.right, info.cutout.bottom));
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "❌ 应用安全区域失败", e);
+    private void applySafeAreaToText(TextView textView, Insets cutout) {
+        android.widget.FrameLayout.LayoutParams params =
+                (android.widget.FrameLayout.LayoutParams) textView.getLayoutParams();
+        if (params.leftMargin != cutout.left || params.topMargin != cutout.top
+                || params.rightMargin != cutout.right || params.bottomMargin != cutout.bottom) {
+            params.leftMargin = cutout.left;
+            params.topMargin = cutout.top;
+            params.rightMargin = cutout.right;
+            params.bottomMargin = cutout.bottom;
+            textView.setLayoutParams(params);
         }
     }
 }
