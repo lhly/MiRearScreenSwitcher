@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "versionName": "3.3.3",
+  "versionCode": 2015,
+  "tag": "v3.3.3",
+  "apk": {
+    "url": "https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.3/ReMRSS-v3.3.3.apk",
+    "sha256": "0ad52ebbe75df27b4ecd5f9395c75f2275334303b2840dcf14c75c3218f9441e",
+    "size": 1396390,
+    "packageName": "top.zainzh.rearscreen"
+  }
+}
