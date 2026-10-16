@@ -105,3 +105,7 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 ## 发布源码校验
 
 历史整理后，v3.3.2的源码树仍为`fcdd5e198b1bc5a63d25d2d0649c05a362493f91`，与原先构建公开APK的文件逐字节一致；仅提交关系与提交哈希改变。APK、LICENSE、NOTICE、SHA256SUMS附件以及version.json的下载/校验信息保持不变。旧稳定tag未改写。旧构建记录因引用已整理的提交关系而移除，后续发版工作流保持启用。
+
+已经从GitHub重新克隆并扫描全部可达提交的消息和文本，源码及tag对应关系、更新清单和Git连接完整性检查均通过。本地工程已同步新历史；其他旧克隆应先保存自己的修改，再重新克隆或迁移到新历史，避免将旧提交合并回main。
+
+历史改写不等于清理GitHub缓存：已知旧SHA的页面仍可能打开，本次也观察到这一行为；Git操作无法保证删除这些页面或第三方副本。限制见[GitHub官方说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)。
