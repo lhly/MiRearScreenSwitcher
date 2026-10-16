@@ -4,13 +4,13 @@
 
 为小米17Pro/17Pro Max等双屏设备的背屏一键切换器
 
-本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发，应用名称为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`。本轮发布版本为 **v3.3.4 / 2016（2026-10-16）**，发布与公开成品验收进度见[自动发版记录](docs/github-release.md)。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
+本仓库基于 [上游 MRSS 项目](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发，应用名称为 **ReMRSS**，正式包名为 `top.zainzh.rearscreen`。最新正式版本为 **v3.3.4 / 2016（2026-10-16）**，已完成云端发布、公开附件与独立更新清单验证，详见[自动发版记录](docs/github-release.md)。迁移与验证见[身份迁移说明](docs/remrss-identity-validation.md)。
 
 本次更新修复充电动画空白、普通模式提前消失和显示方向不生效的问题，并处理充电、通知首次显示时被官方表盘覆盖的竞争条件。连续通知与两类动画交接加入会话校验，避免旧退出回调覆盖新内容。详见[充电验收](docs/charging-animation-validation.md)、[方向验收](docs/display-rotation-validation.md)和[充电/通知稳定性验收](docs/charging-notification-stability-validation.md)。
 
 交互及图标的专项验证见[交互验证](docs/navigation-interactions-validation.md)和[图标设计说明](docs/app-icon-design.md)。
 
-## 📦 发布版本：ReMRSS v3.3.4
+## 📦 最新版本：ReMRSS v3.3.4
 
 - [查看 v3.3.4 Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.4)
 - [下载 APK（约 1.41 MB）](https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.3.4/ReMRSS-v3.3.4.apk)

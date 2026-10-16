@@ -36,7 +36,7 @@ done
 
 ## 发版操作
 
-本轮发布 ReMRSS `3.3.4 / 2016`，包含充电动画、方向设置和充电/通知稳定性修复。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+当前正式版本为 ReMRSS `3.3.4 / 2016`，已完成公开成品验收，包含充电动画、方向设置和充电/通知稳定性修复。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
@@ -124,10 +124,18 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 
 公开APK的自动化弹窗实拍确认协议冲突提示正常，switch/return示例之间只有一个换行；深色关于页显示ReMRSS/3.3.3和镜像开关，目视检查通过。语言、主题和开关恢复后关闭本项目5558模拟器，保留用户已有设备。
 
-## ReMRSS v3.3.4 发布准备（2026-10-16）
+## ReMRSS v3.3.4 发布验收（2026-10-16）
 
 发布版本3.3.4/2016，沿用包名与正式证书。包含充电动画生命周期与普通模式退场、实际显示方向设置与旋转布局，以及充电/通知免杀官方进程和会话交接修复。修复已通过75项自动化回归、7组无线真机受控场景，详细边界见[充电/通知验收](charging-notification-stability-validation.md)与[方向验收](display-rotation-validation.md)。App投放的偶发覆盖未纳入本次稳定性修复。
 
-发布工作流的说明已更新为本轮变更；公开APK、SHA256SUMS、签名和稳定更新清单将在CI完成后核验，清单不提前填写本地构建信息。
+发布工作流的说明已更新为本轮变更；公开APK、SHA256SUMS、签名和稳定更新清单已在CI完成后核验，清单由CI根据正式公开成品生成。
 
 本地发布预检：78项主机回归（发布16、清单22、连接16、旋转24）、actionlint、R8签名Release构建与Lint通过（0错误、57项既有警告）。本地3.3.4/2016 APK通过包名、非调试、证书及完整法律资产验证；最终公开文件以CI产物为准。
+
+2026-10-16，[ReMRSS v3.3.4](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.4)已公开并标记为Latest。[Actions 38920124936](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/38920124936)第二次运行的构建、发布、独立清单三个job全部成功。发布源提交为`81ac30fe71b21c113ad7744fd15cbb0419478622`，CI后续提交`42523b5`将main的`updates/remrss/version.json`更新到3.3.4/2016。
+
+首次CI在Gradle classpath依赖解析时失败，多项Maven Central依赖报not found，未进入应用编译或发布。抽查官方源的三个POM均HTTP200；保留同一源码与tag，在新运行器重试后成功，未替换依赖或降低校验要求。
+
+公开APK为**1,412,798字节（约1.41MB）**，SHA256为`ebc6208da45f3f678c03cc14ece089640e88b43daf8b84818ebb10a0e10f9073`。已匿名重新下载APK、SHA256SUMS、LICENSE及NOTICE，真实字节、附件digest与校验文件逐项一致；包名top.zainzh.rearscreen、版本3.3.4/2016、非调试、现有正式证书和完整法律资产验证通过。
+
+独立Raw与gh-proxy.com清单均与公开APK大小、SHA256及下载地址一致，匿名镜像下载APK再次核对通过。旧MRSS根清单与附件未修改。本地已快进同步CI清单提交，验收日志和校验副本位于被忽略的`.local/diagnostics/release-remrss-334/`。本轮未另行安装公开3.3.4包到手机；修复业务代码的真机验证见前述专项验收，新版本与该修复相比仅调整版本元数据及发布资料。
