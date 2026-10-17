@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ReMRSS</string>
     <string name="tile_label">切換至背屏</string>
     <string name="tile_screenshot_label">獲取背屏截圖</string>
     <string name="tile_record_label">背屏錄屏</string>

@@ -17,6 +17,7 @@ class SettingsComposeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private fun s(key: String) = NativeStrings.get(compose.activity, key)
+    private fun s(resource: Int) = compose.activity.getString(resource)
     private fun tab(key: String) { compose.onNodeWithContentDescription(s(key)).performClick() }
     private fun row(key: String, list: String): SemanticsNodeInteraction {
         compose.onNodeWithTag(list).performScrollToNode(hasText(s(key)))
@@ -87,6 +88,10 @@ class SettingsComposeTest {
             tab("notifications_title"); row("notification_apps", "notifications_list").performClick()
             compose.onNodeWithText(s("system_apps")).performClick()
             compose.onNodeWithTag("app_search").performTextReplacement("com.android.settings")
+            compose.runOnIdle {
+                compose.activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+            }
             compose.waitUntil(5000) { compose.onAllNodes(hasText("com.android.settings") and isToggleable()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText(s("select_all")).performClick()
             val selected = prefs.getStringSet("notification_selected_apps", emptySet())!!
@@ -102,7 +107,9 @@ class SettingsComposeTest {
     @Test fun notificationDurationDraftSurvivesRecreationAndInvalidInputStaysOpen() {
         tab("notifications_title"); row("auto_destroy_time", "notifications_list").performClick()
         compose.onNodeWithTag("number_input").performTextReplacement("0")
-        compose.onNodeWithText(s("apply")).performClick()
+        assertEquals("0", compose.onNodeWithTag("number_input").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text)
+        compose.onNodeWithText(s("apply")).performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithTag("number_input").assertExists().performTextReplacement("137")
         compose.activityRule.scenario.recreate()
         compose.onNodeWithTag("number_input").assertTextContains("137")
@@ -135,16 +142,16 @@ class SettingsComposeTest {
             compose.waitUntil(5000) { compose.onAllNodesWithText(compose.activity.getString(R.string.ui_download_update)).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, attempts.get())
             compose.onNode(hasText("v3.4.0", substring = true) and hasAnyAncestor(isDialog())).assertExists()
-            compose.onNodeWithText(s("view_release")).assertExists()
+            compose.onNodeWithText(s(R.string.ui_view_release)).assertExists()
         } finally { release.countDown() }
     }
     private fun retryCheck(first: ReleaseUpdateChecker.Response, expected: String) {
         val attempts = AtomicInteger()
         val ui = checker { if (attempts.incrementAndGet() == 1) first else ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.manifest(BuildConfig.SOURCE_TAG, BuildConfig.VERSION_CODE)) }
         compose.runOnIdle { ui.checkForUpdates() }
-        compose.waitUntil(5000) { compose.onAllNodesWithText(s("retry")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5000) { compose.onAllNodesWithText(s(R.string.ui_retry)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasText(s(expected)) and hasAnyAncestor(isDialog())).assertExists()
-        compose.onNodeWithText(s("retry")).performClick()
+        compose.onNodeWithText(s(R.string.ui_retry)).performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText(s("update_current")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(2, attempts.get())
     }

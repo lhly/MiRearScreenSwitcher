@@ -1,45 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ui_about" formatted="false">關於</string>
-    <string name="ui_about_app" formatted="false">關於 ReMRSS</string>
-    <string name="ui_about_subtitle" formatted="false">為雙屏，多一點可能</string>
     <string name="ui_access_granted" formatted="false">已授權</string>
     <string name="ui_access_pending" formatted="false">待授權</string>
     <string name="ui_always_help" formatted="false">未投放應用時，也讓背屏保持點亮</string>
     <string name="ui_always_wake_up" formatted="false">持續喚醒</string>
-    <string name="ui_always_wake_up_title" formatted="false">未投放應用時常亮</string>
-    <string name="ui_app_name" formatted="false">小米背屏切換器</string>
-    <string name="ui_app_selection" formatted="false">應用選擇</string>
     <string name="ui_apply" formatted="false">應用</string>
     <string name="ui_apps_access_help" formatted="false">應用清單權限未開啟，可前往系統設定授權後重新整理。</string>
-    <string name="ui_apps_loaded" formatted="false">可選擇 {0} 個應用</string>
     <string name="ui_author_anti" formatted="false">原始作者：AntiOblivionis</string>
-    <string name="ui_author_xmz" formatted="false">上游測試貢獻：汐木澤</string>
     <string name="ui_auto_destroy_time" formatted="false">自動銷毀時間</string>
     <string name="ui_back" formatted="false">返回</string>
     <string name="ui_cancel" formatted="false">取消</string>
     <string name="ui_charging_always_help" formatted="false">充電期間持續顯示動畫和電量</string>
     <string name="ui_charging_always_on" formatted="false">充電動畫常亮</string>
-    <string name="ui_charging_always_on_title" formatted="false">充電動畫常亮</string>
     <string name="ui_charging_animation" formatted="false">充電動畫</string>
-    <string name="ui_charging_animation_title" formatted="false">充電動畫</string>
     <string name="ui_charging_help" formatted="false">接通電源時，在背屏顯示充電動畫</string>
     <string name="ui_charging_section" formatted="false">充電</string>
-    <string name="ui_check_permission_result" formatted="false">🔍 權限檢查結果: </string>
-    <string name="ui_check_permission_start" formatted="false">🔍 開始檢查QUERY_ALL_PACKAGES權限...</string>
     <string name="ui_check_shizuku" formatted="false">正在檢查 Shizuku...</string>
-    <string name="ui_checking_dpi" formatted="false">正在獲取當前DPI...</string>
     <string name="ui_confirm" formatted="false">確定</string>
-    <string name="ui_connect" formatted="false">連接 Shizuku</string>
     <string name="ui_connection_binding" formatted="false">正在連接控制服務</string>
     <string name="ui_connection_details" formatted="false">連接詳情</string>
     <string name="ui_connection_help" formatted="false">啟動 Shizuku 並授權 ReMRSS，啟用背屏控制。</string>
     <string name="ui_connection_ok_help" formatted="false">控制服務已連接，可以調整背屏顯示。</string>
     <string name="ui_connection_ready" formatted="false">Shizuku 已就緒</string>
-    <string name="ui_coolapk" formatted="false">酷安</string>
     <string name="ui_copied" formatted="false">已複製</string>
-    <string name="ui_credits" formatted="false">原始專案與致謝</string>
-    <string name="ui_current_dpi" formatted="false">當前 DPI: %d</string>
     <string name="ui_dark_notification_help" formatted="false">背屏通知使用深色背景</string>
     <string name="ui_deselect_all" formatted="false">全不選</string>
     <string name="ui_diagnostics" formatted="false">診斷資訊</string>
@@ -55,114 +39,54 @@
     <string name="ui_dpi_settings" formatted="false">DPI 設置</string>
     <string name="ui_duration_help" formatted="false">通知在背屏停留的時間</string>
     <string name="ui_duration_range" formatted="false">請輸入大於 0 的秒數</string>
-    <string name="ui_ensure_shizuku" formatted="false">請確保 Shizuku 正在運行</string>
-    <string name="ui_error_check_timeout" formatted="false">檢查超時</string>
-    <string name="ui_error_grant_in_shizuku" formatted="false">請在Shizuku中授權ReMRSS</string>
-    <string name="ui_error_permission_denied" formatted="false">權限不足</string>
-    <string name="ui_error_service_call_failed" formatted="false">服務調用失敗</string>
-    <string name="ui_error_shizuku_communication" formatted="false">Shizuku通信異常</string>
-    <string name="ui_error_shizuku_service_crashed" formatted="false">Shizuku服務可能已崩潰\n請重啟Shizuku應用</string>
-    <string name="ui_error_shizuku_timeout" formatted="false">Shizuku服務響應超時\n請檢查Shizuku是否運行</string>
-    <string name="ui_error_task_service_no_response" formatted="false">TaskService無響應\n請重啟應用</string>
-    <string name="ui_error_unknown" formatted="false">未知錯誤</string>
-    <string name="ui_failed" formatted="false">失敗</string>
     <string name="ui_follow_system_dnd" formatted="false">跟隨系統勿擾模式</string>
     <string name="ui_go_to_settings" formatted="false">去設置</string>
     <string name="ui_grant_permission" formatted="false">授予權限</string>
-    <string name="ui_grant_permission_manual" formatted="false">請在設置中授予權限後手動刷新</string>
-    <string name="ui_help_support" formatted="false">說明與支援</string>
     <string name="ui_hide_content_help" formatted="false">隱藏通知的具體內容</string>
     <string name="ui_hide_notification_content" formatted="false">隱藏通知內容</string>
     <string name="ui_hide_notification_title" formatted="false">隱藏通知標題</string>
     <string name="ui_hide_title_help" formatted="false">僅顯示應用名稱，隱藏通知標題</string>
-    <string name="ui_input_number" formatted="false">輸入數字</string>
-    <string name="ui_input_seconds" formatted="false">輸入秒數</string>
-    <string name="ui_input_valid_number" formatted="false">請輸入有效的數字</string>
-    <string name="ui_install_coolapk" formatted="false">請先安裝酷安應用</string>
     <string name="ui_keep_help" formatted="false">僅在應用投放到背屏時保持點亮</string>
     <string name="ui_keep_screen_on" formatted="false">背屏常亮</string>
-    <string name="ui_language" formatted="false">語言</string>
     <string name="ui_loading_apps" formatted="false">正在讀取應用清單…</string>
-    <string name="ui_new_dpi" formatted="false">新 DPI 值</string>
-    <string name="ui_new_time_seconds" formatted="false">新時間（秒）</string>
     <string name="ui_no_apps_found" formatted="false">未找到應用</string>
-    <string name="ui_no_permission_dialog_content" formatted="false">為了顯示完整的應用列表，需要授予\"獲取所有應用列表\"權限。\n\n點擊\"去設置\"後，請在應用信息頁面向下滾動，找到並授予此權限。</string>
-    <string name="ui_no_permission_dialog_title" formatted="false">需要權限</string>
     <string name="ui_notification_access" formatted="false">通知使用權</string>
     <string name="ui_notification_access_help" formatted="false">需要系統通知使用權才能投送通知</string>
     <string name="ui_notification_apps" formatted="false">通知應用</string>
     <string name="ui_notification_dark_mode" formatted="false">通知深色模式</string>
-    <string name="ui_notification_delivery" formatted="false">通知投送</string>
     <string name="ui_notification_help" formatted="false">在背屏展示所選應用的通知</string>
     <string name="ui_notification_permission" formatted="false">通知權限</string>
     <string name="ui_notification_permission_help" formatted="false">用於顯示常駐服務和返回主屏的通知</string>
     <string name="ui_notification_rules" formatted="false">投送規則</string>
     <string name="ui_notification_service" formatted="false">通知服務</string>
-    <string name="ui_notification_service_title" formatted="false">背屏通知</string>
-    <string name="ui_notification_settings_help" formatted="false">隱私、勿擾模式和顯示時長</string>
-    <string name="ui_notification_settings_title" formatted="false">通知設置</string>
-    <string name="ui_notification_settings_tooltip" formatted="false">通知設置</string>
     <string name="ui_notifications_subtitle" formatted="false">選擇值得抬眼的資訊</string>
     <string name="ui_notifications_title" formatted="false">通知</string>
     <string name="ui_only_when_locked" formatted="false">僅倒扣手機時通知</string>
     <string name="ui_open_failed" formatted="false">打開失敗</string>
     <string name="ui_open_shizuku" formatted="false">開啟 Shizuku</string>
     <string name="ui_operation_failed" formatted="false">操作失敗，請檢查連接後重試</string>
-    <string name="ui_permission_granted_refresh" formatted="false">權限已授予，應用列表已刷新</string>
     <string name="ui_permission_required" formatted="false">需要權限</string>
     <string name="ui_privacy_section" formatted="false">隱私與顯示</string>
     <string name="ui_proximity_help" formatted="false">背屏被遮蓋時，將投放應用移回主屏</string>
     <string name="ui_proximity_sensor" formatted="false">接近傳感器</string>
     <string name="ui_quick_tiles" formatted="false">控制中心快捷磁貼</string>
-    <string name="ui_quick_tiles_help" formatted="false">編輯控制中心，加入「切換至背屏」「取得背屏截圖」和「背屏錄影」。在需要投放的應用中下拉控制中心使用。</string>
-    <string name="ui_rear_cover_detection_title" formatted="false">背屏遮蓋檢測</string>
-    <string name="ui_rear_record" formatted="false">背屏錄製</string>
-    <string name="ui_rear_screen_always_on_title" formatted="false">背屏常亮</string>
-    <string name="ui_recommended_range" formatted="false">推薦範圍: 260-350</string>
     <string name="ui_refresh" formatted="false">重新整理</string>
-    <string name="ui_reset_confirm" formatted="false">恢復背屏預設 DPI？</string>
     <string name="ui_reset_dpi" formatted="false">重置 DPI</string>
     <string name="ui_restart_app" formatted="false">重啟軟件</string>
-    <string name="ui_restart_help" formatted="false">先將背屏應用拉回主屏，再重新開啟設定</string>
-    <string name="ui_restore_default_dpi" formatted="false">還原默認DPI</string>
     <string name="ui_rotation_caption" formatted="false">顯示方向</string>
-    <string name="ui_rotation_settings" formatted="false">旋轉設置</string>
-    <string name="ui_rotation_title" formatted="false">旋轉</string>
-    <string name="ui_saved" formatted="false">已儲存</string>
     <string name="ui_saving" formatted="false">正在套用…</string>
     <string name="ui_screen_size" formatted="false">背屏顯示</string>
     <string name="ui_screen_subtitle" formatted="false">讓背屏更順手</string>
     <string name="ui_screen_title" formatted="false">背屏</string>
     <string name="ui_search_apps" formatted="false">搜索應用</string>
-    <string name="ui_search_hint" formatted="false">搜索應用或包名</string>
     <string name="ui_seconds_value" formatted="false">{0} 秒</string>
     <string name="ui_select_all" formatted="false">全選</string>
-    <string name="ui_select_app_title" formatted="false">選擇應用</string>
-    <string name="ui_select_apps" formatted="false">選擇應用</string>
     <string name="ui_selected_count" formatted="false">已選擇 {0} 個應用</string>
-    <string name="ui_set_dpi" formatted="false">設置 DPI</string>
-    <string name="ui_set_seconds_success" formatted="false">已設置為 %d 秒</string>
-    <string name="ui_settings" formatted="false">設置</string>
     <string name="ui_shizuku_not_running" formatted="false">Shizuku 未運行</string>
     <string name="ui_shizuku_permission_denied" formatted="false">Shizuku 權限被拒絕</string>
-    <string name="ui_show_system_apps" formatted="false">顯示系統應用</string>
-    <string name="ui_status_not_connected" formatted="false">服務未連接</string>
-    <string name="ui_status_ready" formatted="false">一切就緒</string>
-    <string name="ui_status_service_not_running" formatted="false">服務未運行</string>
-    <string name="ui_success" formatted="false">成功</string>
-    <string name="ui_switch_to_rear" formatted="false">切換至背屏</string>
     <string name="ui_system_apps" formatted="false">顯示系統應用</string>
-    <string name="ui_system_default" formatted="false">系統默認</string>
-    <string name="ui_take_screenshot" formatted="false">獲取背屏截圖</string>
-    <string name="ui_toast_dpi_reset" formatted="false">背屏DPI已還原</string>
-    <string name="ui_toast_dpi_set" formatted="false">背屏DPI已設置為</string>
     <string name="ui_toast_duration_set" formatted="false">已設置為 {0} 秒</string>
-    <string name="ui_toast_ensure_shizuku" formatted="false">請確保Shizuku正在運行</string>
-    <string name="ui_toast_error" formatted="false">錯誤:</string>
-    <string name="ui_toast_reset_failed" formatted="false">還原失敗:</string>
     <string name="ui_toast_rotation_failed" formatted="false">旋轉失敗</string>
-    <string name="ui_toast_rotation_set" formatted="false">已旋轉至</string>
-    <string name="ui_toast_set_failed" formatted="false">設置失敗:</string>
     <string name="ui_tutorial" formatted="false">使用教程</string>
     <string name="ui_upside_help" formatted="false">主屏朝下且被遮蓋時才投送通知</string>
     <string name="ui_uri_copy" formatted="false">複製目前版本 URI</string>
@@ -175,17 +99,11 @@
     <string name="ui_warning_burn_in" formatted="false">警告：可能導致燒屏和額外耗電</string>
     <string name="ui_nav_screen" formatted="false">背屏</string>
     <string name="ui_nav_notifications" formatted="false">通知</string>
-    <string name="ui_angle_value" formatted="false">{0}°</string>
     <string name="ui_apps_summary" formatted="false">已選擇 {0} 個 · 可選擇 {1} 個</string>
     <string name="ui_project_maintainer" formatted="false">目前維護者：{0}</string>
     <string name="ui_project_repository" formatted="false">源碼儲存庫</string>
     <string name="ui_issue_feedback" formatted="false">提交意見回饋</string>
-    <string name="ui_open_source" formatted="false">開源與授權</string>
-    <string name="ui_version_source" formatted="false">對應版本原始碼</string>
-    <string name="ui_source_version" formatted="false">原始碼標籤：{0}</string>
     <string name="ui_license" formatted="false">開源授權條款</string>
-    <string name="ui_license_summary" formatted="false">GPL-3.0 · 可離線閱讀</string>
-    <string name="ui_legal_notice" formatted="false">本版本採用 GPL-3.0，可依照授權條款修改與再散布，不提供擔保。</string>
     <string name="ui_license_load_failed" formatted="false">無法讀取本機授權條款，請重新安裝完整應用程式。</string>
     <string name="ui_check_updates" formatted="false">檢查更新</string>
     <string name="ui_updates_help" formatted="false">查詢 GitHub 上的最新正式版本</string>

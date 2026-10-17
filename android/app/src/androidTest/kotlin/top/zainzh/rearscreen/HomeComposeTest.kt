@@ -28,6 +28,7 @@ class HomeComposeTest {
             aboveNavigation(compose.onNodeWithText(s("tutorial"))).performClick()
             tutorial = monitor.waitForActivityWithTimeout(5000) as? TutorialActivity
             assertNotNull(tutorial)
+            compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_section_setup"))
             compose.onNodeWithTag("tutorial_section_setup").assertExists()
             compose.onNodeWithTag("tutorial_back").performClick()
         } finally {
@@ -172,7 +173,7 @@ class HomeComposeTest {
     @Test fun unavailableShizukuDoesNotCommitRotation() {
         org.junit.Assume.assumeFalse(rikka.shizuku.Shizuku.pingBinder())
         val ninety = compose.onNodeWithContentDescription(s("rotation_caption") + " 90°")
-        ninety.performScrollTo()
+        compose.onNodeWithTag("home_list").performScrollToNode(hasContentDescription(s("rotation_caption") + " 90°"))
         aboveNavigation(ninety).performClick()
         compose.waitUntil(5000) { !ninety.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) }
         ninety.assertIsNotSelected()

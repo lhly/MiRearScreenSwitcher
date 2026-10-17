@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ReMRSS</string>
     <string name="tile_label">Switch to Rear Screen</string>
     <string name="tile_screenshot_label">Rear Screen Screenshot</string>
     <string name="tile_record_label">Rear Screen Record</string>

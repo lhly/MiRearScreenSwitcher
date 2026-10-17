@@ -14,12 +14,20 @@ public final class FixtureUpdateActivity extends MainActivity {
     public static volatile FixtureUpdateActivity current;
     public static final AtomicInteger tasks = new AtomicInteger();
     static final String EXTRA_MANIFEST = "version_manifest";
+    private boolean initialCheck;
 
     @Override protected void onCreate(android.os.Bundle state) {
-        boolean first = state == null;
-        if (first) { state = new android.os.Bundle(); state.putInt("native_page", 2); }
+        if (state == null) state = new android.os.Bundle();
+        state.putInt("native_page", 2);
         super.onCreate(state); current = this;
-        if (first) getWindow().getDecorView().post(this::checkForUpdates);
+        UpdateDialogController.Session session = new androidx.lifecycle.ViewModelProvider(this,
+                new androidx.lifecycle.ViewModelProvider.NewInstanceFactory()).get(UpdateDialogController.Session.class);
+        initialCheck = !session.visible;
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        // A synchronous fixture response must not complete before the host resumes.
+        if (initialCheck) { initialCheck = false; checkForUpdates(); }
     }
     @Override ReleaseUpdateChecker createUpdateChecker() {
         return new ReleaseUpdateChecker(() -> new ReleaseUpdateChecker.Response(200, getIntent().getStringExtra(EXTRA_MANIFEST)));

@@ -24,7 +24,6 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -206,19 +205,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         }).start();
     }
     
-    /**
-     * 执行Shell命令（供RearScreenChargingActivity调用）
-     */
-    public void executeShellCommand(String cmd) {
-        if (taskService != null) {
-            try {
-                taskService.executeShellCommand(cmd);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to execute command: " + cmd, e);
-            }
-        }
-    }
-    
     private void checkAndRequestShizukuPermission() {
         try {
             if (Shizuku.pingBinder()) {
@@ -284,8 +270,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         };
         boolean remote = method.equals("getCurrentRearDpi") || method.equals("setRearDpi")
                 || method.equals("resetRearDpi") || method.equals("getDisplayRotation")
-                || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart")
-                || method.equals("getCurrentApp");
+                || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart");
         Runnable action = () -> {
             try {
                 if (remote) {
@@ -310,17 +295,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
 
     private void handleAction(NativeAction call, NativeAction.Result result) {
                 switch (call.method) {
-                    case "checkShizuku": {
-                        try {
-                            boolean isRunning = Shizuku.pingBinder();
-                            boolean hasPermission = Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED;
-                            result.success(isRunning && hasPermission);
-                        } catch (Exception e) {
-                            result.success(false);
-                        }
-                        break;
-                    }
-                    
                     case "requestShizukuPermission": {
                         try {
                             Shizuku.requestPermission(0);
@@ -344,21 +318,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                             result.success(info);
                         } catch (Exception e) {
                             result.success("Error: " + e.getMessage());
-                        }
-                        break;
-                    }
-                    
-                    case "getCurrentApp": {
-                        if (taskService != null) {
-                            try {
-                                String currentApp = taskService.getCurrentForegroundApp();
-                                result.success(currentApp);
-                            } catch (Exception e) {
-                                Log.e(TAG, "TaskService error: " + e.getMessage(), e);
-                                result.success(null);
-                            }
-                        } else {
-                            result.success(null);
                         }
                         break;
                     }
@@ -654,13 +613,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         break;
                     }
                     
-                    case "checkNotificationListenerPermission": {
-                        // V2.4: 检查通知监听权限
-                        boolean hasPermission = isNotificationListenerEnabled();
-                        result.success(hasPermission);
-                        break;
-                    }
-                    
                     case "openNotificationListenerSettings": {
                         // V2.4: 打开通知监听设置
                         try {
@@ -675,14 +627,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         break;
                     }
                     
-                    case "checkQueryAllPackagesPermission": {
-                        // V2.4: 检查QUERY_ALL_PACKAGES权限
-                        boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
-                        Log.d(TAG, "🔍 QUERY_ALL_PACKAGES permission check: " + hasPermission);
-                        result.success(hasPermission);
-                        break;
-                    }
-                    
                     case "requestQueryAllPackagesPermission": {
                         // V2.4: 请求QUERY_ALL_PACKAGES权限（跳转到应用详情页）
                         try {
@@ -693,57 +637,6 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                             result.success(true);
                         } catch (Exception e) {
                             Log.e(TAG, "Failed to open app settings", e);
-                            result.error("ERROR", e.getMessage(), null);
-                        }
-                        break;
-                    }
-                    
-                    case "getInstalledApps": {
-                        // V2.4: 获取已安装应用列表（异步）
-                        new Thread(() -> {
-                            try {
-                                // 先检查权限
-                                boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
-                                if (!hasPermission) {
-                                    Log.w(TAG, "⚠️ 没有QUERY_ALL_PACKAGES权限，应用列表可能不完整");
-                                }
-                                
-                                java.util.List<java.util.Map<String, Object>> apps = getInstalledApps();
-                                runOnUiThread(() -> result.success(apps));
-                            } catch (Exception e) {
-                                Log.e(TAG, "Failed to get installed apps", e);
-                                runOnUiThread(() -> result.error("ERROR", e.getMessage(), null));
-                            }
-                        }).start();
-                        break;
-                    }
-                    
-                    case "getSelectedNotificationApps": {
-                        // V2.4: 获取已选择的通知应用
-                        try {
-                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
-                            java.util.Set<String> selectedApps = prefs.getStringSet("notification_selected_apps", new java.util.HashSet<>());
-                            result.success(new java.util.ArrayList<>(selectedApps));
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to get selected apps", e);
-                            result.error("ERROR", e.getMessage(), null);
-                        }
-                        break;
-                    }
-                    
-                    case "setSelectedNotificationApps": {
-                        // V2.4: 保存选择的通知应用
-                        try {
-                            @SuppressWarnings("unchecked")
-                            java.util.List<String> selectedApps = (java.util.List<String>) call.arguments;
-                            SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
-                            prefs.edit()
-                                .putStringSet("notification_selected_apps", new java.util.HashSet<>(selectedApps))
-                                .apply();
-                            Log.d(TAG, "Saved " + selectedApps.size() + " selected apps");
-                            result.success(true);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to save selected apps", e);
                             result.error("ERROR", e.getMessage(), null);
                         }
                         break;
@@ -897,93 +790,5 @@ public class MainActivity extends androidx.activity.ComponentActivity {
             }
         }
         return false;
-    }
-    
-    /**
-     * V2.4: 获取已安装应用列表
-     */
-    private java.util.List<java.util.Map<String, Object>> getInstalledApps() {
-        java.util.List<java.util.Map<String, Object>> apps = new java.util.ArrayList<>();
-        
-        try {
-            PackageManager pm = getPackageManager();
-            java.util.List<android.content.pm.ApplicationInfo> packages = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-            
-            Log.d(TAG, "Total packages found: " + packages.size());
-            
-            // 使用白名单策略（用户应用 + 重要系统应用）
-            java.util.Set<String> importantSystemApps = new java.util.HashSet<>();
-            importantSystemApps.add("com.tencent.mm"); // 微信
-            importantSystemApps.add("com.tencent.mobileqq"); // QQ
-            importantSystemApps.add("com.coolapk.market"); // 酷安
-            importantSystemApps.add("com.sina.weibo"); // 微博
-            importantSystemApps.add("com.taobao.taobao"); // 淘宝
-            importantSystemApps.add("com.eg.android.AlipayGphone"); // 支付宝
-            importantSystemApps.add("com.netease.cloudmusic"); // 网易云
-            importantSystemApps.add("com.ss.android.ugc.aweme"); // 抖音
-            importantSystemApps.add("com.bilibili.app.in"); // 哔哩哔哩
-            importantSystemApps.add("com.android.mms"); // 短信
-            importantSystemApps.add("com.android.contacts"); // 联系人
-            
-            for (android.content.pm.ApplicationInfo appInfo : packages) {
-                // 跳过自己
-                if (appInfo.packageName.equals(getPackageName())) {
-                    continue;
-                }
-                
-                boolean isSystemApp = (appInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0;
-                boolean isUserApp = !isSystemApp;
-                boolean isImportantSystemApp = importantSystemApps.contains(appInfo.packageName);
-                
-                // 只包含用户应用或重要系统应用
-                if (!isUserApp && !isImportantSystemApp) {
-                    continue;
-                }
-                
-                java.util.Map<String, Object> app = new java.util.HashMap<>();
-                app.put("appName", pm.getApplicationLabel(appInfo).toString());
-                app.put("packageName", appInfo.packageName);
-                app.put("isSystemApp", isSystemApp);  // V3.3: 添加系统应用标志
-                
-                // 获取应用图标（全分辨率，不压缩不受损）
-                try {
-                    Drawable icon = pm.getApplicationIcon(appInfo);
-                    // 使用原始图标尺寸，不限制大小
-                    int iconSize = Math.max(icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
-                    if (iconSize <= 0) iconSize = 192; // 如果无法获取，使用默认高分辨率
-                    
-                    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(
-                        iconSize, iconSize, android.graphics.Bitmap.Config.ARGB_8888
-                    );
-                    android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-                    icon.setBounds(0, 0, iconSize, iconSize);
-                    icon.draw(canvas);
-                    
-                    java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream); // 100%质量，无损压缩
-                    app.put("icon", stream.toByteArray());
-                    
-                    bitmap.recycle();
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to get icon for " + appInfo.packageName);
-                }
-                
-                apps.add(app);
-            }
-            
-            // 按应用名排序
-            apps.sort((a, b) -> {
-                String nameA = (String) a.get("appName");
-                String nameB = (String) b.get("appName");
-                return nameA.compareToIgnoreCase(nameB);
-            });
-            
-            Log.d(TAG, "Found " + apps.size() + " user apps");
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to get installed apps", e);
-        }
-        
-        return apps;
     }
 }

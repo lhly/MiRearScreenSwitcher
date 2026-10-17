@@ -13,8 +13,6 @@
 
 package top.zainzh.rearscreen;
 
-import android.content.Context;
-import android.os.Build;
 import android.util.Log;
 import android.app.Application;
 import rikka.sui.Sui;
@@ -25,39 +23,14 @@ import rikka.sui.Sui;
 public class MyApplication extends Application {
     
     private static final String TAG = "MyApplication";
-    private static boolean isSui = false;
     
     static {
         // 关键！在静态块中初始化Sui
         try {
-            isSui = Sui.init(BuildConfig.APPLICATION_ID);
+            Sui.init(BuildConfig.APPLICATION_ID);
         } catch (Throwable e) {
             Log.e(TAG, "Sui init failed", e);
         }
     }
     
-    @Override
-    protected void attachBaseContext(Context base) {
-        super.attachBaseContext(base);
-        
-        // HiddenAPI豁免（Android 9+）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                Class<?> hiddenApiBypass = Class.forName("org.lsposed.hiddenapibypass.HiddenApiBypass");
-                hiddenApiBypass.getMethod("addHiddenApiExemptions", String.class)
-                    .invoke(null, "L");
-            } catch (Exception e) {
-            }
-        }
-    }
-    
-    @Override
-    public void onCreate() {
-        super.onCreate();
-    }
-    
-    public static boolean isSui() {
-        return isSui;
-    }
 }
-

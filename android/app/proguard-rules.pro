@@ -1,23 +1,14 @@
-# Shizuku
--keep class rikka.shizuku.** { *; }
--keep class moe.shizuku.** { *; }
--keep class android.content.pm.** { *; }
+# Shizuku SDK supplies its BinderContainer parcelable rules through its AAR.
+# Retain the application's remote contract below; unused SDK APIs may be shrunk.
 
-# AIDL
--keep class top.zainzh.rearscreen.ITaskService { *; }
--keep class top.zainzh.rearscreen.ITaskService$Stub { *; }
--keep class top.zainzh.rearscreen.ITaskService$Stub$Proxy { *; }
+# AIDL is the cross-process contract shared with Shizuku's user service.
+# Keep its descriptor/API names while allowing optimization inside implementations.
+-keep,allowoptimization class top.zainzh.rearscreen.ITaskService { *; }
+-keep,allowoptimization class top.zainzh.rearscreen.ITaskService$Stub { *; }
+-keep,allowoptimization class top.zainzh.rearscreen.ITaskService$Stub$Proxy { *; }
 
-# TaskService
--keep class top.zainzh.rearscreen.TaskService { *; }
--keepclassmembers class top.zainzh.rearscreen.TaskService {
-    public <init>();
-}
+# Shizuku instantiates this Binder entry point reflectively via its public no-arg constructor.
+-keep,allowoptimization class top.zainzh.rearscreen.TaskService { public <init>(); }
 
-# Services and Activities
--keep class top.zainzh.rearscreen.MainActivity { *; }
--keep class top.zainzh.rearscreen.MyApplication { *; }
--keep class top.zainzh.rearscreen.**Service { *; }
--keep class top.zainzh.rearscreen.**Activity { *; }
--keep class top.zainzh.rearscreen.**Receiver { *; }
-
+# Manifest components and XML views/constructors are retained by AAPT-generated rules.
+# Do not keep every private field/method of every Activity/Service/Receiver.

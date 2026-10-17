@@ -25,6 +25,8 @@ public class UpdateDownloadUiTest {
     Instrumentation.ActivityMonitor monitor;
 
     @Before public void prepare() throws Exception {
+        instrumentation.getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_FREEZE_0);
+        instrumentation.waitForIdleSync();
         byte[] bytes = new UpdateDownloadTest().fixture("candidate.apk");
         fixture = File.createTempFile("ui-update-", ".apk", instrumentation.getTargetContext().getCacheDir()); Files.write(fixture.toPath(), bytes);
         FixtureUpdateActivity.tasks.set(0);
@@ -63,7 +65,25 @@ public class UpdateDownloadUiTest {
     void waitFor(java.util.function.BooleanSupplier condition) throws Exception {
         long deadline = System.currentTimeMillis() + 15000;
         while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) Thread.sleep(30);
-        assertTrue("Timed out waiting for update UI", condition.getAsBoolean());
+        if (!condition.getAsBoolean()) {
+            try {
+                android.content.Context context = instrumentation.getTargetContext();
+                try (java.io.FileOutputStream output = new java.io.FileOutputStream(new File(context.getCacheDir(), "update-ui-timeout.png"))) {
+                    instrumentation.getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+                }
+                android.view.accessibility.AccessibilityNodeInfo active = instrumentation.getUiAutomation().getRootInActiveWindow();
+                try (java.io.PrintWriter output = new java.io.PrintWriter(new File(context.getCacheDir(), "update-ui-timeout.txt"))) {
+                    dumpNode(active, output, 0);
+                }
+            } catch (Exception ignored) { }
+            fail("Timed out waiting for update UI");
+        }
+    }
+
+    void dumpNode(android.view.accessibility.AccessibilityNodeInfo node, java.io.PrintWriter output, int depth) {
+        if (node == null) return;
+        output.println(depth + " " + node.getText() + " " + node.getContentDescription());
+        for (int i = 0; i < node.getChildCount(); i++) dumpNode(node.getChild(i), output, depth + 1);
     }
 
     void waitText(int resource) throws Exception {

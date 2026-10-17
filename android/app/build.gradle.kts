@@ -108,6 +108,14 @@ val prepareLegalAssets = tasks.register<PrepareLegalAssets>("prepareLegalAssets"
 }
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(prepareLegalAssets) { it.outputDirectory }
+    if (variant.buildType == "release") {
+        // No full kotlin-reflect or coroutine debug agent is used in production.
+        // Keep debug inspector metadata, service providers, profiles and licenses.
+        variant.packaging.resources.excludes.addAll(
+            "kotlin/*.kotlin_builtins", "kotlin/**/*.kotlin_builtins",
+            "META-INF/androidx.*.version", "DebugProbesKt.bin"
+        )
+    }
 }
 
 val validateReleaseSigning = tasks.register("validateReleaseSigning") {
@@ -124,7 +132,8 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
-    implementation("androidx.activity:activity-compose:1.13.0")
+    // ComposeView is hosted directly; no activity-compose adapters are used.
+    implementation("androidx.activity:activity:1.13.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
