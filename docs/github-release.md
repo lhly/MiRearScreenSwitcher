@@ -36,17 +36,17 @@ done
 
 ## 发版操作
 
-当前正式版本为 ReMRSS `3.3.4 / 2016`，已完成公开成品验收，包含充电动画、方向设置和充电/通知稳定性修复。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布目标为 ReMRSS `3.4.0 / 2017`，包含完整 Miuix 界面统一、权限检测、离线教程和包体积精简。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.3.4 -m "ReMRSS 3.3.4"
-git push origin v3.3.4
+git tag -a v3.4.0 -m "ReMRSS 3.4.0"
+git push origin v3.4.0
 ```
 
-预览版可使用下一版本的`v3.3.5-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.4.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.4)提供`ReMRSS-v3.3.4.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.3.4`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.4.0)提供`ReMRSS-v3.4.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.4.0`构建产物14天。
 
 ## 构建与签名检查
 
