@@ -1,5 +1,7 @@
 # v3.3.0 原生界面迁移与验证
 
+> 历史验收记录：当前设置界面已统一迁移至 Miuix，旧 View 样式和首页试点范围不再作为开发规范。以 [当前设计规范](../design-system/mrss-native/MASTER.md) 为准。
+
 2026-10-13，将设置界面从 Flutter 迁移至 Java / Android View，沿用既有 Shizuku 13.1.5、TaskServiceManager、背屏服务、磁贴及 URI 控制逻辑。[v3.3.0 正式版](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.0) 已通过 tag 自动构建并发布为 Latest，公开下载成品复核通过；用户已在小米真机安装验证，反馈使用未发现问题。
 
 ## 体积与签名

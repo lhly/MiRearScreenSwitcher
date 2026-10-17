@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose、窗口及服务视图共用的 ReMRSS 主题。 -->
+    <color name="remrss_primary">#246BDF</color>
+    <color name="remrss_background">#F3F3F5</color>
+    <color name="remrss_surface">#FFFFFF</color>
+    <color name="remrss_foreground">#19191C</color>
+    <color name="remrss_secondary">#686870</color>
+    <color name="remrss_control">#EFEFF0</color>
+    <color name="remrss_outline">#DADDE5</color>
+    <color name="remrss_on_control">#686870</color>
+    <color name="remrss_ripple">#29246BDF</color>
+    <color name="remrss_oled_background">#000000</color>
+    <color name="remrss_on_oled">#FFFFFF</color>
+    <color name="remrss_on_oled_secondary">#ACACB4</color>
+    <color name="remrss_charging_liquid">#34C759</color>
+</resources>

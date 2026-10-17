@@ -7,9 +7,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.provider.Settings
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ScrollView
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +18,23 @@ class HomeComposeTest {
     private fun s(key: String) = NativeStrings.get(compose.activity, key)
     private fun switch(key: String) = compose.onNode(hasText(s(key)) and isToggleable())
     private fun tab(key: String) = compose.onNodeWithContentDescription(s(key))
+
+    @Test fun tutorialEntryOpensOfflinePage() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val monitor = instrumentation.addMonitor(TutorialActivity::class.java.name, null, false)
+        var tutorial: TutorialActivity? = null
+        try {
+            compose.onNodeWithTag("home_list").performScrollToNode(hasText(s("tutorial")))
+            aboveNavigation(compose.onNodeWithText(s("tutorial"))).performClick()
+            tutorial = monitor.waitForActivityWithTimeout(5000) as? TutorialActivity
+            assertNotNull(tutorial)
+            compose.onNodeWithTag("tutorial_section_setup").assertExists()
+            compose.onNodeWithTag("tutorial_back").performClick()
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            instrumentation.runOnMainSync { tutorial?.finish() }
+        }
+    }
     private fun swipe(left: Boolean) {
         compose.onNodeWithTag("main_pager").performTouchInput {
             if (left) swipeLeft(startX = width * .7f, endX = width * .2f)
@@ -66,24 +80,17 @@ class HomeComposeTest {
         } finally { compose.mainClock.autoAdvance = true }
     }
 
-    @Test fun nativePageScrollSurvivesSwipesAndActivityRecreation() {
-        fun scroll(view: View): ScrollView? {
-            if (view is ScrollView && view.tag == "native_scroll_1") return view
-            if (view is ViewGroup) for (i in 0 until view.childCount) scroll(view.getChildAt(i))?.let { return it }
-            return null
-        }
+    @Test fun notificationPageScrollSurvivesSwipesAndActivityRecreation() {
         tab("notifications_title").performClick()
-        var position = 0
-        compose.runOnIdle {
-            val native = checkNotNull(scroll(compose.activity.window.decorView))
-            native.scrollTo(0, 400); position = native.scrollY; assertTrue(position > 0)
-        }
+        compose.onNodeWithTag("notifications_list").performScrollToIndex(3)
+        val title = s("notification_rules")
+        compose.onNodeWithText(title).assertIsDisplayed()
         swipe(true); tab("about").assertIsSelected()
         swipe(false); tab("notifications_title").assertIsSelected()
-        compose.runOnIdle { assertEquals(position, checkNotNull(scroll(compose.activity.window.decorView)).scrollY) }
+        compose.onNodeWithText(title).assertIsDisplayed()
         compose.activityRule.scenario.recreate()
         tab("notifications_title").assertIsSelected()
-        compose.runOnIdle { assertEquals(position, checkNotNull(scroll(compose.activity.window.decorView)).scrollY) }
+        compose.onNodeWithText(title).assertIsDisplayed()
     }
 
     @Test fun systemDisabledAnimationsStillChangesTabs() {

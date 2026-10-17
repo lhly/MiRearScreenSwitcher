@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tutorial_entry_help">Shizuku、控制中心快捷開關與背螢幕功能的離線指南</string>
+    <string name="tutorial_intro">依目前 ReMRSS 介面整理，離線也能閱讀。先完成 Shizuku 設定，再依需要啟用背螢幕功能。</string>
+    <string name="tutorial_contents">快速導覽</string>
+    <string name="tutorial_setup_title">準備 Shizuku</string>
+    <string name="tutorial_setup_steps">安裝並開啟 Shizuku。未 Root 的 Android 11 以上裝置可連線 Wi-Fi，依 Shizuku 指示進入開發人員選項並啟用無線偵錯。小米若提示 ADB 權限受限，還需開啟「USB 偵錯（安全設定）」。\n在無線偵錯中選擇使用配對碼配對裝置，將配對碼填入 Shizuku 的配對通知。完成後返回 Shizuku，點選「啟動」，確認服務正在執行。配對成功不代表服務已啟動。\n其他啟動方式請遵循 Shizuku 的引導。未 Root 裝置重新啟動後，通常需要重新啟動 Shizuku，再開啟 ReMRSS。</string>
+    <string name="tutorial_permissions_title">授權與權限檢測</string>
+    <string name="tutorial_permissions_steps">開啟 ReMRSS，在「背螢幕」頁完成 Shizuku 授權，等頂端狀態顯示控制服務已連線後，再使用切換螢幕或顯示設定。\n進入「關於 → 權限檢測」，查看各權限的用途與狀態。背螢幕通知需要通知存取權；錄影懸浮控制按鈕需要上層顯示權限；安裝未知應用程式僅在安裝更新時需要。\n點選未授權項目的「前往授權」或「開啟設定」，依系統提示開啟後返回。僅需開啟自己使用功能所需的權限。</string>
+    <string name="tutorial_tiles_title">加入快捷開關與投放</string>
+    <string name="tutorial_tiles_steps">下拉手機控制中心，進入編輯快捷開關。找到 ReMRSS 的切換至背螢幕、背螢幕截圖及背螢幕錄影開關，加入常用區域並儲存。\n先在主螢幕開啟要投放的應用程式，再下拉控制中心，點選切換至背螢幕。正在連線時請保持面板展開；操作開始前收起面板可能取消請求。\n要移回主螢幕，可點選應用程式正在背螢幕執行的通知；啟用接近感應器後，也可依背螢幕頁的遮蓋偵測說明操作。若背螢幕已占用，先將原應用程式移回主螢幕再投放其他內容。</string>
+    <string name="tutorial_capture_title">截圖與錄影</string>
+    <string name="tutorial_capture_steps">背螢幕顯示所需畫面後，點選控制中心的截圖開關。圖片儲存於 Pictures/RearDisplay，可在檔案管理或相簿中尋找。\n點選錄影開關會先開啟懸浮控制台，再透過懸浮按鈕開始和停止錄影。首次使用前，在權限檢測中允許顯示在其他應用程式上層。\n錄影結束後，影片儲存在 Movies 資料夾。再次點選錄影開關可關閉懸浮控制台，結束後可檢查儲存結果。</string>
+    <string name="tutorial_display_title">顯示與常亮</string>
+    <string name="tutorial_display_steps">在背螢幕頁調整 DPI 和方向，支援 0°、90°、180°、270°。以設定返回後的實際狀態為準，無法讀取時會顯示未知狀態。\n背螢幕常亮用於投放應用程式期間；持續喚醒用於沒有投放時。依需要選擇模式。接近感應器可在被遮蓋時將投放應用程式移回主螢幕。\n充電動畫在接通電源時顯示，需要持續顯示時再開啟充電動畫常亮。長時間顯示固定畫面時，請留意螢幕烙印風險與耗電。</string>
+    <string name="tutorial_notifications_title">設定背螢幕通知</string>
+    <string name="tutorial_notifications_steps">進入底部通知頁，啟用通知服務並授予通知存取權。僅允許本應用程式傳送通知，無法代替讀取其他應用程式通知的權限。\n進入通知應用程式清單，選擇需要投送的來源。依需要設定隱藏標題/內容、跟隨系統勿擾模式、僅倒扣手機時通知與自動關閉時間。\n若未收到通知，確認來源確實產生了新通知，再檢查所選應用程式、勿擾模式、倒扣條件與通知存取權。授權與背景設定可在關於的權限檢測中檢查。</string>
+    <string name="tutorial_background_title">背景執行與更新</string>
+    <string name="tutorial_background_steps">僅手動使用快捷開關時，通常無需鎖定背景。長期使用通知、充電動畫或常亮時，建議允許背景執行，並檢查自動啟動與省電限制。\n權限檢測可查看 Android 電池最佳化豁免；小米應用程式省電的「無限制」是另一項設定。自動啟動和廠商省電策略需手動確認。本應用程式不顯示在最近使用的應用程式中，無需專門加鎖。\n允許自動啟動不代表開機恢復全部功能。重新啟動後先啟動 Shizuku，再開啟 ReMRSS。可在關於的檢查更新中手動檢查，安裝更新時再依系統提示允許安裝未知應用程式。</string>
+    <string name="tutorial_troubleshooting_title">排查與自動化</string>
+    <string name="tutorial_troubleshooting_steps">提示先啟動 Shizuku 時，檢查服務是否執行；提示先開啟應用程式授權時，在權限檢測中檢查 Shizuku 授權。連線逾時可重新展開控制中心並重試。\n若背螢幕已占用或內容消失，先將已投放應用程式移回主螢幕，再重新投放。通知或充電動畫未出現時，檢查功能開關、觸發條件、背景限制及 Shizuku 狀態。\n自動化入口位於關於頁。例如 {scheme}://switch?current=1 可投放目前應用程式。若其他應用程式也處理相同協定，應在自動化工具中指定 ReMRSS 的目標套件名稱。\n仍有問題時，在關於的診斷資訊查看連線詳情，或透過意見回饋提供機型、系統版本、操作步驟和實際現象。</string>
+    <string name="tutorial_open_permissions">開啟權限檢測</string>
+    <string name="tutorial_source_title">教學來源</string>
+    <string name="tutorial_source_help">參考《Mrss 使用教程》並依目前 ReMRSS 介面重新整理。原圖文由汐木澤、物博編寫，軟體原作者為 AntiOblivionis。原文包含舊版介面，線上查看原文需要網路連線。</string>
+    <string name="tutorial_view_original">查看原文</string>
+    <string name="tutorial_back_to_top">返回目錄</string>
+</resources>

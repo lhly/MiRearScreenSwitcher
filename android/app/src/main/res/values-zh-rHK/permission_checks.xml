@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_permissions_title">權限檢測</string>
+    <string name="ui_permissions_help">按需授權即可，無需開啟所有權限。從設定返回後會自動更新狀態。</string>
+    <string name="ui_permissions_background_title">背景執行建議</string>
+    <string name="ui_permission_shizuku">Shizuku</string>
+    <string name="ui_permission_shizuku_help">背螢幕切換、截圖、錄影、顯示設定、通知和充電動畫需要 Shizuku 已執行並授權。</string>
+    <string name="ui_permission_listener">通知存取權</string>
+    <string name="ui_permission_listener_help">將所選應用程式的通知顯示到背螢幕時需要。與本應用程式的傳送通知權限不同。</string>
+    <string name="ui_permission_notifications">傳送通知</string>
+    <string name="ui_permission_notifications_help">用於顯示背景服務狀態、錄影控制和更新下載進度。關閉後這些通知可能無法顯示，不代表前景服務無法執行。</string>
+    <string name="ui_permission_overlay">顯示在其他應用程式上層</string>
+    <string name="ui_permission_overlay_help">使用背螢幕錄影的懸浮控制按鈕時需要。僅切換螢幕、截圖或顯示通知無需開啟。</string>
+    <string name="ui_permission_install">安裝未知應用程式</string>
+    <string name="ui_permission_install_help">下載更新後，允許本應用程式呼叫系統安裝程式安裝 APK。日常背螢幕功能無需開啟。</string>
+    <string name="ui_permission_battery">電池最佳化豁免</string>
+    <string name="ui_permission_battery_help">長期使用通知、充電動畫或常亮時建議設定。此項僅檢測 Android 電池最佳化，不代表小米省電策略已設為無限制。</string>
+    <string name="ui_permission_background">背景省電策略</string>
+    <string name="ui_permission_background_help">長期使用背景功能時，建議在小米應用程式省電設定中選擇「無限制」。系統未提供可靠的狀態查詢介面；其他系統可在應用程式資訊中檢查。</string>
+    <string name="ui_permission_autostart">自動啟動</string>
+    <string name="ui_permission_autostart_help">長期使用背景功能時建議允許自動啟動。系統未提供可靠的狀態查詢介面。此權限不等於開機自動恢復服務。</string>
+    <string name="ui_permissions_background_note">背景鎖定是可選措施，本應用程式不顯示在最近使用的應用程式中，無需專門加鎖。重新啟動後請先啟動 Shizuku，再開啟本應用程式恢復已啟用的功能。</string>
+    <string name="ui_permission_granted">已授權</string>
+    <string name="ui_permission_denied">未授權</string>
+    <string name="ui_permission_not_running">Shizuku 未執行或未連線</string>
+    <string name="ui_permission_unknown">暫時無法檢測</string>
+    <string name="ui_permission_manual">需手動檢查</string>
+    <string name="ui_permission_not_required">目前系統無需單獨授權</string>
+    <string name="ui_permission_exempt">已豁免 Android 電池最佳化</string>
+    <string name="ui_permission_not_exempt">未豁免 Android 電池最佳化</string>
+    <string name="ui_permission_authorize">前往授權</string>
+    <string name="ui_permission_settings">開啟設定</string>
+    <string name="ui_permission_open_shizuku">開啟 Shizuku</string>
+    <string name="ui_permission_settings_unavailable">無法開啟設定，請在系統設定的應用程式管理中手動檢查。</string>
+    <string name="ui_permissions_menu_help">查看權限用途、授權狀態及背景執行建議</string>
+</resources>

@@ -1,122 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/notification_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_gradient_rear_screen">
-    
-    <!-- 渐变背景全屏显示，不受安全区影响 -->
-    
-    <!-- 暗夜模式黑色背景层 -->
-    <View
-        android:id="@+id/dark_mode_background"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#000000"
-        android:visibility="gone" />
-    
+    android:background="@color/remrss_background">
+
+    <!-- 外层铺满背屏，内层由 Activity 应用刘海安全区。 -->
     <RelativeLayout
         android:id="@+id/notification_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clickable="true">
-        
-        <!-- 中心大图标（动画起点） -->
+        android:clickable="true"
+        android:focusable="true">
+
         <ImageView
             android:id="@+id/app_icon_center"
             android:layout_width="120dp"
             android:layout_height="120dp"
             android:layout_centerInParent="true"
-            android:scaleType="fitCenter"/>
-        
-        <!-- 整体通知容器（垂直居中） -->
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
         <LinearLayout
             android:id="@+id/notification_wrapper"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
-            android:layout_marginRight="28dp"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:alpha="1">
-            
-            <!-- 应用名和图标容器（无背景） -->
+            android:layout_margin="16dp"
+            android:alpha="0"
+            android:background="@drawable/bg_rear_notification_card"
+            android:padding="16dp"
+            android:orientation="vertical">
+
             <LinearLayout
                 android:id="@+id/app_name_container"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="start"
-                android:layout_marginBottom="6dp"
+                android:layout_marginBottom="8dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
-                
-                <!-- 左上角小图标 -->
+
                 <ImageView
                     android:id="@+id/app_icon_small"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:scaleType="fitCenter"/>
-                
-                <!-- 应用名字（与icon对齐） -->
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitCenter" />
+
                 <TextView
                     android:id="@+id/app_name"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="10dp"
-                    android:textColor="#FFFFFF"
-                    android:textSize="17sp"
-                    android:textStyle="bold"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:textColor="@color/remrss_secondary"
+                    android:textSize="14sp"
                     android:maxLines="1"
-                    android:ellipsize="end"
-                    android:shadowColor="#40000000"
-                    android:shadowDx="0"
-                    android:shadowDy="1"
-                    android:shadowRadius="3"/>
+                    android:ellipsize="end" />
             </LinearLayout>
-            
-            <!-- 通知内容毛玻璃容器（自适应高度） -->
+
             <LinearLayout
                 android:id="@+id/notification_content_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center_vertical"
-                android:background="@drawable/bg_frosted_glass"
-                android:paddingRight="16dp"
-                android:paddingTop="10dp"
-                android:paddingBottom="14dp">
-            
-            <!-- 通知标题（单行，加粗，白色阴影） -->
-            <TextView
-                android:id="@+id/notification_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:shadowColor="#40000000"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="3"/>
-            
-            <!-- 通知内容（最多6行，白色阴影） -->
-            <TextView
-                android:id="@+id/notification_content"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:maxLines="6"
-                android:ellipsize="end"
-                android:shadowColor="#40000000"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="3"/>
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/notification_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/remrss_foreground"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/notification_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/remrss_secondary"
+                    android:textSize="14sp"
+                    android:maxLines="6"
+                    android:ellipsize="end" />
             </LinearLayout>
-            
         </LinearLayout>
     </RelativeLayout>
 </FrameLayout>
-

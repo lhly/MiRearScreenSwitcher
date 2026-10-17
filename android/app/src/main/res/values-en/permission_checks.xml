@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_permissions_title">Permission checks</string>
+    <string name="ui_permissions_help">Grant only what your features need. Status refreshes when you return from settings.</string>
+    <string name="ui_permissions_background_title">Background recommendations</string>
+    <string name="ui_permission_shizuku">Shizuku</string>
+    <string name="ui_permission_shizuku_help">Screen switching, screenshots, recording, display settings, rear notifications and charging animations need Shizuku running and authorized.</string>
+    <string name="ui_permission_listener">Notification access</string>
+    <string name="ui_permission_listener_help">Needed to show notifications from selected apps on the rear screen. Separate from permission to send this app’s notifications.</string>
+    <string name="ui_permission_notifications">Send notifications</string>
+    <string name="ui_permission_notifications_help">Shows background service status, recording controls and update download progress. Turning this off can hide these notifications; it does not prevent foreground services from running.</string>
+    <string name="ui_permission_overlay">Display over other apps</string>
+    <string name="ui_permission_overlay_help">Needed for floating rear screen recording controls. Switching screens, screenshots and rear notifications do not need this.</string>
+    <string name="ui_permission_install">Install unknown apps</string>
+    <string name="ui_permission_install_help">Lets this app open the system installer for a downloaded APK update. Everyday rear screen features do not need this.</string>
+    <string name="ui_permission_battery">Battery optimization exemption</string>
+    <string name="ui_permission_battery_help">Recommended for ongoing notifications, charging animations and keep-awake features. Checks Android battery optimization only, not Xiaomi’s Unrestricted battery policy.</string>
+    <string name="ui_permission_background">Background battery policy</string>
+    <string name="ui_permission_background_help">For ongoing background features, choose Unrestricted in Xiaomi app battery settings. No reliable status API is available. On other systems, check App info.</string>
+    <string name="ui_permission_autostart">Autostart</string>
+    <string name="ui_permission_autostart_help">Recommended for ongoing background features. No reliable status API is available. Allowing autostart does not automatically restore services after reboot.</string>
+    <string name="ui_permissions_background_note">Locking in Recents is optional. This app is hidden from Recents and needs no lock. After reboot, start Shizuku, then open this app to restore enabled features.</string>
+    <string name="ui_permission_granted">Granted</string>
+    <string name="ui_permission_denied">Not granted</string>
+    <string name="ui_permission_not_running">Shizuku not running or disconnected</string>
+    <string name="ui_permission_unknown">Unable to check</string>
+    <string name="ui_permission_manual">Check manually</string>
+    <string name="ui_permission_not_required">No separate grant needed on this system</string>
+    <string name="ui_permission_exempt">Exempt from Android battery optimization</string>
+    <string name="ui_permission_not_exempt">Not exempt from Android battery optimization</string>
+    <string name="ui_permission_authorize">Grant access</string>
+    <string name="ui_permission_settings">Open settings</string>
+    <string name="ui_permission_open_shizuku">Open Shizuku</string>
+    <string name="ui_permission_settings_unavailable">Unable to open settings. Check this app in system app management.</string>
+    <string name="ui_permissions_menu_help">Check permissions, feature access and background settings</string>
+</resources>

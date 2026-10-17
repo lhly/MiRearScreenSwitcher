@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_recording_start">開始錄製</string>
+    <string name="ui_recording_stop">停止錄製</string>
+    <string name="ui_recording_close">關閉錄影控制台</string>
+</resources>

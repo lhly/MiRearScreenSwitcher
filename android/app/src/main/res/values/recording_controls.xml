@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Miuix 设置页面一致的中性面板；录屏红色只用于状态图形。 -->
+    <color name="remrss_overlay_surface">@color/remrss_surface</color>
+    <color name="remrss_overlay_outline">@color/remrss_outline</color>
+    <color name="remrss_overlay_control">@color/remrss_control</color>
+    <color name="remrss_overlay_foreground">@color/remrss_on_control</color>
+    <color name="remrss_overlay_ripple">@color/remrss_ripple</color>
+    <color name="remrss_recording_red">#D93632</color>
+    <string name="ui_recording_start">Start recording</string>
+    <string name="ui_recording_stop">Stop recording</string>
+    <string name="ui_recording_close">Close recording controls</string>
+</resources>

@@ -72,7 +72,10 @@ public class UpdateDownloadUiTest {
 
     void click(int resource) {
         android.view.accessibility.AccessibilityNodeInfo view = node(instrumentation.getUiAutomation().getRootInActiveWindow(), instrumentation.getTargetContext().getString(resource));
-        assertNotNull(view); assertTrue(view.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
+        assertNotNull(view);
+        while (view != null && !view.isClickable()) view = view.getParent();
+        assertNotNull("Action must have a clickable semantic parent", view);
+        assertTrue(view.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
     }
 
     android.view.accessibility.AccessibilityNodeInfo node(android.view.accessibility.AccessibilityNodeInfo root, String value) {

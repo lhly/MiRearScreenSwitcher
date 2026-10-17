@@ -48,7 +48,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService;
-    private NativeSettingsUi nativeUi;
+    private SettingsController nativeUi;
     ReleaseUpdateChecker createUpdateChecker() { return new ReleaseUpdateChecker(getApplicationContext()); }
     UpdateDownloadTask createUpdateTask(UpdatePackage update) { return new UpdateDownloadTask(getApplicationContext(), update); }
     boolean canInstallUpdates() { return Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls(); }
@@ -86,7 +86,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        nativeUi = new NativeSettingsUi(this, savedInstanceState);
+        nativeUi = new SettingsController(this, savedInstanceState);
         setContentView(nativeUi.getView());
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -428,10 +428,16 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         break;
                     }
                     
+                    case "openTutorial": {
+                        startActivity(new Intent(this, TutorialActivity.class));
+                        result.success(null);
+                        break;
+                    }
+
                     case "openProject":
                     case "openFeedback":
                     case "openReleases":
-                    case "openTutorial":
+                    case "openTutorialSource":
                     case "openVersionSource":
                     case "openOriginalProject":
                     case "openTesterProfile": {

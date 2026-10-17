@@ -239,12 +239,22 @@
         </activity>
         
         <activity
+            android:name=".PermissionChecksActivity"
+            android:exported="false"
+            android:theme="@style/MiuixHostTheme" />
+
+        <activity
+            android:name=".TutorialActivity"
+            android:exported="false"
+            android:theme="@style/MiuixHostTheme" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity=""
-            android:theme="@style/NativeTheme"
+            android:theme="@style/MiuixHostTheme"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -252,12 +262,5 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- 卸载确认对话框的标题和内容 -->
-        <meta-data
-            android:name="app_description_title"
-            android:value="@string/uninstall_title" />
-        <meta-data
-            android:name="app_description_content"
-            android:value="@string/uninstall_content" />
     </application>
 </manifest>

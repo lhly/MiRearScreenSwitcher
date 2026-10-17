@@ -23,9 +23,13 @@ import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.graphics.Color;
+import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.Handler;
@@ -35,7 +39,9 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
 
@@ -54,6 +60,8 @@ public class ScreenRecordService extends Service {
     private static ScreenRecordService instance = null;
     private WindowManager windowManager;
     private View floatingView;
+    private View recordButton;
+    private ImageView closeButton;
     private boolean isRecording = false;
     private String currentVideoPath;
     private int recordPid = -1; // 录屏进程ID
@@ -178,8 +186,8 @@ public class ScreenRecordService extends Service {
         );
         
         params.gravity = Gravity.TOP | Gravity.END;
-        params.x = 20;
-        params.y = 200;
+        params.x = dp(16);
+        params.y = dp(80);
         
         Log.d(TAG, "→ 参数设置完成，准备添加视图");
         Log.d(TAG, "  TYPE: " + (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? "TYPE_APPLICATION_OVERLAY" : "TYPE_PHONE"));
@@ -202,35 +210,22 @@ public class ScreenRecordService extends Service {
         
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.HORIZONTAL);
-        layout.setPadding(16, 16, 16, 16);
+        layout.setPadding(dp(8), dp(8), dp(8), dp(8));
         layout.setGravity(android.view.Gravity.CENTER); // 上下左右居中
         
         Log.d(TAG, "✓ LinearLayout已创建");
         
-        // 背景 - 四色渐变（与其他UI一致）
-        GradientDrawable background = new GradientDrawable();
-        background.setOrientation(GradientDrawable.Orientation.TL_BR);
-        background.setColors(new int[]{
-            0xE0FF9D88,  // 珊瑚橙（88%不透明）
-            0xE0FFB5C5,  // 粉红（88%不透明）
-            0xE0E0B5DC,  // 紫色（88%不透明）
-            0xE0A8C5E5   // 蓝色（88%不透明）
-        });
-        background.setCornerRadius(60);
-        layout.setBackground(background);
-        
         // 关闭按钮（×）- 先声明
-        final android.widget.TextView closeButton = new android.widget.TextView(this);
-        closeButton.setText("×");
-        closeButton.setTextColor(Color.WHITE);
-        closeButton.setTextSize(32);
-        closeButton.setGravity(android.view.Gravity.CENTER);
+        closeButton = new ImageView(this);
+        closeButton.setImageResource(R.drawable.ic_recording_close);
+        closeButton.setPadding(dp(12), dp(12), dp(12), dp(12));
+        closeButton.setTag("recording_close");
+        buttonSemantics(closeButton);
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
+            dp(48), dp(48)
         );
         closeParams.gravity = android.view.Gravity.CENTER; // 上下居中
-        closeParams.leftMargin = 24;
+        closeParams.leftMargin = dp(8);
         closeButton.setLayoutParams(closeParams);
         
         closeButton.setOnClickListener(v -> {
@@ -244,13 +239,16 @@ public class ScreenRecordService extends Service {
         });
         
         // 录制/停止按钮（圆形，红色）
-        final View recordButton = new View(this);
-        int buttonSize = 120;
+        recordButton = new View(this);
+        recordButton.setTag("recording_toggle");
+        buttonSemantics(recordButton);
+        int buttonSize = dp(48);
         LinearLayout.LayoutParams recordParams = new LinearLayout.LayoutParams(buttonSize, buttonSize);
         recordParams.gravity = android.view.Gravity.CENTER; // 上下居中
         recordButton.setLayoutParams(recordParams);
         
-        // 初始状态：录制按钮（实心圆）
+        // 状态保存在控件上，切换主题时不重建窗口或丢失录屏状态。
+        styleFloatingWindow(layout);
         updateRecordButtonState(recordButton, false);
         
         // 点击事件
@@ -297,6 +295,9 @@ public class ScreenRecordService extends Service {
                         params[0].y = initialY + (int) (event.getRawY() - initialTouchY);
                         windowManager.updateViewLayout(floatingView, params[0]);
                         return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        return true;
                 }
                 return false;
             }
@@ -310,22 +311,57 @@ public class ScreenRecordService extends Service {
      * 更新录制按钮状态
      */
     private void updateRecordButtonState(View button, boolean recording) {
-        GradientDrawable drawable = new GradientDrawable();
-        
-        if (recording) {
-            // 停止状态：方形
-            drawable.setShape(GradientDrawable.RECTANGLE);
-            drawable.setCornerRadius(20);
-            drawable.setColor(Color.RED);
-            drawable.setSize(60, 60); // 方形内部稍小
-        } else {
-            // 录制状态：圆形
-            drawable.setShape(GradientDrawable.OVAL);
-            drawable.setColor(Color.RED);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(recording ? GradientDrawable.RECTANGLE : GradientDrawable.OVAL);
+        if (recording) shape.setCornerRadius(dp(4));
+        shape.setColor(getColor(R.color.remrss_recording_red));
+        int inset = dp(recording ? 14 : 8);
+        LayerDrawable content = new LayerDrawable(new android.graphics.drawable.Drawable[]{
+                controlBackground(), new InsetDrawable(shape, inset)});
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(getColor(R.color.remrss_overlay_ripple)),
+                content, controlBackground()));
+        button.setActivated(recording);
+        button.setContentDescription(getString(recording ? R.string.ui_recording_stop : R.string.ui_recording_start));
+    }
+
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private GradientDrawable controlBackground() {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.OVAL);
+        shape.setColor(getColor(R.color.remrss_overlay_control));
+        return shape;
+    }
+
+    private void styleFloatingWindow(View panel) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(getColor(R.color.remrss_overlay_surface));
+        background.setCornerRadius(dp(28));
+        background.setStroke(dp(1), getColor(R.color.remrss_overlay_outline));
+        panel.setBackground(background);
+        panel.setElevation(dp(6));
+        closeButton.setImageTintList(ColorStateList.valueOf(getColor(R.color.remrss_overlay_foreground)));
+        closeButton.setContentDescription(getString(R.string.ui_recording_close));
+        closeButton.setBackground(new RippleDrawable(ColorStateList.valueOf(getColor(R.color.remrss_overlay_ripple)),
+                controlBackground(), controlBackground()));
+    }
+
+    private void buttonSemantics(View button) {
+        button.setFocusable(true);
+        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.Button.class.getName());
+            }
+        });
+    }
+
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (floatingView != null && closeButton != null && recordButton != null) {
+            styleFloatingWindow(floatingView);
+            updateRecordButtonState(recordButton, recordButton.isActivated());
         }
-        
-        drawable.setStroke(6, Color.WHITE); // 白色边框
-        button.setBackground(drawable);
     }
     
     /**
@@ -583,7 +619,7 @@ public class ScreenRecordService extends Service {
     /**
      * 停止录制（带按钮引用，用于更新状态）
      */
-    private void stopRecordingInternal(final View recordButton, final android.widget.TextView closeButton) {
+    private void stopRecordingInternal(final View recordButton, final View closeButton) {
         if (!isRecording) {
             return;
         }

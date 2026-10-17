@@ -4,10 +4,10 @@
     android:id="@+id/charging_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@color/remrss_oled_background">
     
     <!-- 全屏液体填充（带重力感应和波浪） -->
-    <top.zainzh.rearscreen.LightningShapeView
+    <top.zainzh.rearscreen.ChargingLiquidView
         android:id="@+id/full_screen_liquid"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
@@ -22,7 +22,7 @@
         android:maxLines="1"
         android:textSize="60sp"
         android:textStyle="bold"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/remrss_on_oled"
         android:shadowColor="#80000000"
         android:shadowDx="0"
         android:shadowDy="6"

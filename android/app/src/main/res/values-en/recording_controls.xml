@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_recording_start">Start recording</string>
+    <string name="ui_recording_stop">Stop recording</string>
+    <string name="ui_recording_close">Close recording controls</string>
+</resources>

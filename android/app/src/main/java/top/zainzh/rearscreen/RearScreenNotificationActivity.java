@@ -94,13 +94,10 @@ public class RearScreenNotificationActivity extends Activity {
         // ✅ 统一设置布局，确保主屏占位后移动到背屏也能正常显示
         setContentView(R.layout.activity_rear_screen_notification);
         
-        // 应用暗夜模式或常规布局调整
-        if (darkMode) {
-            applyDarkMode();
-        } else {
-            applyRegularLayout();
-        }
-        
+        applyNotificationStyle(darkMode);
+        findViewById(R.id.notification_container).addOnLayoutChangeListener(
+            (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitNotificationContent());
+
         // V3.2: 保持常亮 + 锁屏显示
         getWindow().addFlags(
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
@@ -111,9 +108,6 @@ public class RearScreenNotificationActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
         }
-        
-        // 设置窗口背景，防止上滑回桌面时露出白色底
-        getWindow().setBackgroundDrawableResource(R.drawable.bg_gradient_rear_screen);
         
         // 如果在主屏启动，只是占位符，先隐藏内容，等待移动到背屏
         if (displayId == 0) {
@@ -328,10 +322,13 @@ public class RearScreenNotificationActivity extends Activity {
     /**
      * 执行通知动画
      * 1. 大图标从中心缩放
-     * 2. 应用名毛玻璃容器淡入
-     * 3. 通知内容毛玻璃容器淡入
+     * 2. 应用名和图标淡入
+     * 3. 通知内容淡入
      */
     private void startNotificationAnimation(ImageView iconCenter, View appNameContainer, View contentContainer) {
+        // 卡片随内容入场，避免遮住第一阶段的中心应用图标。
+        View wrapper = findViewById(R.id.notification_wrapper);
+        wrapper.setAlpha(0f);
         // 初始状态
         appNameContainer.setAlpha(0f);
         appNameContainer.setScaleX(0.9f);
@@ -366,7 +363,10 @@ public class RearScreenNotificationActivity extends Activity {
                         })
                         .start();
                     
-                    // 阶段3: 应用名毛玻璃容器淡入并缩放(800-1050ms)
+                    wrapper.animate().alpha(1f).setDuration(250)
+                        .setInterpolator(new AccelerateDecelerateInterpolator()).start();
+
+                    // 阶段3: 应用名和图标淡入并缩放(800-1050ms)
                     appNameContainer.animate()
                         .alpha(1f)
                         .scaleX(1f)
@@ -379,7 +379,7 @@ public class RearScreenNotificationActivity extends Activity {
                         })
                         .start();
                     
-                    // 阶段4: 通知内容毛玻璃容器从下方滑入 (950-1250ms)
+                    // 阶段4: 通知内容从下方滑入 (950-1250ms)
                     contentContainer.animate()
                         .alpha(1f)
                         .translationY(0f)
@@ -609,6 +609,8 @@ public class RearScreenNotificationActivity extends Activity {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        applyNotificationStyle(getIntent().getBooleanExtra("darkMode", false));
+        findViewById(R.id.notification_container).post(this::fitNotificationContent);
         long configTime = System.currentTimeMillis();
         
         // 记录配置变化（用于调试）
@@ -804,7 +806,7 @@ public class RearScreenNotificationActivity extends Activity {
                     return;
                 }
                 
-                // 设置margin（避开cutout区域），背景渐变色会填充cutout区域
+                // 设置margin（避开cutout区域），中性背景会填充cutout区域
                 params.leftMargin = info.cutout.left;
                 params.topMargin = info.cutout.top;
                 params.rightMargin = info.cutout.right;
@@ -820,165 +822,46 @@ public class RearScreenNotificationActivity extends Activity {
         }
     }
     
-    /**
-     * 应用暗夜模式
-     * 显示黑色背景层，毛玻璃去除，文字改为白色，调整布局
-     */
-    private void applyDarkMode() {
-        try {
-            Log.d(TAG, "🌙 应用暗夜模式");
-            
-            // 显示黑色背景层
-            View darkBackground = findViewById(R.id.dark_mode_background);
-            if (darkBackground != null) {
-                darkBackground.setVisibility(View.VISIBLE);
-                Log.d(TAG, "✓ 黑色背景层已显示");
-            }
-            
-            // 获取整体通知容器 - 确保垂直居中
-            View wrapperContainer = findViewById(R.id.notification_wrapper);
-            if (wrapperContainer != null) {
-                Log.d(TAG, "✓ 整体通知容器已获取，保持垂直居中");
-            }
-            
-            // 获取毛玻璃容器 - 移除毛玻璃效果，设置为透明
-            View contentContainer = findViewById(R.id.notification_content_container);
-            if (contentContainer != null) {
-                contentContainer.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-                
-                // 移除容器的padding限制，让文字可以到屏幕边缘
-                contentContainer.setPadding(0, 0, 0, 0);
-                Log.d(TAG, "✓ 毛玻璃容器已移除，布局已调整");
-            }
-            
-            // 获取应用名和图标容器 - 调整位置与标题内容对齐
-            View appNameContainer = findViewById(R.id.app_name_container);
-            if (appNameContainer != null) {
-                android.widget.LinearLayout.LayoutParams containerParams = (android.widget.LinearLayout.LayoutParams) appNameContainer.getLayoutParams();
-                containerParams.leftMargin = 0; // 与标题内容左侧对齐
-                appNameContainer.setLayoutParams(containerParams);
-                Log.d(TAG, "✓ 应用名容器已调整，与标题内容左侧对齐");
-            }
-            
-            // 获取应用名称 - 改为白色
-            TextView appName = findViewById(R.id.app_name);
-            if (appName != null) {
-                appName.setTextColor(android.graphics.Color.WHITE);
-                Log.d(TAG, "✓ 应用名称已设为白色");
-            }
-            
-            // 获取通知标题 - 改为白色，限制1行，调整间距
-            TextView notificationTitle = findViewById(R.id.notification_title);
-            if (notificationTitle != null) {
-                notificationTitle.setTextColor(android.graphics.Color.WHITE);
-                notificationTitle.setMaxLines(1); // 暗夜模式改为1行
-                
-                // 调整标题的margin，与icon到标题的间距保持一致
-                android.widget.LinearLayout.LayoutParams titleParams = (android.widget.LinearLayout.LayoutParams) notificationTitle.getLayoutParams();
-                titleParams.topMargin = 8; // 与icon到标题的间距一致
-                notificationTitle.setLayoutParams(titleParams);
-                Log.d(TAG, "✓ 通知标题已设为白色，限制1行，间距已调整");
-            }
-            
-            // 获取通知内容 - 改为白色，限制6行，调整间距
-            TextView notificationContent = findViewById(R.id.notification_content);
-            if (notificationContent != null) {
-                notificationContent.setTextColor(android.graphics.Color.WHITE);
-                notificationContent.setMaxLines(6); // 暗夜模式改为6行
-                
-                // 调整内容的margin，与标题到内容的间距保持一致
-                android.widget.LinearLayout.LayoutParams contentParams = (android.widget.LinearLayout.LayoutParams) notificationContent.getLayoutParams();
-                contentParams.topMargin = 8; // 与标题到内容的间距一致
-                notificationContent.setLayoutParams(contentParams);
-                Log.d(TAG, "✓ 通知内容已设为白色，限制6行，间距已调整");
-            }
-            
-            Log.d(TAG, "✓ 暗夜模式已应用 - 全黑背景，毛玻璃已移除，文字已变白，布局已调整");
-            
-        } catch (Exception e) {
-            Log.e(TAG, "❌ 应用暗夜模式失败", e);
-        }
+    /** 常规通知随系统主题；用户启用的暗夜模式始终保留纯黑背屏。 */
+    private void applyNotificationStyle(boolean oledMode) {
+        int background = getColor(oledMode ? R.color.remrss_oled_background : R.color.remrss_background);
+        int foreground = getColor(oledMode ? R.color.remrss_on_oled : R.color.remrss_foreground);
+        int secondary = getColor(oledMode ? R.color.remrss_on_oled_secondary : R.color.remrss_secondary);
+        findViewById(R.id.notification_root).setBackgroundColor(background);
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(background));
+        View wrapper = findViewById(R.id.notification_wrapper);
+        // setBackgroundResource 会忽略相同资源 ID，主题切换必须重新解析 Drawable。
+        wrapper.setBackground(oledMode ? new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+            : getDrawable(R.drawable.bg_rear_notification_card));
+        wrapper.setElevation(oledMode ? 0 : getResources().getDisplayMetrics().density);
+        ((TextView) findViewById(R.id.app_name)).setTextColor(secondary);
+        ((TextView) findViewById(R.id.notification_title)).setTextColor(foreground);
+        ((TextView) findViewById(R.id.notification_content)).setTextColor(secondary);
     }
-    
-    /**
-     * 应用常规布局调整
-     * 使用暗夜模式的布局调整，但保持原有的颜色
-     */
-    private void applyRegularLayout() {
-        try {
-            Log.d(TAG, "🎨 应用常规布局调整");
-            
-            // 获取整体通知容器 - 确保垂直居中
-            View wrapperContainer = findViewById(R.id.notification_wrapper);
-            if (wrapperContainer != null) {
-                Log.d(TAG, "✓ 整体通知容器已获取，保持垂直居中");
-            }
-            
-            // 获取毛玻璃容器 - 移除毛玻璃效果，设置为透明
-            View contentContainer = findViewById(R.id.notification_content_container);
-            if (contentContainer != null) {
-                // 移除毛玻璃效果，设置为透明
-                contentContainer.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-                
-                // 移除容器的padding限制，让文字可以到屏幕边缘
-                contentContainer.setPadding(0, 0, 0, 0);
-                Log.d(TAG, "✓ 常规布局容器已调整，毛玻璃已移除");
-            }
-            
-            // 获取应用名和图标容器 - 调整位置与标题内容对齐
-            View appNameContainer = findViewById(R.id.app_name_container);
-            if (appNameContainer != null) {
-                android.widget.LinearLayout.LayoutParams containerParams = (android.widget.LinearLayout.LayoutParams) appNameContainer.getLayoutParams();
-                containerParams.leftMargin = 0; // 与标题内容左侧对齐
-                appNameContainer.setLayoutParams(containerParams);
-                Log.d(TAG, "✓ 应用名容器已调整，与标题内容左侧对齐");
-            }
-            
-            // 获取应用名称 - 改为白色并添加阴影
-            TextView appName = findViewById(R.id.app_name);
-            if (appName != null) {
-                appName.setTextColor(android.graphics.Color.WHITE);
-                appName.setShadowLayer(3, 0, 1, android.graphics.Color.parseColor("#40000000"));
-                Log.d(TAG, "✓ 应用名称已设为白色，添加阴影");
-            }
-            
-            // 获取通知标题 - 改为白色并添加阴影，调整间距和行数
-            TextView notificationTitle = findViewById(R.id.notification_title);
-            if (notificationTitle != null) {
-                // 改为白色文字并添加阴影
-                notificationTitle.setTextColor(android.graphics.Color.WHITE);
-                notificationTitle.setShadowLayer(3, 0, 1, android.graphics.Color.parseColor("#40000000"));
-                notificationTitle.setMaxLines(1); // 限制1行
-                
-                // 调整标题的margin，与icon到标题的间距保持一致
-                android.widget.LinearLayout.LayoutParams titleParams = (android.widget.LinearLayout.LayoutParams) notificationTitle.getLayoutParams();
-                titleParams.topMargin = 8; // 与icon到标题的间距一致
-                notificationTitle.setLayoutParams(titleParams);
-                Log.d(TAG, "✓ 通知标题已设为白色，添加阴影，间距已调整");
-            }
-            
-            // 获取通知内容 - 调整间距和行数，保持原有颜色
-            TextView notificationContent = findViewById(R.id.notification_content);
-            if (notificationContent != null) {
-                // 改为白色文字并添加阴影
-                notificationContent.setTextColor(android.graphics.Color.WHITE);
-                notificationContent.setShadowLayer(3, 0, 1, android.graphics.Color.parseColor("#40000000"));
-                notificationContent.setMaxLines(6); // 限制6行
-                
-                // 调整内容的margin，与标题到内容的间距保持一致
-                android.widget.LinearLayout.LayoutParams contentParams = (android.widget.LinearLayout.LayoutParams) notificationContent.getLayoutParams();
-                contentParams.topMargin = 8; // 与标题到内容的间距一致
-                notificationContent.setLayoutParams(contentParams);
-                Log.d(TAG, "✓ 通知内容已设为白色，添加阴影，间距已调整");
-            }
-            
-            Log.d(TAG, "✓ 常规布局已调整 - 毛玻璃已移除，文字已变白并添加阴影");
-            
-        } catch (Exception e) {
-            Log.e(TAG, "❌ 应用常规布局调整失败", e);
+
+    /** 背屏高度有限：保留系统字号，按安全区内实际剩余高度截断正文。 */
+    private void fitNotificationContent() {
+        View container = findViewById(R.id.notification_container);
+        View wrapper = findViewById(R.id.notification_wrapper);
+        TextView content = findViewById(R.id.notification_content);
+        if (container.getHeight() == 0 || content.getVisibility() == View.GONE) return;
+        android.view.ViewGroup.MarginLayoutParams margins = (android.view.ViewGroup.MarginLayoutParams) wrapper.getLayoutParams();
+        int fixedHeight = wrapper.getPaddingTop() + wrapper.getPaddingBottom();
+        for (int id : new int[]{R.id.app_name_container, R.id.notification_title}) {
+            View view = findViewById(id);
+            if (view.getVisibility() == View.GONE) continue;
+            android.view.ViewGroup.MarginLayoutParams params = (android.view.ViewGroup.MarginLayoutParams) view.getLayoutParams();
+            fixedHeight += view.getMeasuredHeight() + params.topMargin + params.bottomMargin;
         }
+        android.view.ViewGroup.MarginLayoutParams params = (android.view.ViewGroup.MarginLayoutParams) content.getLayoutParams();
+        int remaining = container.getHeight() - margins.topMargin - margins.bottomMargin - fixedHeight - params.topMargin;
+        int fontPadding = content.getPaddingTop() + content.getPaddingBottom()
+            + content.getPaint().getFontMetricsInt().bottom - content.getPaint().getFontMetricsInt().descent
+            + content.getPaint().getFontMetricsInt().ascent - content.getPaint().getFontMetricsInt().top;
+        int lines = Math.max(1, Math.min(6, (remaining - fontPadding) / Math.max(1, content.getLineHeight())));
+        if (content.getMaxLines() != lines) content.setMaxLines(lines);
     }
-    
+
     /**
      * 启动通知动画期间的唤醒循环
      */

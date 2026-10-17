@@ -122,8 +122,6 @@ public class RearScreenChargingActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 27) setShowWhenLocked(true);
         setContentView(R.layout.activity_rear_screen_charging);
         contentInitialized = true;
-        LightningShapeView liquid = findViewById(R.id.full_screen_liquid);
-        liquid.setFullScreenMode(true);
         TextView batteryText = findViewById(R.id.battery_text);
         TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(batteryText, 24, 60, 1,
                 TypedValue.COMPLEX_UNIT_SP);
@@ -250,7 +248,7 @@ public class RearScreenChargingActivity extends Activity {
     /**
      * V3.5: 全屏液体填充动画（非线性，从0到目标电量）
      */
-    private void startFullScreenLiquidAnimation(LightningShapeView liquidView, int targetLevel) {
+    private void startFullScreenLiquidAnimation(ChargingLiquidView liquidView, int targetLevel) {
         // 目标填充比例
         float targetFillLevel = targetLevel / 100f;
         
@@ -296,7 +294,7 @@ public class RearScreenChargingActivity extends Activity {
         if (liquidAnimator != null) liquidAnimator.cancel();
         try {
             Log.d(TAG, "🔋 开始更新电量: " + newLevel + "%");
-            LightningShapeView liquidView = findViewById(R.id.full_screen_liquid);
+            ChargingLiquidView liquidView = findViewById(R.id.full_screen_liquid);
             TextView batteryText = findViewById(R.id.battery_text);
             
             if (liquidView != null && batteryText != null) {
