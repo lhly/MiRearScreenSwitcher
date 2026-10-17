@@ -56,3 +56,13 @@ ReMRSS 正式包名与源码 namespace 为 `top.zainzh.rearscreen`，调试包�
 [v3.3.0](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.3.0) 已完成本机正式构建、Lint、偏好迁移及界面运行测试，并通过云端构建、发布和下载成品校验。APK 为 581,195 字节（约 0.58 MB），已在小米真机安装验证，使用未发现问题。详细记录见 [v3.3.0 验证记录](native-ui-validation.md)。
 
 [自动发版说明](github-release.md) · [此前磁贴真机验证](hyperos4-tile-validation.md)
+
+## 本地开发记录
+
+规划、发现和进度记录只保存在被忽略的 `.planning/<任务目录>/`，不随源码公开。提交前可运行 `python3 tools/check_private_plans.py` 检查暂存区。
+
+新克隆仓库后，执行以下命令启用提交前自动检查；如已有自定义 Git hooks，请合并此检查：
+
+```sh
+git config --local core.hooksPath .githooks
+```

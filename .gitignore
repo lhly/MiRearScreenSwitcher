@@ -40,3 +40,9 @@ migrate_working_dir/
 # Local toolchains, package backups and diagnostics
 .local/
 /.codex/
+
+# Local agent planning and work logs (never commit)
+.planning/
+task_plan.md
+findings.md
+progress.md

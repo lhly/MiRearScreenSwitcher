@@ -13,7 +13,7 @@
 
 减少约 **96.72%**。新版 ZIP 条目解压合计 815,853 字节，不含 Flutter assets、libflutter.so、libapp.so 或其他 native lib；这不是系统安装占用的计算口径。
 
-API 36 模拟器中，从旧个人正式版覆盖升级后，系统存储页显示应用大小 **1.02 MB**、用户数据 **73.73 kB**、缓存 **86.02 kB**、总计 **1.18 MB**。此前用户看到的 100 多 MB 对应旧“MRSS 修复测试”debug 包；此前体积诊断见根目录 findings.md。
+API 36 模拟器中，从旧个人正式版覆盖升级后，系统存储页显示应用大小 **1.02 MB**、用户数据 **73.73 kB**、缓存 **86.02 kB**、总计 **1.18 MB**。此前用户看到的 100 多 MB 对应旧“MRSS 修复测试”debug 包。
 
 - 版本：`3.3.0 / 2012`；minSdk 24、targetSdk 36；不可调试。
 - 包名：`com.tgwgroup.MiRearScreenSwitcher.personal`，URI：`mrss://`。

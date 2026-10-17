@@ -1,7 +1,9 @@
 # 项目开发约定
 
 - 所有解释和回复使用简体中文；标识符、命令和报错保留原文。
-- 多步骤任务遵循 planning-with-files-zh，维护项目 task_plan.md、findings.md、progress.md。
+- 多步骤任务遵循 planning-with-files-zh，规划、发现与进度仅保存在已忽略的 `.planning/<任务目录>/`，通过 `.planning/.active_plan` 选择当前计划。
+- 不在项目根目录生成 `task_plan.md`、`findings.md`、`progress.md`；这些本地过程记录不得加入 Git，包括强制添加。公开文档只保留整理后的使用说明、设计决策和验收结论。
+- 提交前运行 `python3 tools/check_private_plans.py`，确认暂存区不包含本地规划目录或过程记录。
 
 ## UI 开发
 
