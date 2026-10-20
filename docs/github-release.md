@@ -139,3 +139,18 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 公开APK为**1,412,798字节（约1.41MB）**，SHA256为`ebc6208da45f3f678c03cc14ece089640e88b43daf8b84818ebb10a0e10f9073`。已匿名重新下载APK、SHA256SUMS、LICENSE及NOTICE，真实字节、附件digest与校验文件逐项一致；包名top.zainzh.rearscreen、版本3.3.4/2016、非调试、现有正式证书和完整法律资产验证通过。
 
 独立Raw与gh-proxy.com清单均与公开APK大小、SHA256及下载地址一致，匿名镜像下载APK再次核对通过。旧MRSS根清单与附件未修改。本地已快进同步CI清单提交，验收日志和校验副本位于被忽略的`.local/diagnostics/release-remrss-334/`。本轮未另行安装公开3.3.4包到手机；修复业务代码的真机验证见前述专项验收，新版本与该修复相比仅调整版本元数据及发布资料。
+
+
+## ReMRSS v3.5.0 发布验收（2026-10-20）
+
+[ReMRSS v3.5.0](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.5.0)已公开并标记为Latest，版本3.5.0/2018。发布tag对应源码提交`991fe5995882e0568555eed84c17049d170b1527`；[Actions 39404195574](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/39404195574)构建、发布和稳定清单三个job全部成功。CI随后提交`4cab470`更新`updates/remrss/version.json`，本地已快进同步。
+
+本次包含可选虚拟投放、侧滑返回与二段菜单、摄像头避让、按App密度兼容及方向/范围记忆、教程三个磁贴直接添加、首页优先级与返回箭头，以及显示信息失败处理。使用方式和设备边界见[虚拟背屏投放](virtual-rear-casting.md)。
+
+发布前14组主机检查、actionlint、签名Release构建与Lint通过（0错误、54警告）。测试脚本使用JAVA_HOME，原生程序从AGP SDK provider解析路径；在不含本地工具目录和SDK local.properties的隔离源码副本中完成全套检查及四ABI签名构建。前两次CI的测试JDK/本地SDK配置依赖均在生成任何成品之前修正；最终公开标签指向修复后的完整源码。
+
+匿名下载公开APK为**1,643,840字节（约1.64MB）**，SHA256为`85e35c4720a1164e74cc47df49dd8212c54b39c211634b9e9283a7662a00132a`。真实下载字节、SHA256SUMS及GitHub asset digest一致；包名`top.zainzh.rearscreen`、3.5.0/2018、非调试、原正式证书、四ABI输入程序及完整法律资产均通过复核。正式包无测试仪器或软件手势预览入口。
+
+Raw与gh-proxy.com镜像清单均对应同一公开APK；镜像APK再次匿名下载，大小和哈希一致。旧MRSS根清单及旧Release附件的ID、大小、digest和下载地址保持不变。未用本地体验包替代公开附件验收。
+
+当前功能源码已有前述专项真机操作反馈和自动回归，显示信息清理另通过5项API36模拟器通知测试及实际画面检查；本轮公开3.5.0 APK没有另行安装到用户手机，不将静态或模拟器检查等同所有背屏机型上的真实手指验收。
