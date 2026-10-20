@@ -21,6 +21,10 @@ from earlier MRSS installations; the automation URI scheme is retained.
 checks and an offline tutorial, and removed unused code, resources and
 dependency metadata while retaining the existing feature set.
 
+2026-10-20: added optional virtual rear casting, gesture navigation and menu,
+per-app rendering and presentation preferences, direct tile addition, and
+validated display-information handling; retained device and session guards.
+
 Copyright (C) 2026 冷火凉烟, for original contributions to this fork.
 Existing upstream copyright and license notices remain applicable.
 This modified program is distributed under the GNU General Public License,

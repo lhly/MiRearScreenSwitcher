@@ -1,0 +1,8 @@
+<resources>
+    <string name="rear_density_help">用於局部畫面縮放異常，會增加繪製負擔。下次虛擬投放生效。</string>
+    <string name="rear_density_search">搜尋應用名稱或套件名稱</string>
+    <string name="rear_density_loading">正在讀取應用…</string>
+    <string name="rear_density_failed">無法讀取應用清單</string>
+    <string name="rear_density_empty">沒有符合的應用</string>
+    <string name="rear_density_retry">重試</string>
+</resources>

@@ -265,6 +265,25 @@ class MiuixSettingsUi(
                     }
                 }
             }
+            if (BuildConfig.VIRTUAL_CAST_ENABLED) item("rear_cast_mode") {
+                AppCard {
+                    RearCastModeToggle()
+                    AppDivider()
+                    AppRow(activity.getString(R.string.rear_density_title), activity.getString(R.string.rear_density_summary),
+                        modifier = Modifier.testTag("density_compatibility_entry"), action = {
+                            activity.startActivity(android.content.Intent().setClassName(activity,
+                                "top.zainzh.rearscreen.DensityCompatibilityActivity"))
+                        })
+                    if (BuildConfig.DEBUG && BuildConfig.INPUT_PROXY_PROTOTYPE) {
+                        AppDivider()
+                        AppRow("背屏投放状态（调试版）", "查看运行状态、停止投放和独立输入测试。",
+                            modifier = Modifier.testTag("input_proxy_prototype_entry"), action = {
+                                activity.startActivity(android.content.Intent().setClassName(activity,
+                                    "top.zainzh.rearscreen.InputProxyPrototypeActivity"))
+                            })
+                    }
+                }
+            }
             item("display") {
                 Section("screen_size", dark)
                 Group {

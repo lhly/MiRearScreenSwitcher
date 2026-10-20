@@ -36,21 +36,21 @@ done
 
 ## 发版操作
 
-本轮发布目标为 ReMRSS `3.4.0 / 2017`，包含完整 Miuix 界面统一、权限检测、离线教程和包体积精简。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布目标为 ReMRSS `3.5.0 / 2018`，包含可选虚拟投放、侧滑菜单与摄像头避让、按 App 兼容与展示记忆、教程磁贴添加，以及显示信息和界面修正。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.4.0 -m "ReMRSS 3.4.0"
-git push origin v3.4.0
+git tag -a v3.5.0 -m "ReMRSS 3.5.0"
+git push origin v3.5.0
 ```
 
-预览版可使用下一版本的`v3.4.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.5.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.4.0)提供`ReMRSS-v3.4.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.4.0`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.5.0)提供`ReMRSS-v3.5.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.5.0`构建产物14天。
 
 ## 构建与签名检查
 
-环境为Ubuntu22.04、JDK21、Gradle9.7.1、AGP9.4.1、Kotlin2.4.20、Android SDK37.0/Build Tools37.0.0；不需要Flutter或NDK。外部Actions均用完整commit SHA固定。
+环境为Ubuntu22.04、JDK21、Gradle9.7.1、AGP9.4.1、Kotlin2.4.20、Android SDK37.0/Build Tools37.0.0；需要NDK27.0.12077973编译四ABI背屏输入程序，不需要Flutter。外部Actions均用完整commit SHA固定。
 
 构建前执行发布参数、清单和服务连接测试。签名凭据缺失、格式错误或证书不符即失败。成品必须满足：
 

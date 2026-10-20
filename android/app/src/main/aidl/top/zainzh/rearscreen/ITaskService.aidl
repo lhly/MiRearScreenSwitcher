@@ -1,4 +1,7 @@
 package top.zainzh.rearscreen;
+import android.os.IBinder;
+import android.view.Surface;
+import top.zainzh.rearscreen.IRearGestureListener;
 
 interface ITaskService {
     void destroy() = 16777114;  // Shizuku required
@@ -132,5 +135,20 @@ interface ITaskService {
      */
     boolean executeShellCommand(String cmd) = 20;
     String executeShellCommandWithResult(String cmd) = 21;
+    String startRearInputProxy(String readerPath, int taskId, IBinder owner) = 22;
+    String getRearInputProxyStatus() = 23;
+    boolean renewRearInputProxyLease(String sessionId) = 24;
+    void stopRearInputProxy(String sessionId) = 25;
+    String startRearVirtualCast(in Surface surface, String readerPath, int taskId, int hostTaskId, int density, String component, IBinder owner, IRearGestureListener gestures, String viewport, boolean densityCompatibility, int contentRotation, boolean fullViewport) = 26;
+    String getRearVirtualCastStatus() = 27;
+    boolean renewRearVirtualCastLease(String sessionId) = 28;
+    void stopRearVirtualCast(String sessionId) = 29;
+    boolean updateRearVirtualCastSurface(String sessionId, in Surface surface) = 30;
+    String getRearCastViewport() = 31;
+    void dismissRearCastMenu(String sessionId) = 32;
+    String rotateRearVirtualCast(String sessionId, int direction) = 33;
+    String beginRearCastViewport(String sessionId, boolean full) = 34;
+    String finishRearCastViewport(String sessionId, in Surface surface) = 35;
+    String getRearCastRenderPlan(int taskId, String component, int density, boolean densityCompatibility, boolean fullViewport) = 36;
 }
 

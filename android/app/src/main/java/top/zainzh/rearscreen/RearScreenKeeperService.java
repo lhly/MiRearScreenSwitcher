@@ -56,11 +56,46 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private static final String CHANNEL_ID = "rear_screen_keeper";
     private static final int NOTIFICATION_ID = 10001;
 
-    private static RearScreenKeeperService instance = null;
+    private static volatile RearScreenKeeperService instance = null;
     private PowerManager.WakeLock wakeLock;
     private Handler handler;
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService = null;
+    private volatile String virtualSessionId;
+    static boolean isPhysicalCastRunning() {
+        return physicalCastTask() != null;
+    }
+    static String physicalCastTask() {
+        RearScreenKeeperService s = instance;
+        return s != null && s.virtualSessionId == null ? s.monitoredTaskInfo : null;
+    }
+    public static void stopVirtualSession(String id) {
+        RearScreenKeeperService s = instance;
+        if (s != null && id != null && id.equals(s.virtualSessionId)) s.handler.post(s::stopSelf);
+    }
+    private RearInputProxySession inputProxySession;
+    private void stopInputProxy() {
+        if (inputProxySession != null) { inputProxySession.close(); inputProxySession = null; }
+    }
+    private void startInputProxy() {
+        stopInputProxy();
+        if (virtualSessionId != null) return;
+        if (!monitoringPaused && taskService != null && RearInputProxySession.enabled(this)
+                && monitoredTaskInfo != null && monitoredTaskInfo.contains(":")) {
+            try {
+                int task = Integer.parseInt(monitoredTaskInfo.substring(monitoredTaskInfo.lastIndexOf(':') + 1));
+                inputProxySession = new RearInputProxySession(this, taskService, task);
+            } catch (RuntimeException e) { Log.w(TAG, "Invalid proxy cast task", e); }
+        }
+    }
+    public static void refreshInputProxyPreference() {
+        RearScreenKeeperService s = instance;
+        if (s != null && s.handler != null) s.handler.post(() -> {
+            s.handler.removeCallbacks(s.wakeupRearScreenRunnable);
+            s.startInputProxy();
+            s.startRearScreenWakeup();
+        });
+    }
 
     // V12.3: 初始杀进程策略 - 只杀1次，不持续监控
     private static final int INITIAL_KILL_COUNT = 1; // 初始杀1次
@@ -78,7 +113,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
     // V14.5: 监听应用是否手动移回主屏
     private static final long CHECK_TASK_INTERVAL_MS = 2000; // 每2秒检查一次
-    private String monitoredTaskInfo = null; // 格式: "packageName:taskId"
+    private volatile String monitoredTaskInfo = null; // 格式: "packageName:taskId"
 
     // V2.3: 临时暂停监控（充电动画显示期间）
     private boolean monitoringPaused = false;
@@ -90,6 +125,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     public static void pauseMonitoring() {
         if (instance != null) {
             instance.monitoringPaused = true;
+            instance.stopInputProxy();
 
             // ✅ 取消所有pending的检查任务
             if (instance.handler != null) {
@@ -104,6 +140,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     public static void resumeMonitoring() {
         if (instance != null) {
             instance.monitoringPaused = false;
+            instance.startInputProxy();
             Log.d(TAG, "▶️ Monitoring resumed");
 
             // ✅ 延迟5秒后才开始检查，给投送app足够时间恢复到前台
@@ -132,6 +169,30 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        String requestedSession = intent == null ? null : intent.getStringExtra(VirtualCastUriFlow.EXTRA_SESSION);
+        if (BuildConfig.VIRTUAL_CAST_ENABLED && (virtualSessionId != null || requestedSession != null)) {
+            if ("ACTION_RETURN_TO_MAIN".equals(intent == null ? null : intent.getAction())) {
+                // A cold stale PendingIntent must never enter legacy global launcher restoration.
+                if (virtualSessionId == null) {
+                    if (monitoredTaskInfo != null) return START_NOT_STICKY;
+                    virtualSessionId = requestedSession;
+                }
+                if (virtualSessionId == null || requestedSession == null || requestedSession.equals(virtualSessionId)) stopSelf();
+                return START_NOT_STICKY;
+            }
+            if (requestedSession != null) {
+                virtualSessionId = requestedSession;
+                monitoredTaskInfo = intent.getStringExtra("lastMovedTask");
+            }
+            keepScreenOnEnabled = false;
+            handler.removeCallbacks(wakeupRearScreenRunnable);
+            startForeground(NOTIFICATION_ID, buildNotification());
+            bindTaskService();
+            if (sensorManager == null) initProximitySensor();
+            handler.removeCallbacks(checkTaskRunnable);
+            startTaskMonitoring();
+            return START_NOT_STICKY;
+        }
 
         // V14.6: 处理点击通知返回主屏的事件
         if (intent != null && "ACTION_RETURN_TO_MAIN".equals(intent.getAction())) {
@@ -219,6 +280,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 String newMonitoredTask = intent.getStringExtra("lastMovedTask");
                 if (newMonitoredTask != null) {
                     monitoredTaskInfo = newMonitoredTask;
+                    startInputProxy();
                 }
             }
 
@@ -283,6 +345,18 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private final Runnable checkTaskRunnable = new Runnable() {
         @Override
         public void run() {
+            if (virtualSessionId != null) {
+                try {
+                    if (taskService != null) {
+                        org.json.JSONObject state = new org.json.JSONObject(taskService.getRearVirtualCastStatus());
+                        if (!virtualSessionId.equals(state.optString("id")) || !"running".equals(state.optString("state"))) {
+                            stopSelf(); return;
+                        }
+                    }
+                } catch (Exception e) { stopSelf(); return; }
+                handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
+                return;
+            }
             // V2.3: 如果监控已暂停（充电动画显示中），跳过本次检查
             if (monitoringPaused) {
                 handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
@@ -335,6 +409,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private final Runnable wakeupRearScreenRunnable = new Runnable() {
         @Override
         public void run() {
+            if (virtualSessionId != null) return;
+            if (RearInputProxySession.enabled(RearScreenKeeperService.this)) return;
             // 检查开关状态
             if (keepScreenOnEnabled && taskService != null) {
                 try {
@@ -354,6 +430,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     };
 
     private void startRearScreenWakeup() {
+        if (virtualSessionId != null) return;
+        if (RearInputProxySession.enabled(this)) return;
         if (handler != null && keepScreenOnEnabled) {
             // 立即执行第一次唤醒，然后开始持续发送
             handler.post(wakeupRearScreenRunnable);
@@ -402,12 +480,15 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             taskService = ITaskService.Stub.asInterface(binder);
+            startInputProxy();
 
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
+            stopInputProxy();
             taskService = null;
+            if (virtualSessionId != null) stopSelf();
         }
     };
 
@@ -429,7 +510,22 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     @Override
     public void onDestroy() {
         taskServiceReleased = true;
+        stopInputProxy();
         super.onDestroy();
+        if (virtualSessionId != null) {
+            String id = virtualSessionId;
+            ITaskService remote = taskService;
+            stopForeground(Service.STOP_FOREGROUND_REMOVE);
+            handler.removeCallbacksAndMessages(null);
+            unregisterProximitySensor();
+            instance = null;
+            new Thread(() -> {
+                try { if (remote != null) remote.stopRearVirtualCast(id); }
+                catch (Exception e) { Log.w(TAG, "Virtual cast stop", e); }
+                finally { unbindTaskService(); }
+            }, "virtual-cast-stop").start();
+            return;
+        }
 
         Log.w(TAG, "═══════════════════════════════════════");
         Log.w(TAG, "⚠ Service onDestroy called");
@@ -563,6 +659,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         // 点击通知切换回主屏
         Intent returnIntent = new Intent(this, RearScreenKeeperService.class);
         returnIntent.setAction("ACTION_RETURN_TO_MAIN");
+        if (virtualSessionId != null) returnIntent.putExtra(VirtualCastUriFlow.EXTRA_SESSION, virtualSessionId);
         PendingIntent pendingIntent = PendingIntent.getService(
                 this, 0, returnIntent,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -763,6 +860,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
      * 处理接近传感器覆盖事件 - 拉回主屏并停止Service
      */
     private void handleProximityCovered() {
+        if (virtualSessionId != null) { stopSelf(); return; }
         Log.w(TAG, "═══════════════════════════════════════");
         Log.w(TAG, "🤚 PROXIMITY TRIGGER - Return to main display");
         Log.w(TAG, "═══════════════════════════════════════");

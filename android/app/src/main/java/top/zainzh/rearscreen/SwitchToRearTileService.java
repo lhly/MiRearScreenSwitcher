@@ -145,6 +145,15 @@ public class SwitchToRearTileService extends TileService {
                 showTemporaryFeedback("请先打开应用授权");
                 return;
             }
+            if (BuildConfig.VIRTUAL_CAST_ENABLED) {
+                Log.i(TAG, "stage=cast_mode_route virtual=" + RearCastMode.useVirtual(this));
+                // Both casting modes share the serial command service, including its live-session guard.
+                Intent command = new Intent(this, UriCommandService.class).setData(android.net.Uri.parse(BuildConfig.URI_SCHEME + "://switch?current=1"))
+                        .putExtra("fromQuickSettings", true);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(command); else startService(command);
+                showTemporaryFeedback("正在启动投放...");
+                return;
+            }
             pending = new SwitchRequest(++nextRequestId);
             Log.i(TAG, "request=" + pending.id + " stage=click binder_alive="
                     + (taskService != null && taskService.asBinder().isBinderAlive()));

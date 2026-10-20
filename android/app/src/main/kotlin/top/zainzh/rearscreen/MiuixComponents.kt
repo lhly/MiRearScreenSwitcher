@@ -18,6 +18,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -91,14 +93,51 @@ internal fun ComponentActivity.miuixContent(content: @Composable () -> Unit) {
         trailing = { Switch(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics { }) })
 }
 
+@Composable internal fun RearCastModeToggle() {
+    if (!BuildConfig.VIRTUAL_CAST_ENABLED) return
+    val context = LocalContext.current
+    val preferences = remember(context) { RearCastMode.preferences(context) }
+    var virtual by remember(context) { mutableStateOf(RearCastMode.useVirtual(context)) }
+    DisposableEffect(preferences) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == RearCastMode.VIRTUAL) virtual = RearCastMode.useVirtual(context)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val supported = android.os.Build.VERSION.SDK_INT >= 33
+    AppToggle(stringResource(R.string.rear_cast_mode_title),
+        if (supported) stringResource(if (virtual) R.string.rear_cast_mode_on else R.string.rear_cast_mode_off) + "\n" +
+                stringResource(R.string.rear_cast_mode_next) else stringResource(R.string.rear_cast_unavailable), virtual, enabled = supported,
+        onChange = { RearCastMode.setVirtual(context, it) })
+}
+
+@Composable internal fun AppBackButton(back: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.ui_back)
+    IconButton(onClick = back, modifier = modifier.size(48.dp).clearAndSetSemantics {
+        contentDescription = label
+        role = Role.Button
+        onClick { back(); true }
+    }, minWidth = 48.dp, minHeight = 48.dp,
+        backgroundColor = Color.Transparent) {
+        Icon(painterResource(R.drawable.ic_navigation_back), contentDescription = null,
+            modifier = Modifier.size(26.dp), tint = AppPalette.text())
+    }
+}
+
+@Composable internal fun AppPageHeader(title: String, back: () -> Unit, backTag: String, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        AppBackButton(back, Modifier.testTag(backTag))
+        Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppPalette.text(),
+            modifier = Modifier.weight(1f).semantics { heading() })
+    }
+}
+
 @Composable internal fun PageFrame(title: String, back: () -> Unit, backTag: String, content: @Composable ColumnScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(AppPalette.background()).safeDrawingPadding().imePadding(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 680.dp).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TextButton(NativeStrings.get(LocalContext.current, "back"), back, Modifier.testTag(backTag), minHeight = 48.dp)
-                Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppPalette.text(), modifier = Modifier.weight(1f).semantics { heading() })
-            }
+            AppPageHeader(title, back, backTag, Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             content()
         }
     }

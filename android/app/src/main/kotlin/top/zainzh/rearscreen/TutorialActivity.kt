@@ -1,13 +1,16 @@
 package top.zainzh.rearscreen
 
+import android.content.ComponentName
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
@@ -15,13 +18,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlin.coroutines.resume
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 
 /** Content, chapter navigation and attribution are bundled resources and work offline. */
 class TutorialActivity : ComponentActivity() {
     private lateinit var list: androidx.compose.foundation.lazy.LazyListState
+    private var addingTile by mutableStateOf(false)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         list = savedInstanceState.listState("tutorial_scroll")
@@ -57,6 +62,13 @@ class TutorialActivity : ComponentActivity() {
                                     if (index == 1) TextButton(getString(R.string.tutorial_open_permissions), {
                                         startActivity(Intent(this@TutorialActivity, PermissionChecksActivity::class.java))
                                     }, Modifier.testTag("tutorial_permissions"), minHeight = 48.dp)
+                                    if (section == "tiles") {
+                                        tileShortcuts.forEach { tile ->
+                                            TextButton(getString(R.string.tutorial_add_tile, getString(tile.label)), { addTile(tile, scope) },
+                                                Modifier.fillMaxWidth().testTag("tutorial_add_tile_${tile.tag}"), minHeight = 48.dp,
+                                                enabled = !addingTile)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -76,6 +88,57 @@ class TutorialActivity : ComponentActivity() {
             }
         }
     }
+    private fun addTile(tile: TileShortcut, scope: CoroutineScope) {
+        if (addingTile) return
+        if (PermissionChecks.read(this, PermissionChecks.Item.SHIZUKU) != PermissionChecks.State.GRANTED) {
+            Toast.makeText(this, R.string.tutorial_tile_needs_shizuku, Toast.LENGTH_LONG).show()
+            return
+        }
+        addingTile = true
+        scope.launch {
+            var connection: ServiceConnection? = null
+            val message = try {
+                val service = withTimeout(6000) {
+                    suspendCancellableCoroutine<ITaskService> { continuation ->
+                        val consumer = object : ServiceConnection {
+                            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                                if (continuation.isActive) continuation.resume(ITaskService.Stub.asInterface(binder))
+                            }
+                            override fun onServiceDisconnected(name: ComponentName) { }
+                        }
+                        connection = consumer
+                        TaskServiceManager.acquire(this@TutorialActivity, consumer)
+                    }
+                }
+                withContext(Dispatchers.IO) { addTileWithService(tile, service) }
+            } catch (_: TimeoutCancellationException) {
+                R.string.tutorial_tile_add_failed
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                R.string.tutorial_tile_add_failed
+            } finally {
+                connection?.let(TaskServiceManager::release)
+                addingTile = false
+            }
+            Toast.makeText(this@TutorialActivity, getString(message, getString(tile.label)), Toast.LENGTH_LONG).show()
+        }
+    }
+    private suspend fun addTileWithService(tile: TileShortcut, service: ITaskService): Int {
+        // Components come only from the three bundled services; never rewrite the user's tile list.
+        val component = ComponentName(this, tile.service).flattenToString()
+        val spec = "custom($component)"
+        fun listed() = service.executeShellCommandWithResult("settings --user current get secure sysui_qs_tiles")
+            .trim().split(',').any { it == spec || it == "custom(${ComponentName(this, tile.service).flattenToShortString()})" }
+        if (listed()) return R.string.tutorial_tile_already_added
+        if (!service.executeShellCommand("cmd statusbar add-tile '$component'")) return R.string.tutorial_tile_add_failed
+        // SystemUI updates asynchronously. A successful shell exit alone does not prove addition.
+        repeat(20) {
+            if (listed()) return R.string.tutorial_tile_added
+            delay(100)
+        }
+        return R.string.tutorial_tile_add_failed
+    }
     private fun openOriginal() {
         try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ProjectInfo.TUTORIAL_SOURCE))) }
         catch (_: android.content.ActivityNotFoundException) { openError() }
@@ -83,7 +146,12 @@ class TutorialActivity : ComponentActivity() {
     }
     private fun openError() { Toast.makeText(this, NativeStrings.get(this, "open_failed"), Toast.LENGTH_LONG).show() }
     override fun onSaveInstanceState(outState: Bundle) { outState.saveList("tutorial_scroll", list); super.onSaveInstanceState(outState) }
+    private data class TileShortcut(val service: Class<*>, val label: Int, val tag: String)
     companion object {
+        private val tileShortcuts = listOf(
+            TileShortcut(SwitchToRearTileService::class.java, R.string.tile_label, "switch"),
+            TileShortcut(RearScreenshotTileService::class.java, R.string.tile_screenshot_label, "screenshot"),
+            TileShortcut(RearScreenRecordTileService::class.java, R.string.tile_record_label, "record"))
         val sections = listOf("setup", "permissions", "tiles", "capture", "display", "notifications", "background", "troubleshooting")
         private val titles = listOf(R.string.tutorial_setup_title, R.string.tutorial_permissions_title, R.string.tutorial_tiles_title,
             R.string.tutorial_capture_title, R.string.tutorial_display_title, R.string.tutorial_notifications_title, R.string.tutorial_background_title, R.string.tutorial_troubleshooting_title)

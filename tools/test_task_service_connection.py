@@ -16,14 +16,19 @@ PACKAGE = 'top/zainzh/rearscreen'
 STUBS = {
 'android/content/ComponentName.java': '''package android.content; public class ComponentName { public ComponentName(String p,String c){} }''',
 'android/content/Context.java': '''package android.content; public class Context {
+ public static final java.util.List<Intent> started=new java.util.ArrayList<>();
  public static final int MODE_PRIVATE=0; public String getPackageName(){return "test.mrss";}
  public SharedPreferences getSharedPreferences(String n,int m){return new SharedPreferences();}
- public ComponentName startForegroundService(Intent i){return null;} public ComponentName startService(Intent i){return null;}
+ public ComponentName startForegroundService(Intent i){started.add(i);return null;} public ComponentName startService(Intent i){started.add(i);return null;}
  public android.content.pm.PackageManager getPackageManager(){return new android.content.pm.PackageManager();}
  public String getString(int id,Object... args){return "message";}
 }''',
 'android/content/SharedPreferences.java': '''package android.content; public class SharedPreferences { public boolean getBoolean(String k,boolean d){return d;} }''',
-'android/content/Intent.java': '''package android.content; public class Intent { public Intent(Context c,Class<?> t){} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){return this;} }''',
+'android/content/Intent.java': '''package android.content; public class Intent { public Class<?> target; public android.net.Uri data; private java.util.Map<String,Boolean> flags=new java.util.HashMap<>(); public Intent(Context c,Class<?> t){target=t;} public Intent setData(android.net.Uri u){data=u;return this;} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){flags.put(n,v);return this;} public boolean getBooleanExtra(String n,boolean d){return flags.getOrDefault(n,d);} }''',
+'android/net/Uri.java': '''package android.net; public class Uri { private String value; public static Uri parse(String s){Uri u=new Uri();u.value=s;return u;} public String toString(){return value;} }''',
+f'{PACKAGE}/BuildConfig.java': '''package top.zainzh.rearscreen; public class BuildConfig { public static boolean INPUT_PROXY_PROTOTYPE=false; public static boolean VIRTUAL_CAST_ENABLED=false; public static final boolean DEBUG=true; public static final String URI_SCHEME="mrss-debug"; }''',
+f'{PACKAGE}/UriCommandService.java': '''package top.zainzh.rearscreen; public class UriCommandService {}''',
+f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class RearCastMode { public static boolean useVirtual(android.content.Context c){return true;} }''',
 'android/content/ServiceConnection.java': '''package android.content; public interface ServiceConnection { void onServiceConnected(ComponentName n,android.os.IBinder b); void onServiceDisconnected(ComponentName n); }''',
 'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public static final int PERMISSION_GRANTED=0; public Object getApplicationInfo(String p,int f){return p;} public CharSequence getApplicationLabel(Object a){return a.toString();} }''',
 'android/os/RemoteException.java': '''package android.os; public class RemoteException extends Exception {}''',
@@ -112,6 +117,14 @@ public class ConnectionRegressionTest {
     SwitchToRearTileService tile=new SwitchToRearTileService();tile.onStartListening();
     try {
      switch(scenario){
+      case "tile_prototype_serial_route":
+       BuildConfig.VIRTUAL_CAST_ENABLED=true;tile.onClick();
+       check(Context.started.size()==1&&Context.started.get(0).target==UriCommandService.class
+        &&Context.started.get(0).data.toString().equals("mrss-debug://switch?current=1")
+        &&Context.started.get(0).getBooleanExtra("fromQuickSettings",false)&&service.moves==0,"prototype bypassed shared mode routing");break;
+      case "tile_prototype_permission_denied":
+       BuildConfig.VIRTUAL_CAST_ENABLED=true;Shizuku.permission=-1;tile.onClick();
+       check(Context.started.isEmpty()&&service.moves==0,"prototype bypassed permission gate");break;
       case "tile_delayed_ready": tile.onClick();Handler.advance(1600);Shizuku.ready(0,service);awaitFinished(tile);check(service.moves==1,"click lost after one second");break;
       case "tile_duplicate_click": Shizuku.ready(0,service);tile.onClick();tile.onClick();awaitFinished(tile);check(service.moves==1,"duplicate move");break;
       case "tile_close_pending": tile.onClick();tile.onStopListening();Shizuku.ready(0,service);Handler.drain();check(service.moves==0,"closed panel moved task");break;
@@ -170,7 +183,8 @@ for scenario in ['shared_release', 'callback_release', 'release_pending', 'bind_
                  'permission_granted', 'release_after_death', 'dead_on_connect',
                  'tile_delayed_ready', 'tile_duplicate_click', 'tile_close_pending',
                  'tile_timeout', 'tile_other_owner', 'tile_destroy_pending',
-                 'tile_failed_move', 'tile_close_during_target']:
+                 'tile_failed_move', 'tile_close_during_target', 'tile_prototype_serial_route',
+                 'tile_prototype_permission_denied']:
     setattr(ConnectionTests, 'test_' + scenario, lambda self, name=scenario: self.run_scenario(name))
 
 if __name__ == '__main__':

@@ -1,0 +1,8 @@
+<resources>
+    <string name="rear_cast_menu_exit">退出到主屏</string>
+    <string name="rear_cast_menu_left">向左旋转</string>
+    <string name="rear_cast_menu_right">向右旋转</string>
+    <string name="rear_cast_menu_failed">旋转失败，请重试</string>
+    <string name="rear_cast_menu_full">切换为全域</string>
+    <string name="rear_cast_menu_avoid_camera">切换为避开摄像头</string>
+</resources>

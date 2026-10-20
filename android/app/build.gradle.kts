@@ -15,6 +15,7 @@ if (keystorePropertiesFile.exists()) {
 val versionProperties = Properties().apply {
     rootProject.file("../version.properties").inputStream().use { load(it) }
 }
+val inputProxyPrototype = providers.gradleProperty("mrssInputProxy").map(String::toBoolean).orElse(false)
 
 android {
     namespace = "top.zainzh.rearscreen"
@@ -36,6 +37,7 @@ android {
         manifestPlaceholders["mrssScheme"] = "mrss"
         buildConfigField("String", "URI_SCHEME", "\"mrss\"")
         buildConfigField("String", "SOURCE_TAG", "\"v${versionName}\"")
+        buildConfigField("boolean", "VIRTUAL_CAST_ENABLED", "true")
     }
     
     // Shizuku需要
@@ -73,8 +75,10 @@ android {
             manifestPlaceholders["appLabel"] = "ReMRSS 调试版"
             manifestPlaceholders["mrssScheme"] = "mrss-debug"
             buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
+            buildConfigField("boolean", "INPUT_PROXY_PROTOTYPE", inputProxyPrototype.get().toString())
         }
         release {
+            buildConfigField("boolean", "INPUT_PROXY_PROTOTYPE", "false")
             manifestPlaceholders["appLabel"] = "ReMRSS"
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
@@ -90,6 +94,35 @@ android {
         }
     }
 
+}
+
+/** The virtual display input reader is packaged as an extracted executable for each Android ABI. */
+abstract class CompileRearInputReader : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sourceFile: RegularFileProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val compilerFiles: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @get:javax.inject.Inject abstract val execution: org.gradle.process.ExecOperations
+    @TaskAction fun compile() {
+        val abiByCompiler = mapOf("aarch64" to "arm64-v8a", "armv7a" to "armeabi-v7a", "i686" to "x86", "x86_64" to "x86_64")
+        compilerFiles.files.sortedBy { it.name }.forEach { compiler ->
+            val abi = abiByCompiler.getValue(compiler.name.substringBefore('-'))
+            val target = outputDirectory.file("$abi/libremrss_input_proxy.so").get().asFile
+            target.parentFile.mkdirs()
+            execution.exec {
+                commandLine(compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                    "-fPIE", "-pie", "-Wl,-z,max-page-size=16384", sourceFile.get().asFile, "-o", target)
+            }
+        }
+    }
+}
+val inputReader = tasks.register<CompileRearInputReader>("compileRearInputReader") {
+    val local = Properties().apply { rootProject.file("local.properties").inputStream().use { load(it) } }
+    val sdk = file(local.getProperty("sdk.dir"))
+    val host = if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
+    sourceFile.set(layout.projectDirectory.file("src/main/cpp/rear_input_reader.c"))
+    val binaries = File(sdk, "ndk/27.0.12077973/toolchains/llvm/prebuilt/$host/bin")
+    compilerFiles.from(listOf("aarch64-linux-android24-clang", "armv7a-linux-androideabi24-clang", "i686-linux-android24-clang", "x86_64-linux-android24-clang").map { File(binaries, it) })
+    outputDirectory.set(layout.buildDirectory.dir("generated/inputProxyNative"))
 }
 
 // Generated assets use the Variant API so IDE and CLI builds share the legal texts.
@@ -108,6 +141,8 @@ val prepareLegalAssets = tasks.register<PrepareLegalAssets>("prepareLegalAssets"
 }
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(prepareLegalAssets) { it.outputDirectory }
+    variant.sources.jniLibs?.addGeneratedSourceDirectory(inputReader) { it.outputDirectory }
+    variant.packaging.jniLibs.useLegacyPackaging.set(true)
     if (variant.buildType == "release") {
         // No full kotlin-reflect or coroutine debug agent is used in production.
         // Keep debug inspector metadata, service providers, profiles and licenses.

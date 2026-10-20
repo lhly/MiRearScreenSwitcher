@@ -24,6 +24,9 @@
     <!-- 查询所有应用包权限 (Android 11+，用于通知功能选择应用) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission"/>
     
+    <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+    </queries>
     <application
         android:label="${appLabel}"
         android:name=".MyApplication"
@@ -155,7 +158,17 @@
         <service
             android:name=".UriCommandService"
             android:enabled="true"
-            android:exported="false"/>
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="背屏投放命令处理" />
+        </service>
+
+        <activity android:name=".DensityCompatibilityActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".VirtualRearHostActivity" android:exported="true" tools:targetApi="33"
+            android:permission="android.permission.DUMP" android:excludeFromRecents="true"
+            android:launchMode="singleInstance" android:taskAffinity="${applicationId}.virtual.rear"
+            android:showWhenLocked="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale"
+            android:theme="@style/MiuixHostTheme" />
         
         <!-- V2.7: 背屏录屏服务（前台Service+悬浮窗） -->
         <service
@@ -226,10 +239,12 @@
         <activity
             android:name=".UriReceiverActivity"
             android:exported="true"
+            android:showWhenLocked="true"
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:taskAffinity="${applicationId}.uri">
+            <meta-data android:name="miui.rear.policy" android:value="0" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>

@@ -59,6 +59,9 @@ public class UriCommandService extends IntentService {
     @Override
     public void onCreate() {
         super.onCreate();
+        if (BuildConfig.VIRTUAL_CAST_ENABLED) {
+            startForeground(10003, RearScreenKeeperService.createServiceNotification(this));
+        }
         bindTaskService();
     }
 
@@ -79,10 +82,16 @@ public class UriCommandService extends IntentService {
             Log.e(TAG, "❌ TaskService未连接");
             return;
         }
+        if (BuildConfig.VIRTUAL_CAST_ENABLED && intent.getBooleanExtra("fromQuickSettings", false)) {
+            try { taskService.collapseStatusBar(); }
+            catch (Exception e) { Log.w(TAG, "Prototype tile panel collapse", e); }
+        }
 
         String host = uri.getHost();
         if (host == null)
             return;
+
+        if (VirtualCastUriFlow.handle(this, taskService, uri)) return;
 
         switch (host) {
             case "switch":
@@ -770,6 +779,7 @@ public class UriCommandService extends IntentService {
     @Override
     public void onDestroy() {
         taskServiceReleased = true;
+        if (BuildConfig.VIRTUAL_CAST_ENABLED) stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
 
         TaskServiceManager.release(taskServiceConnection);

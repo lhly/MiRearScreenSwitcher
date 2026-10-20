@@ -182,4 +182,33 @@ public class RearNotificationStyleTest {
             capture(portrait ? "portrait-large" : "landscape-large"); closeActivity(); display.release(); reader.close(); display = null; reader = null;
         }
     }
+    @Test public void unavailableDisplayInfoKeepsSystemWindowMetrics() throws Exception {
+        createDisplay(false);
+        DisplayInfoCache.getInstance().clear();
+        android.util.DisplayMetrics expected = new android.util.DisplayMetrics();
+        display.getDisplay().getRealMetrics(expected);
+        activity = launch(false, LONG_TEXT);
+        inst.runOnMainSync(() -> {
+            assertFalse(DisplayInfoCache.getInstance().isInitialized());
+            assertNull(DisplayInfoCache.getInstance().getCachedInfo());
+            assertEquals(expected.densityDpi, activity.getResources().getDisplayMetrics().densityDpi);
+            assertTrue(activity.getResources().getDisplayMetrics().density > 0);
+            assertFits();
+        });
+        capture("unavailable-display-info");
+    }
+    @Test public void confirmedNoCutoutClearsPreviousSafeArea() throws Exception {
+        createDisplay(false); activity = launch(false, LONG_TEXT);
+        java.lang.reflect.Method apply = RearScreenNotificationActivity.class.getDeclaredMethod("applySafeAreaPadding");
+        apply.setAccessible(true);
+        inst.runOnMainSync(() -> {
+            View container = activity.findViewById(R.id.notification_container);
+            assertEquals(296, ((android.view.ViewGroup.MarginLayoutParams)container.getLayoutParams()).leftMargin);
+            DisplayInfoCache.getInstance().getCachedInfo().cutout = new Rect(0, 0, 0, 0);
+            try { apply.invoke(activity); } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            android.view.ViewGroup.MarginLayoutParams margins = (android.view.ViewGroup.MarginLayoutParams)container.getLayoutParams();
+            assertEquals(0, margins.leftMargin); assertEquals(0, margins.topMargin);
+            assertEquals(0, margins.rightMargin); assertEquals(0, margins.bottomMargin);
+        });
+    }
 }

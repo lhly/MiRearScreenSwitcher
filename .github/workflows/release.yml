@@ -50,11 +50,21 @@ jobs:
           python3 tools/test_ci_release.py
           python3 tools/test_update_version_manifest.py
           python3 tools/test_task_service_connection.py
+          python3 tools/test_rear_display_info.py
+          python3 tools/test_rear_cast_mode.py
+          python3 tools/test_rear_density_preferences.py
+          python3 tools/test_rear_presentation_preferences.py
+          python3 tools/test_rear_cast_compatibility.py
+          python3 tools/test_rear_cast_viewport.py
+          python3 tools/test_rear_cast_menu.py
+          python3 tools/test_rear_touch_router.py
+          python3 tools/test_rear_touch_state.py
+          python3 tools/test_virtual_cast_request.py
 
       - name: Prepare Android toolchain
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-37.0' 'build-tools;37.0.0'
+            'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;27.0.12077973'
 
       - name: Restore and validate signing key
         env:
@@ -114,11 +124,13 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
           ReMRSS 基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
 
-          - 设置、通知、关于、应用选择和更新弹窗全面统一为 Miuix，支持深浅色、系统字号和横屏。
-          - 新增独立权限检测，标明各功能的权限用途与授权状态，可直达授权设置，并提供后台运行建议。
-          - 使用教程内置为独立离线页面，支持章节导航、阅读位置恢复和权限检测直达，保留原图文入口。
-          - 录屏悬浮控制台和背屏通知统一为 ReMRSS 中性配色，移除旧粉色渐变与玻璃效果，磁贴改用单色矢量图标。
-          - 清理无用代码、文案、依赖和正式包元数据，优化压缩规则，保留全部现有功能、多语言和多架构支持。
+          - 新增可选虚拟背屏投放，与原直接方式共存，磁贴和 URI 自动化共用选择；支持主屏锁定后继续显示与操作。
+          - 新增跟手侧滑返回和二段侧滑菜单，提供退出投放、左右旋转、全域与避开摄像头切换，并按 App 记住方向和范围。
+          - 新增按 App 密度兼容设置，改善部分应用跨屏后局部缩放异常；所有应用默认关闭，不内置特定 App 名单。
+          - 使用教程增加投放、截图、录屏三个磁贴的直接添加按钮；首页调整 Shizuku 优先级，独立页面统一返回箭头。
+          - 修复背屏通知读取失败时套用固定尺寸和 DPI 的问题，失败保持可重试；清理正式调试标识，保留设备校验和交互保护。
+
+          虚拟投放首次默认关闭，在“背屏 → 虚拟背屏投放”开启；需要 Android 13 及以上和受支持的背屏硬件，具体兼容边界见[虚拟投放说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/virtual-rear-casting.md)。
 
           沿用 ReMRSS 的包名 top.zainzh.rearscreen 和正式签名，可覆盖升级并保留现有数据；手机重启后仍需先启动 Shizuku，再打开 ReMRSS。
 

@@ -80,9 +80,10 @@ class AppPickerModel(private val activity: MainActivity, saved: Bundle?, private
         val keyboard = LocalSoftwareKeyboardController.current
         LazyColumn(Modifier.fillMaxSize().testTag("app_picker_list"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("title") {
-                TextButton(s("back"), { keyboard?.hide(); back.run() }, minHeight = 48.dp)
-                Text(s("notification_apps"), fontSize = 25.sp, color = AppPalette.text(), modifier = Modifier.semantics { heading() })
-                Text(s("apps_summary").replace("{0}", selected.size.toString()).replace("{1}", visible.size.toString()), fontSize = 13.sp, color = AppPalette.secondary())
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppPageHeader(s("notification_apps"), { keyboard?.hide(); back.run() }, "app_picker_back")
+                    Text(s("apps_summary").replace("{0}", selected.size.toString()).replace("{1}", visible.size.toString()), fontSize = 13.sp, color = AppPalette.secondary())
+                }
             }
             item("filters") {
                 TextField(search, { search = it }, label = s("search_apps"), singleLine = true,

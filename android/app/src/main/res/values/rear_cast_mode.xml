@@ -1,0 +1,9 @@
+<resources>
+    <string name="rear_cast_mode_title">虚拟背屏投放</string>
+    <string name="rear_cast_mode_on">开启：使用虚拟显示并接管背屏触摸，屏蔽系统双击休眠。磁铁和磁贴均使用此模式。</string>
+    <string name="rear_cast_mode_off">关闭：使用原有直接投放，触摸和返回手势由系统处理，仍可能双击休眠。</string>
+    <string name="rear_cast_mode_next">仅影响下次投放；当前投放保持原模式。请停止后重新投放。</string>
+    <string name="rear_density_title">密度兼容</string>
+    <string name="rear_density_summary">按应用设置，改善局部画面缩放异常</string>
+    <string name="rear_cast_unavailable">当前系统不支持虚拟投放，可使用直接投放。</string>
+</resources>

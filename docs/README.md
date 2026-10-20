@@ -5,6 +5,7 @@
 | 内容 | 文档 |
 | --- | --- |
 | 日常操作、权限、后台与自动化 | [使用指南](usage.md) |
+| 虚拟投放、侧滑菜单与按 App 兼容 | [虚拟背屏投放](virtual-rear-casting.md) |
 | 旧 MRSS 迁移、包名与协议冲突 | [迁移说明](remrss-identity-validation.md) |
 | Android Studio、终端构建与签名 | [构建说明](android-studio-release.md) |
 | GitHub Actions、版本清单与发布 | [发版说明](github-release.md) |

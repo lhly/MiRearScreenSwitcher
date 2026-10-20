@@ -26,6 +26,54 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
+    private final RearInputProxy inputProxy = new RearInputProxy(this::isTaskOnDisplay);
+    private final RearVirtualCast virtualCast = new RearVirtualCast(this, inputProxy);
+
+    @Override public String getRearCastViewport() {
+        if (!BuildConfig.VIRTUAL_CAST_ENABLED) throw new SecurityException("Virtual casting is unavailable");
+        try { return RearCastGeometry.encode(RearCastGeometry.read()); }
+        catch (Exception e) { throw new IllegalStateException("Rear safe area: " + e, e); }
+    }
+    @Override public String getRearCastRenderPlan(int task, String component, int density, boolean compatibility, boolean full) {
+        try { return virtualCast.renderPlan(task, component, density, compatibility, full); }
+        catch (Exception e) { throw new IllegalStateException("Rear render plan: " + e, e); }
+    }
+    @Override public String startRearVirtualCast(android.view.Surface surface, String path, int task, int host, int density, String component, android.os.IBinder owner, IRearGestureListener gestures, String viewport, boolean compatibility, int rotation, boolean full) {
+        try { return virtualCast.start(surface, path, task, host, density, component, owner, gestures, viewport, compatibility, rotation, full); }
+        catch (Exception e) { throw new IllegalStateException("Rear virtual cast: " + e, e); }
+    }
+    @Override public void dismissRearCastMenu(String id) {
+        try { virtualCast.dismissMenu(id); }
+        catch (Exception e) { throw new IllegalStateException("Rear menu: " + e, e); }
+    }
+    @Override public String rotateRearVirtualCast(String id, int direction) {
+        try { return virtualCast.rotate(id, direction); }
+        catch (Exception e) { throw new IllegalStateException("Rear content rotation: " + e, e); }
+    }
+    @Override public String beginRearCastViewport(String id, boolean full) {
+        try { return virtualCast.beginViewport(id, full); }
+        catch (Exception e) { throw new IllegalStateException("Rear viewport begin: " + e, e); }
+    }
+    @Override public String finishRearCastViewport(String id, android.view.Surface surface) {
+        try { return virtualCast.finishViewport(id, surface); }
+        catch (Exception e) { throw new IllegalStateException("Rear viewport finish: " + e, e); }
+    }
+    @Override public String getRearVirtualCastStatus() { return virtualCast.status(); }
+    @Override public boolean renewRearVirtualCastLease(String id) { return virtualCast.renew(id); }
+    @Override public void stopRearVirtualCast(String id) { virtualCast.stop(id); }
+    @Override public boolean updateRearVirtualCastSurface(String id, android.view.Surface surface) {
+        try { return virtualCast.updateSurface(id, surface); }
+        catch (Exception e) { throw new IllegalStateException("Rear output reconnect: " + e, e); }
+    }
+
+    @Override public String startRearInputProxy(String path, int task, android.os.IBinder owner) {
+        if (!BuildConfig.DEBUG || !BuildConfig.INPUT_PROXY_PROTOTYPE) throw new SecurityException("Direct input probe is debug-only");
+        try { return inputProxy.start(path, task, owner); }
+        catch (Exception e) { throw new IllegalStateException("Rear input proxy: " + e, e); }
+    }
+    @Override public String getRearInputProxyStatus() { return inputProxy.status(); }
+    @Override public boolean renewRearInputProxyLease(String id) { return inputProxy.renew(id); }
+    @Override public void stopRearInputProxy(String id) { inputProxy.stop(id); }
     private final DisplayRotationController rotationController = new DisplayRotationController(
             DisplayRotationController::runCommand, Thread::sleep, message -> Log.i(TAG, message));
 
@@ -36,7 +84,8 @@ public class TaskService extends ITaskService.Stub {
 
     @Override
     public void destroy() {
-
+        virtualCast.stop(null);
+        inputProxy.stop(null);
         System.exit(0);
     }
 
@@ -114,7 +163,7 @@ public class TaskService extends ITaskService.Stub {
             
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.contains("taskId=") && line.contains(packageName)) {
+                if (line.contains("taskId=") && line.contains(packageName + "/")) {
                     // 解析: taskId=1434: com.android.camera/...
                     int start = line.indexOf("taskId=") + 7;
                     int end = line.indexOf(':', start);
@@ -141,6 +190,7 @@ public class TaskService extends ITaskService.Stub {
 
     @Override
     public boolean moveTaskToDisplay(int taskId, int displayId) throws RemoteException {
+        if (displayId != 1) inputProxy.taskLeaving(taskId);
         try {
             long startTime = System.currentTimeMillis();
 
@@ -197,7 +247,7 @@ public class TaskService extends ITaskService.Stub {
     /**
      * 根据taskId获取包名（辅助方法）
      */
-    private String getPackageNameFromTaskId(int taskId) {
+    String getPackageNameFromTaskId(int taskId) {
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             Process process = pb.start();
@@ -208,7 +258,7 @@ public class TaskService extends ITaskService.Stub {
             
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.contains("taskId=" + taskId) && line.contains("/")) {
+                if (line.contains("taskId=" + taskId + ":") && line.contains("/")) {
                     // 解析: taskId=1471: com.example.app/...
                     int pkgStart = line.indexOf(':') + 2;
                     int pkgEnd = line.indexOf('/', pkgStart);
@@ -362,6 +412,8 @@ public class TaskService extends ITaskService.Stub {
     
     @Override
     public boolean enableSubScreenLauncher() throws RemoteException {
+        virtualCast.stop(null);
+        inputProxy.stop(null);
         try {
 
             // 启动SubScreenLauncher（进程会自动启动）

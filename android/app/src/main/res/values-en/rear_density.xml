@@ -1,0 +1,8 @@
+<resources>
+    <string name="rear_density_help">Helps with incorrectly scaled content and increases rendering work. Applies to the next virtual cast.</string>
+    <string name="rear_density_search">Search app name or package</string>
+    <string name="rear_density_loading">Loading apps…</string>
+    <string name="rear_density_failed">Could not load apps</string>
+    <string name="rear_density_empty">No matching apps</string>
+    <string name="rear_density_retry">Retry</string>
+</resources>

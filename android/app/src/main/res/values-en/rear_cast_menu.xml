@@ -1,0 +1,8 @@
+<resources>
+    <string name="rear_cast_menu_exit">Return to main screen</string>
+    <string name="rear_cast_menu_left">Rotate left</string>
+    <string name="rear_cast_menu_right">Rotate right</string>
+    <string name="rear_cast_menu_failed">Rotation failed. Try again.</string>
+    <string name="rear_cast_menu_full">Use full display</string>
+    <string name="rear_cast_menu_avoid_camera">Avoid camera area</string>
+</resources>

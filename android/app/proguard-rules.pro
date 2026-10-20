@@ -6,6 +6,9 @@
 -keep,allowoptimization class top.zainzh.rearscreen.ITaskService { *; }
 -keep,allowoptimization class top.zainzh.rearscreen.ITaskService$Stub { *; }
 -keep,allowoptimization class top.zainzh.rearscreen.ITaskService$Stub$Proxy { *; }
+-keep,allowoptimization class top.zainzh.rearscreen.IRearGestureListener { *; }
+-keep,allowoptimization class top.zainzh.rearscreen.IRearGestureListener$Stub { *; }
+-keep,allowoptimization class top.zainzh.rearscreen.IRearGestureListener$Stub$Proxy { *; }
 
 # Shizuku instantiates this Binder entry point reflectively via its public no-arg constructor.
 -keep,allowoptimization class top.zainzh.rearscreen.TaskService { public <init>(); }

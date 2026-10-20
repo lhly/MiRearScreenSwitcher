@@ -668,7 +668,7 @@ public class RearScreenNotificationActivity extends Activity {
         try {
             // 从缓存获取背屏DPI（适配所有小米双屏设备）
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
-            int rearScreenDpi = info.densityDpi;
+            int rearScreenDpi = info == null ? 0 : info.densityDpi;
             
             // 如果缓存未初始化，立即执行dumpsys获取真实DPI
             if (rearScreenDpi <= 0) {
@@ -698,6 +698,10 @@ public class RearScreenNotificationActivity extends Activity {
                     try {
                         DisplayInfoCache.getInstance().initialize(taskService);
                         info = DisplayInfoCache.getInstance().getCachedInfo();
+                        if (info == null) {
+                            Log.w(TAG, "背屏信息未就绪，保留系统提供的窗口配置");
+                            return;
+                        }
                         rearScreenDpi = info.densityDpi;
                         Log.d(TAG, "✓ 实时获取背屏DPI: " + rearScreenDpi);
                     } catch (Exception e) {
@@ -743,6 +747,7 @@ public class RearScreenNotificationActivity extends Activity {
         try {
             // 获取背屏的DPI
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
+            if (info == null) return;
             int rearScreenDpi = info.densityDpi;
             
             // 获取当前的 DisplayMetrics
@@ -784,13 +789,9 @@ public class RearScreenNotificationActivity extends Activity {
         try {
             // 从缓存获取背屏信息
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
+            if (info == null) return;
             
-            // 如果没有cutout，不需要额外处理
-            if (!info.hasCutout()) {
-                Log.d(TAG, "ℹ️ 背屏无Cutout，无需调整布局");
-                return;
-            }
-            
+            // 已确认无cutout时也应用零边距，清除之前的避让；未知信息已在上方排除。
             // 获取内容布局的根容器（RelativeLayout with id=notification_container）
             android.view.View contentLayout = findViewById(R.id.notification_container);
             if (contentLayout != null && contentLayout.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {

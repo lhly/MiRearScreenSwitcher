@@ -8,7 +8,7 @@
     <string name="tutorial_permissions_title">授权与权限检测</string>
     <string name="tutorial_permissions_steps">打开 ReMRSS，在“背屏”页完成 Shizuku 授权，等顶部状态显示控制服务已连接后再使用切屏或显示设置。\n进入“关于 → 权限检测”，查看各权限的用途与当前状态。背屏通知需要通知使用权；录屏悬浮控制按钮需要悬浮窗权限；安装未知应用只在安装更新时需要。\n点击未授权项的“去授权”或“打开设置”，按系统提示开启后返回。只需开启自己使用的功能所需权限。</string>
     <string name="tutorial_tiles_title">添加磁贴与投放</string>
-    <string name="tutorial_tiles_steps">下拉手机控制中心，进入编辑快捷开关。找到 ReMRSS 的“切换至背屏”“获取背屏截图”和“背屏录屏”，拖入常用区域并保存。\n先在主屏打开要投放的应用，再下拉控制中心，点击“切换至背屏”。如果显示正在连接服务，请保持面板展开，等操作开始；提前收起面板可能取消请求。\n要移回主屏，可点击应用正在背屏运行的通知；启用接近传感器后，也可按“背屏”页的遮盖检测说明操作。若提示背屏已占用，先将原应用移回主屏再投放其他应用。</string>
+    <string name="tutorial_tiles_steps">启动 Shizuku 并授权 ReMRSS 后，点击下方三个按钮即可直接添加磁贴，显示样式由系统控制中心决定。若无法直接添加，也可下拉控制中心，编辑快捷开关，将 ReMRSS 的“切换至背屏”“获取背屏截图”和“背屏录屏”拖入常用区域。\n先在主屏打开要投放的应用，再下拉控制中心，点击“切换至背屏”。如果显示正在连接服务，请保持面板展开，等操作开始；提前收起面板可能取消请求。\n要移回主屏，可点击应用正在背屏运行的通知；启用接近传感器后，也可按“背屏”页的遮盖检测说明操作。若提示背屏已占用，先将原应用移回主屏再投放其他应用。</string>
     <string name="tutorial_capture_title">截图与录屏</string>
     <string name="tutorial_capture_steps">背屏显示所需画面后，点击控制中心的“获取背屏截图”。图片保存到 Pictures/RearDisplay，可在文件管理或相册中查找。\n点击“背屏录屏”先打开悬浮控制台，再通过悬浮按钮开始和停止录制。首次使用前，在权限检测中允许显示在其他应用上层。\n录制结束后，视频保存在 Movies 文件夹。再次点击录屏磁贴可关闭悬浮控制台；结束后可检查保存结果。</string>
     <string name="tutorial_display_title">显示与常亮</string>
@@ -24,4 +24,9 @@
     <string name="tutorial_source_help">参考《Mrss 使用教程》并按当前 ReMRSS 界面重新整理。原图文由汐木泽、物博编写，软件原作者为 AntiOblivionis。原文包含旧版界面，在线查看原文需要联网。</string>
     <string name="tutorial_view_original">查看原文</string>
     <string name="tutorial_back_to_top">返回目录</string>
+    <string name="tutorial_add_tile">添加“%1$s”磁贴</string>
+    <string name="tutorial_tile_added">已将“%1$s”添加到控制中心</string>
+    <string name="tutorial_tile_already_added">控制中心已有“%1$s”磁贴</string>
+    <string name="tutorial_tile_add_failed">暂时无法添加“%1$s”，请在控制中心编辑快捷开关并手动添加</string>
+    <string name="tutorial_tile_needs_shizuku">请先启动 Shizuku 并授权 ReMRSS，再点击添加；也可在控制中心手动添加磁贴</string>
 </resources>

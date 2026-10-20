@@ -32,10 +32,17 @@ public class UriReceiverActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // 不设置任何布局，保持透明
-        
-        Intent intent = getIntent();
+        if (BuildConfig.VIRTUAL_CAST_ENABLED && android.os.Build.VERSION.SDK_INT >= 27) setShowWhenLocked(true);
+        dispatch(getIntent());
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        dispatch(intent);
+    }
+
+    private void dispatch(Intent intent) {
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             Uri uri = intent.getData();
             if (uri != null && BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
@@ -44,7 +51,8 @@ public class UriReceiverActivity extends Activity {
                 // 转发到UriCommandService处理
                 Intent serviceIntent = new Intent(this, UriCommandService.class);
                 serviceIntent.setData(uri);
-                startService(serviceIntent);
+                if (BuildConfig.VIRTUAL_CAST_ENABLED && android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent);
+                else startService(serviceIntent);
                 
                 Log.d(TAG, "✓ 已转发到UriCommandService");
             }

@@ -1,0 +1,8 @@
+<resources>
+    <string name="rear_density_help">用于局部画面缩放异常，会增加渲染开销。下次虚拟投放生效。</string>
+    <string name="rear_density_search">搜索应用名称或包名</string>
+    <string name="rear_density_loading">正在读取应用…</string>
+    <string name="rear_density_failed">无法读取应用列表</string>
+    <string name="rear_density_empty">没有匹配的应用</string>
+    <string name="rear_density_retry">重试</string>
+</resources>
