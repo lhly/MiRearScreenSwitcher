@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "versionName": "3.4.0",
-  "versionCode": 2017,
-  "tag": "v3.4.0",
+  "versionName": "3.5.0",
+  "versionCode": 2018,
+  "tag": "v3.5.0",
   "apk": {
-    "url": "https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.4.0/ReMRSS-v3.4.0.apk",
-    "sha256": "626924ed0e9fb435a2b09cfa093a86614007d1950eaeb96b37547fc2b179da03",
-    "size": 1610791,
+    "url": "https://github.com/lhly/MiRearScreenSwitcher/releases/download/v3.5.0/ReMRSS-v3.5.0.apk",
+    "sha256": "85e35c4720a1164e74cc47df49dd8212c54b39c211634b9e9283a7662a00132a",
+    "size": 1643840,
     "packageName": "top.zainzh.rearscreen"
   }
 }
