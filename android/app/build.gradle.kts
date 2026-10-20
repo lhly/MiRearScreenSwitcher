@@ -116,8 +116,7 @@ abstract class CompileRearInputReader : DefaultTask() {
     }
 }
 val inputReader = tasks.register<CompileRearInputReader>("compileRearInputReader") {
-    val local = Properties().apply { rootProject.file("local.properties").inputStream().use { load(it) } }
-    val sdk = file(local.getProperty("sdk.dir"))
+    val sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
     val host = if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
     sourceFile.set(layout.projectDirectory.file("src/main/cpp/rear_input_reader.c"))
     val binaries = File(sdk, "ndk/27.0.12077973/toolchains/llvm/prebuilt/$host/bin")
