@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Check URI target validation and scoped stop selectors without Android/ADB."""
 from pathlib import Path
-import subprocess,tempfile,shutil
+import os,subprocess,tempfile,shutil
 ROOT=Path(__file__).resolve().parents[1]
-JAVA=ROOT/'.local/toolchains/jdk21/bin'
+JAVA=Path(os.environ.get('JAVA_HOME',ROOT/'.local/toolchains/jdk21'))/'bin'
 HARNESS=r'''package top.zainzh.rearscreen;
 public final class VirtualRequestChecks {
  static void check(boolean ok){if(!ok)throw new AssertionError();}
