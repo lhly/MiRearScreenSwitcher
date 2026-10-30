@@ -80,6 +80,7 @@ public class UriCommandService extends IntentService {
         // 确保TaskService已连接
         if (!ensureTaskServiceConnected()) {
             Log.e(TAG, "❌ TaskService未连接");
+            if ("screenshot".equals(uri.getHost())) showToast(getString(R.string.rear_screenshot_service_unavailable));
             return;
         }
         if (BuildConfig.VIRTUAL_CAST_ENABLED && intent.getBooleanExtra("fromQuickSettings", false)) {
@@ -116,9 +117,9 @@ public class UriCommandService extends IntentService {
         try {
             bindTaskService();
 
-            // 等待连接（最多3秒）
+            // Include the manager's five-second first-bind window.
             int attempts = 0;
-            while (taskService == null && attempts < 30) {
+            while (taskService == null && attempts < 60) {
                 Thread.sleep(100);
                 attempts++;
             }
@@ -674,16 +675,32 @@ public class UriCommandService extends IntentService {
      */
     private void handleScreenshot() {
         try {
-            boolean success = taskService.takeRearScreenshot();
-
-            // 无论成功失败都显示成功Toast
-            Log.d(TAG, "✅ 截图命令已执行");
-            showToast(getString(R.string.toast_screenshot_saved));
-        } catch (Exception e) {
+            screenshotStatus(R.string.rear_screenshot_saving);
+            RearScreenshotPipeline.Result result = RearScreenshotPipeline.capture(this, taskService,
+                    () -> {
+                        screenshotStatus(R.string.rear_screenshot_preparing);
+                        showToast(getString(R.string.rear_screenshot_preparing));
+                    });
+            int message;
+            switch (result) {
+                case SHELL: message = R.string.rear_screenshot_saved_shell; break;
+                case SHELL_AND_ORIGINAL: message = R.string.rear_screenshot_saved_both; break;
+                case ORIGINAL_FALLBACK: message = R.string.rear_screenshot_saved_fallback; break;
+                case SHELL_ORIGINAL_FAILED: message = R.string.rear_screenshot_saved_shell_only; break;
+                default: message = R.string.toast_screenshot_saved;
+            }
+            showToast(getString(message));
+        } catch (Exception | OutOfMemoryError e) {
             Log.e(TAG, "截图命令失败", e);
-            // 即使异常也显示成功Toast
-            showToast(getString(R.string.toast_screenshot_saved));
+            showToast(getString(R.string.rear_screenshot_failed));
         }
+    }
+
+    private void screenshotStatus(int text) {
+        android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
+        if (manager != null) manager.notify(10003, new androidx.core.app.NotificationCompat.Builder(this, "rear_screen_keeper")
+                .setSmallIcon(R.drawable.ic_stat_mrss).setContentTitle(getString(R.string.rear_screenshot_title))
+                .setContentText(getString(text)).setOngoing(true).setOnlyAlertOnce(true).setProgress(0, 0, true).build());
     }
 
     /**

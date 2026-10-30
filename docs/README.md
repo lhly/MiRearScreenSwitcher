@@ -18,7 +18,7 @@
 
 - **界面与交互**：[原生迁移](native-ui-validation.md)、[Miuix 首页](compose-home-validation.md)、[Miuix 全面统一](miuix-cleanup-validation.md)、[全 App UI](app-ui-audit-validation.md)、[导航交互](navigation-interactions-validation.md)、[图标设计](app-icon-design.md)、[录屏浮层](recording-overlay-validation.md)。
 - **权限与教程**：[权限检测](permission-checks-validation.md)、[离线教程](offline-tutorial-validation.md)、[维护与归属信息](maintainer-info-validation.md)。
-- **背屏功能**：[磁贴切屏](hyperos4-tile-validation.md)、[显示方向](display-rotation-validation.md)、[充电动画](charging-animation-validation.md)、[首次内容消失诊断](first-trigger-disappearance-diagnosis.md)、[充电与通知稳定性](charging-notification-stability-validation.md)。
+- **背屏功能**：[磁贴切屏](hyperos4-tile-validation.md)、[带壳截图](rear-screenshot-validation.md)、[布局与密度兼容](density-compatibility-validation.md)、[锁屏触摸](lockscreen-touch-validation.md)、[显示方向](display-rotation-validation.md)、[充电动画](charging-animation-validation.md)、[首次内容消失诊断](first-trigger-disappearance-diagnosis.md)、[充电与通知稳定性](charging-notification-stability-validation.md)。
 - **更新流程**：[关于页更新](about-updates-validation.md)、[Raw 清单](raw-update-validation.md)、[应用内更新](in-app-update-validation.md)、[下载弹窗](update-dialog-validation.md)、[镜像代理](update-proxy-validation.md)。
 - **包体积**：[增长分析](apk-size-analysis.md)、[专项审计与精简](apk-size-audit.md)。
 

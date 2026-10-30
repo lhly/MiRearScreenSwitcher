@@ -50,11 +50,14 @@ jobs:
           python3 tools/test_ci_release.py
           python3 tools/test_update_version_manifest.py
           python3 tools/test_task_service_connection.py
+          python3 tools/test_display_rotation.py
           python3 tools/test_rear_display_info.py
           python3 tools/test_rear_cast_mode.py
           python3 tools/test_rear_density_preferences.py
           python3 tools/test_rear_presentation_preferences.py
           python3 tools/test_rear_cast_compatibility.py
+          python3 tools/test_rear_cast_resize_policy.py
+          python3 tools/test_rear_freeze_state.py
           python3 tools/test_rear_cast_viewport.py
           python3 tools/test_rear_cast_menu.py
           python3 tools/test_rear_touch_router.py
@@ -79,7 +82,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
         run: >-
-          ./android/gradlew -p android :app:assembleRelease --console=plain
+          ./android/gradlew -p android :app:assembleRelease :app:lintRelease --console=plain
           -PmrssVersionName="$RELEASE_VERSION" -PmrssVersionCode="$RELEASE_BUILD_NUMBER"
 
       - name: Verify APK and generate checksums
@@ -124,13 +127,15 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
           ReMRSS 基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
 
-          - 新增可选虚拟背屏投放，与原直接方式共存，磁贴和 URI 自动化共用选择；支持主屏锁定后继续显示与操作。
-          - 新增跟手侧滑返回和二段侧滑菜单，提供退出投放、左右旋转、全域与避开摄像头切换，并按 App 记住方向和范围。
-          - 新增按 App 密度兼容设置，改善部分应用跨屏后局部缩放异常；所有应用默认关闭，不内置特定 App 名单。
-          - 使用教程增加投放、截图、录屏三个磁贴的直接添加按钮；首页调整 Shizuku 优先级，独立页面统一返回箭头。
-          - 修复背屏通知读取失败时套用固定尺寸和 DPI 的问题，失败保持可重试；清理正式调试标识，保留设备校验和交互保护。
+          - 新增带壳背屏截图，可选择完整机身、局部放大和四种配色，并同时保留原图；首次联网准备模板，失败时保留原始截图。
+          - 改善虚拟投放的应用布局与密度适配，支持逐 App 布局 DPI，默认200；摄像头避让使用最大可用区域，保留四向旋转与触摸映射。
+          - 修复主屏锁定后部分背屏应用被系统冻结、连续触摸失效的问题；结束投放撤销临时保护，不修改目标应用的电池设置。
+          - 密度兼容列表将已开启应用置顶分组；首页按投放方式显示密度兼容或物理背屏 DPI/方向，并加入展开收起动画。
+          - 更新内置简繁英教程，补充投放方式与密度、锁屏条件、带壳截图和当前设置入口；修复截图磁贴重复回调造成的重复保存。
 
           虚拟投放首次默认关闭，在“背屏 → 虚拟背屏投放”开启；需要 Android 13 及以上和受支持的背屏硬件，具体兼容边界见[虚拟投放说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/virtual-rear-casting.md)。
+
+          带壳截图当前提供小米17 Pro / 17 Pro Max的黑、白、紫、绿配色，仅用于截图；其他机型仍可保存原图。主屏锁定后可继续使用已启动的虚拟投放，启动新的投放可能仍需先解锁。
 
           沿用 ReMRSS 的包名 top.zainzh.rearscreen 和正式签名，可覆盖升级并保留现有数据；手机重启后仍需先启动 Shizuku，再打开 ReMRSS。
 

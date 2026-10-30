@@ -221,6 +221,7 @@ class MiuixSettingsUi(
     private val pageEasing = CubicBezierEasing(.77f, 0f, .175f, 1f)
 
     @Composable private fun Home(dark: Boolean, modifier: Modifier) {
+        val virtualRearCast = rememberVirtualRearCastMode()
         LazyColumn(modifier.testTag("home_list"), state = listState, contentPadding = PaddingValues(20.dp, 22.dp, 20.dp, maxOf(126.dp, with(LocalDensity.current) { navigationHeight.toDp() } + 32.dp)), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("title") {
                 Column(Modifier.padding(start = 4.dp, bottom = 8.dp)) {
@@ -267,13 +268,15 @@ class MiuixSettingsUi(
             }
             if (BuildConfig.VIRTUAL_CAST_ENABLED) item("rear_cast_mode") {
                 AppCard {
-                    RearCastModeToggle()
-                    AppDivider()
-                    AppRow(activity.getString(R.string.rear_density_title), activity.getString(R.string.rear_density_summary),
-                        modifier = Modifier.testTag("density_compatibility_entry"), action = {
-                            activity.startActivity(android.content.Intent().setClassName(activity,
-                                "top.zainzh.rearscreen.DensityCompatibilityActivity"))
-                        })
+                    RearCastModeToggle(virtualRearCast)
+                    AppSettingsReveal(virtualRearCast) {
+                        AppDivider()
+                        AppRow(activity.getString(R.string.rear_density_title), activity.getString(R.string.rear_density_summary),
+                            modifier = Modifier.testTag("density_compatibility_entry"), enabled = virtualRearCast, action = {
+                                activity.startActivity(android.content.Intent().setClassName(activity,
+                                    "top.zainzh.rearscreen.DensityCompatibilityActivity"))
+                            })
+                    }
                     if (BuildConfig.DEBUG && BuildConfig.INPUT_PROXY_PROTOTYPE) {
                         AppDivider()
                         AppRow("背屏投放状态（调试版）", "查看运行状态、停止投放和独立输入测试。",
@@ -284,37 +287,48 @@ class MiuixSettingsUi(
                     }
                 }
             }
-            item("display") {
-                Section("screen_size", dark)
-                Group {
-                    Row(Modifier.fillMaxWidth().clickable(enabled = !state.busy, onClick = actions::dpi).padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IconTile("density", dark)
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Label("dpi_caption", dark)
-                            Description("dpi_help", dark)
-                        }
-                        Text(if (state.dpi > 0) "${state.dpi}" else "—", fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = AppPalette.accent())
-                        Text("›", fontSize = 22.sp, color = AppPalette.secondary(), modifier = Modifier.clearAndSetSemantics { })
+            item("rear_screenshot") {
+                Column(Modifier.fillMaxWidth()) {
+                    AppCard {
+                        AppRow(activity.getString(R.string.rear_screenshot_title), activity.getString(R.string.rear_screenshot_entry_help),
+                            modifier = Modifier.testTag("rear_screenshot_entry"), action = {
+                                activity.startActivity(android.content.Intent(activity, RearScreenshotActivity::class.java))
+                            })
                     }
-                    Divider(dark)
-                    Row(Modifier.padding(18.dp, 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IconTile("rotate", dark)
-                        Label("rotation_caption", dark, Modifier.weight(1f))
-                        Text(if (state.rotation in 0..3) "${state.rotation * 90}°" else "—",
-                            modifier = Modifier.testTag("rotation_value"), fontSize = 14.sp, color = AppPalette.secondary())
-                    }
-                    Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        repeat(4) { index ->
-                            Box(Modifier.weight(1f).clearAndSetSemantics {
-                                contentDescription = s("rotation_caption") + " ${index * 90}°"
-                                selected = state.rotation == index
-                                role = Role.Button
-                                if (state.busy) disabled() else onClick { actions.rotation(index); true }
-                            }) {
-                                TextButton("${index * 90}°", onClick = { actions.rotation(index) }, enabled = !state.busy,
-                                    modifier = Modifier.fillMaxWidth(), minWidth = 0.dp, minHeight = 48.dp,
-                                    insideMargin = PaddingValues(2.dp), cornerRadius = 16.dp,
-                                    colors = if (state.rotation == index) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+                    AppSettingsReveal(!virtualRearCast) {
+                        Spacer(Modifier.height(12.dp))
+                        Section("screen_size", dark)
+                        Group {
+                            Row(Modifier.fillMaxWidth().clickable(enabled = !state.busy && !virtualRearCast, onClick = actions::dpi).padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                IconTile("density", dark)
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Label("dpi_caption", dark)
+                                    Description("dpi_help", dark)
+                                }
+                                Text(if (state.dpi > 0) "${state.dpi}" else "—", fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = AppPalette.accent())
+                                Text("›", fontSize = 22.sp, color = AppPalette.secondary(), modifier = Modifier.clearAndSetSemantics { })
+                            }
+                            Divider(dark)
+                            Row(Modifier.padding(18.dp, 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                IconTile("rotate", dark)
+                                Label("rotation_caption", dark, Modifier.weight(1f))
+                                Text(if (state.rotation in 0..3) "${state.rotation * 90}°" else "—",
+                                    modifier = Modifier.testTag("rotation_value"), fontSize = 14.sp, color = AppPalette.secondary())
+                            }
+                            Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                repeat(4) { index ->
+                                    Box(Modifier.weight(1f).clearAndSetSemantics {
+                                        contentDescription = s("rotation_caption") + " ${index * 90}°"
+                                        selected = state.rotation == index
+                                        role = Role.Button
+                                        if (state.busy || virtualRearCast) disabled() else onClick { actions.rotation(index); true }
+                                    }) {
+                                        TextButton("${index * 90}°", onClick = { actions.rotation(index) }, enabled = !state.busy && !virtualRearCast,
+                                            modifier = Modifier.fillMaxWidth(), minWidth = 0.dp, minHeight = 48.dp,
+                                            insideMargin = PaddingValues(2.dp), cornerRadius = 16.dp,
+                                            colors = if (state.rotation == index) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+                                    }
+                                }
                             }
                         }
                     }

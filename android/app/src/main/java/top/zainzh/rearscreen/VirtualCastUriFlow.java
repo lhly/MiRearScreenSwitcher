@@ -73,7 +73,8 @@ final class VirtualCastUriFlow {
             }
             remote.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
             if (!remote.executeShellCommand("am start -f " + HOST_START_FLAGS + " --display 1 --windowingMode " + WINDOWING_MODE_FULLSCREEN + " -n " + context.getPackageName() + "/" + HOST
-                    + " --ei task " + task + " --ei dpi " + density + " --es targetPackage " + targetPackage
+                    + " --ei task " + task + " --ei dpi " + density
+                    + " --ez explicitDpi " + (uri.getQueryParameter("dpi") != null) + " --es targetPackage " + targetPackage
                     + (launchComponent == null ? "" : " --es component '" + launchComponent + "'") + " --ez managed true"))
                 throw new IllegalStateException("背屏显示宿主未启动");
             long end = SystemClock.uptimeMillis() + 8000;

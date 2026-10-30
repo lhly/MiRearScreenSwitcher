@@ -152,10 +152,10 @@ class TutorialActivity : ComponentActivity() {
             TileShortcut(SwitchToRearTileService::class.java, R.string.tile_label, "switch"),
             TileShortcut(RearScreenshotTileService::class.java, R.string.tile_screenshot_label, "screenshot"),
             TileShortcut(RearScreenRecordTileService::class.java, R.string.tile_record_label, "record"))
-        val sections = listOf("setup", "permissions", "tiles", "capture", "display", "notifications", "background", "troubleshooting")
-        private val titles = listOf(R.string.tutorial_setup_title, R.string.tutorial_permissions_title, R.string.tutorial_tiles_title,
+        val sections = listOf("setup", "permissions", "tiles", "casting", "capture", "display", "notifications", "background", "troubleshooting")
+        private val titles = listOf(R.string.tutorial_setup_title, R.string.tutorial_permissions_title, R.string.tutorial_tiles_title, R.string.tutorial_casting_title,
             R.string.tutorial_capture_title, R.string.tutorial_display_title, R.string.tutorial_notifications_title, R.string.tutorial_background_title, R.string.tutorial_troubleshooting_title)
-        private val steps = listOf(R.string.tutorial_setup_steps, R.string.tutorial_permissions_steps, R.string.tutorial_tiles_steps,
+        private val steps = listOf(R.string.tutorial_setup_steps, R.string.tutorial_permissions_steps, R.string.tutorial_tiles_steps, R.string.tutorial_casting_steps,
             R.string.tutorial_capture_steps, R.string.tutorial_display_steps, R.string.tutorial_notifications_steps, R.string.tutorial_background_steps, R.string.tutorial_troubleshooting_steps)
     }
 }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rear_screenshot_title">Rear-screen screenshots</string>
+    <string name="rear_screenshot_entry_help">Device frame, composition and color</string>
+    <string name="rear_screenshot_shell">Add device frame</string>
+    <string name="rear_screenshot_shell_help">Include the phone body in screenshots</string>
+    <string name="rear_screenshot_unsupported">No matching frame for this device. Original screenshots are still available.</string>
+    <string name="rear_screenshot_style">Composition</string>
+    <string name="rear_screenshot_full">Full phone</string>
+    <string name="rear_screenshot_half">Close-up</string>
+    <string name="rear_screenshot_color">Phone color</string>
+    <string name="rear_screenshot_black">Black</string>
+    <string name="rear_screenshot_white">White</string>
+    <string name="rear_screenshot_purple">Purple</string>
+    <string name="rear_screenshot_green">Green</string>
+    <string name="rear_screenshot_keep_original">Also save original</string>
+    <string name="rear_screenshot_keep_original_help">Save both the framed image and the original screenshot</string>
+    <string name="rear_screenshot_preview">Preview</string>
+    <string name="rear_screenshot_preview_description">%1$s phone frame, %2$s</string>
+    <string name="rear_screenshot_preparing">Preparing device frame…</string>
+    <string name="rear_screenshot_preview_failed">Frame preview is unavailable. Please try again.</string>
+    <string name="rear_screenshot_retry">Retry</string>
+    <string name="rear_screenshot_download_help">The frame needs an internet connection once, then works offline.</string>
+    <string name="rear_screenshot_save_help">The screenshot tile and screenshot URI use these settings. Saved in Pictures/RearDisplay.</string>
+    <string name="rear_screenshot_saving">Saving screenshot…</string>
+    <string name="rear_screenshot_saved_shell">Framed rear-screen screenshot saved</string>
+    <string name="rear_screenshot_saved_both">Framed screenshot and original saved</string>
+    <string name="rear_screenshot_saved_fallback">Frame processing failed. Original screenshot saved.</string>
+    <string name="rear_screenshot_saved_shell_only">Framed screenshot saved. Could not save the original.</string>
+    <string name="rear_screenshot_failed">Screenshot failed. Check Shizuku and available storage.</string>
+    <string name="rear_screenshot_service_unavailable">Control service unavailable. Start Shizuku and authorize ReMRSS.</string>
+</resources>

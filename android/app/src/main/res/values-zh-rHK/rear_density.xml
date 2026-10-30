@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="rear_density_help">允許應用程式依投放視窗重新排版，並改善局部縮放。下次虛擬投放生效。</string>
+    <string name="rear_density_search">搜尋應用名稱或套件名稱</string>
+    <string name="rear_density_loading">正在讀取應用…</string>
+    <string name="rear_density_failed">無法讀取應用清單</string>
+    <string name="rear_density_empty">沒有符合的應用</string>
+    <string name="rear_density_retry">重試</string>
+    <string name="rear_density_layout_title">版面配置 DPI</string>
+    <string name="rear_density_layout_default">預設（%1$d DPI）</string>
+    <string name="rear_density_layout_value">%1$d DPI</string>
+    <string name="rear_density_layout_help">數值越小，內容越小、可顯示的資訊越多。範圍 72–640，下次虛擬投放生效；URI 中指定的 DPI 優先。</string>
+    <string name="rear_density_layout_error">請輸入 72–640 之間的整數</string>
+    <string name="rear_density_layout_save">儲存</string>
+    <string name="rear_density_layout_reset">使用預設值</string>
+    <string name="rear_density_layout_cancel">取消</string>
+    <string name="rear_density_partial_support">此系統未完整支援版面適配，已使用原有密度相容方式</string>
+    <string name="rear_density_group_enabled">已開啟（%1$d）</string>
+    <string name="rear_density_group_disabled">未開啟（%1$d）</string>
+</resources>

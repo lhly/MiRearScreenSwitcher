@@ -12,6 +12,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -73,6 +80,21 @@ internal fun ComponentActivity.miuixContent(content: @Composable () -> Unit) {
         .background(AppPalette.secondary().copy(alpha = .12f)))
 }
 
+// Match the existing drawer's ease-out curve. Compose applies the system duration scale.
+private val settingsRevealEasing = CubicBezierEasing(.23f, 1f, .32f, 1f)
+private const val SETTINGS_ENTER_MS = 200
+private const val SETTINGS_EXIT_MS = 150
+
+@Composable internal fun AppSettingsReveal(visible: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    AnimatedVisibility(visible = visible,
+        enter = expandVertically(tween(SETTINGS_ENTER_MS, easing = settingsRevealEasing), expandFrom = Alignment.Top) +
+                fadeIn(tween(SETTINGS_ENTER_MS, easing = settingsRevealEasing)),
+        exit = shrinkVertically(tween(SETTINGS_EXIT_MS, easing = settingsRevealEasing), shrinkTowards = Alignment.Top) +
+                fadeOut(tween(SETTINGS_EXIT_MS, easing = settingsRevealEasing))) {
+        Column(Modifier.fillMaxWidth(), content = content)
+    }
+}
+
 @Composable internal fun AppRow(title: String, summary: String?, modifier: Modifier = Modifier,
     enabled: Boolean = true, action: (() -> Unit)? = null, trailing: @Composable (() -> Unit)? = null) {
     Row(modifier.fillMaxWidth().then(if (action != null) Modifier.clickable(enabled = enabled, onClick = action) else Modifier)
@@ -93,8 +115,8 @@ internal fun ComponentActivity.miuixContent(content: @Composable () -> Unit) {
         trailing = { Switch(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics { }) })
 }
 
-@Composable internal fun RearCastModeToggle() {
-    if (!BuildConfig.VIRTUAL_CAST_ENABLED) return
+@Composable internal fun rememberVirtualRearCastMode(): Boolean {
+    if (!BuildConfig.VIRTUAL_CAST_ENABLED) return false
     val context = LocalContext.current
     val preferences = remember(context) { RearCastMode.preferences(context) }
     var virtual by remember(context) { mutableStateOf(RearCastMode.useVirtual(context)) }
@@ -105,6 +127,12 @@ internal fun ComponentActivity.miuixContent(content: @Composable () -> Unit) {
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    return virtual
+}
+
+@Composable internal fun RearCastModeToggle(virtual: Boolean) {
+    if (!BuildConfig.VIRTUAL_CAST_ENABLED) return
+    val context = LocalContext.current
     val supported = android.os.Build.VERSION.SDK_INT >= 33
     AppToggle(stringResource(R.string.rear_cast_mode_title),
         if (supported) stringResource(if (virtual) R.string.rear_cast_mode_on else R.string.rear_cast_mode_off) + "\n" +

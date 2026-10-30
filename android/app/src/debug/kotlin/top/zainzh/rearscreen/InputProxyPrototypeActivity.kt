@@ -99,7 +99,7 @@ class InputProxyPrototypeActivity : ComponentActivity() {
                     val virtualRunning = virtual?.optString("state") == "running"
                     val virtualInput = virtual?.optJSONObject("input")
                     AppCard {
-                        RearCastModeToggle()
+                        RearCastModeToggle(rememberVirtualRearCastMode())
                         AppDivider()
                         AppRow("投放状态", if (virtualRunning) "虚拟显示：${virtual?.optString("package")}"
                             else if (RearScreenKeeperService.isPhysicalCastRunning()) "原有直接投放运行中" else "当前没有投放会话")

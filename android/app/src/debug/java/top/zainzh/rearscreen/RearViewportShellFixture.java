@@ -18,7 +18,8 @@ public final class RearViewportShellFixture {
         Object global = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null);
         Object target = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, display);
         int rotation = target == null ? -1 : target.getClass().getField("rotation").getInt(target);
-        if (display < 2 || target == null || !target.getClass().getField("name").get(target).toString().startsWith("ReMRSS-prototype-"))
+        String name = target == null ? "" : target.getClass().getField("name").get(target).toString();
+        if (display < 2 || target == null || !(name.startsWith("ReMRSS-prototype-") || name.startsWith("ReMRSS-virtual-")))
             throw new SecurityException("An owned safe/full virtual display is required");
         RearCastViewport.validateContentRotation(rotation);
         int logicalWidth = target.getClass().getField("logicalWidth").getInt(target);

@@ -79,7 +79,7 @@ public class TaskService extends ITaskService.Stub {
 
     @Keep
     public TaskService() {
-
+        RearAppFreezeGuard.recoverStale();
     }
 
     @Override
@@ -689,70 +689,22 @@ public class TaskService extends ITaskService.Stub {
     @Override
     public boolean takeRearScreenshot() throws RemoteException {
         try {
-            // 截屏前尝试给背屏发送keycode wakeup
-            try {
-                executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                Thread.sleep(200); // 等待wakeup生效
-            } catch (Exception e) {
-                Log.w(TAG, "背屏keycode wakeup失败: " + e.getMessage());
-            }
-
-            // 创建保存目录
-            String mkdirCmd = "mkdir -p /storage/emulated/0/Pictures/RearDisplay";
-
-            ProcessBuilder pb1 = new ProcessBuilder("sh", "-c", mkdirCmd);
-            Process process1 = pb1.start();
-            process1.waitFor();
-            
-            // 获取背屏display ID
-            String getDisplayIdCmd = "dumpsys SurfaceFlinger --display-id | grep -oE 'Display [0-9]+' | awk 'NR==2{print $2}'";
-
-            ProcessBuilder pb2 = new ProcessBuilder("sh", "-c", getDisplayIdCmd);
-            Process process2 = pb2.start();
-            
-            BufferedReader reader2 = new BufferedReader(
-                new InputStreamReader(process2.getInputStream()), 8192
-            );
-            
-            String displayId = reader2.readLine();
-            reader2.close();
-            process2.waitFor();
-            
-            if (displayId == null || displayId.isEmpty()) {
-                displayId = "1"; // 默认使用1
-
-            } else {
-
-            }
-            
-            // 生成文件名（带时间戳）
-            String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
-                .format(new java.util.Date());
-            String filename = "/storage/emulated/0/Pictures/RearDisplay/RD_" + timestamp + ".png";
-            
-            // 执行截图命令
-            String screenshotCmd = "screencap -p -d " + displayId + " " + filename;
-
-            ProcessBuilder pb3 = new ProcessBuilder("sh", "-c", screenshotCmd);
-            Process process3 = pb3.start();
-            
-            int exitCode = process3.waitFor();
-            
-            // 刷新媒体库，让截图出现在相册中
-            String refreshCmd = "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://" + filename;
-            ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", refreshCmd);
-            pb4.start();
-            
-            // 无论成功失败都返回true，让Toast显示成功
-            return true;
-            
+            return RearScreenshotShell.saveLegacy(RearScreenshotShell.capture(new int[3]));
         } catch (Exception e) {
-            Log.e(TAG, "❌ EXCEPTION in takeRearScreenshot", e);
-            // 即使异常也返回true，让Toast显示成功
-            return true;
+            Log.e(TAG, "Rear screenshot failed", e);
+            return false;
         }
     }
-    
+
+    @Override public android.os.ParcelFileDescriptor captureRearScreenshot(int[] metadata) {
+        try { return RearScreenshotShell.capture(metadata); }
+        catch (Exception e) { throw new IllegalStateException("Rear screenshot capture failed", e); }
+    }
+
+    @Override public boolean saveRearScreenshotLegacy(android.os.ParcelFileDescriptor source) {
+        return source != null && RearScreenshotShell.saveLegacy(source);
+    }
+
     @Override
     public boolean isTaskOnDisplay(int taskId, int displayId) throws RemoteException {
         try {

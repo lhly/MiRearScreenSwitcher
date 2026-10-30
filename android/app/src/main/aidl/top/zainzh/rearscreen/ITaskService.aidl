@@ -1,6 +1,7 @@
 package top.zainzh.rearscreen;
 import android.os.IBinder;
 import android.view.Surface;
+import android.os.ParcelFileDescriptor;
 import top.zainzh.rearscreen.IRearGestureListener;
 
 interface ITaskService {
@@ -150,5 +151,8 @@ interface ITaskService {
     String beginRearCastViewport(String sessionId, boolean full) = 34;
     String finishRearCastViewport(String sessionId, in Surface surface) = 35;
     String getRearCastRenderPlan(int taskId, String component, int density, boolean densityCompatibility, boolean fullViewport) = 36;
+    // Metadata is [display rotation, logical width, logical height]. PNG travels through an fd.
+    ParcelFileDescriptor captureRearScreenshot(out int[] metadata) = 37;
+    boolean saveRearScreenshotLegacy(in ParcelFileDescriptor source) = 38;
 }
 

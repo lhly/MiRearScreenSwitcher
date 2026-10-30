@@ -24,6 +24,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private RearCastViewport viewport;
     private RearCastViewport safeViewport;
     private boolean densityCompatibility;
+    private int requestedLayoutDensity = VirtualCastRequest.DEFAULT_DENSITY_DPI;
     private int initialRotation;
     private boolean initialFull;
     private volatile String sessionPackage;
@@ -247,9 +248,12 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                     JSONObject plan = new JSONObject(service.getRearCastRenderPlan(task, component, dpi, false, false));
                     String pkg = plan.getString("package");
                     boolean compatibility = RearDensityPreferences.enabled(VirtualRearHostActivity.this, pkg);
+                    int layoutDpi = RearCastCompatibility.layoutDensity(compatibility, dpi,
+                            RearDensityPreferences.layoutDensity(VirtualRearHostActivity.this, pkg),
+                            getIntent().getBooleanExtra("explicitDpi", false));
                     RearPresentationPreferences.Selection presentation = RearPresentationPreferences.read(VirtualRearHostActivity.this, pkg);
-                    if (compatibility || presentation.full)
-                        plan = new JSONObject(service.getRearCastRenderPlan(task, component, dpi, compatibility, presentation.full));
+                    if (compatibility || presentation.full || layoutDpi != dpi)
+                        plan = new JSONObject(service.getRearCastRenderPlan(task, component, layoutDpi, compatibility, presentation.full));
                     RearCastViewport render = RearCastGeometry.decode(plan.toString());
                     android.util.Log.i("VirtualRearHost", "Received safe viewport=" + safe.key());
                     main.post(() -> {
@@ -259,6 +263,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                         }
                         safeViewport = safe;
                         densityCompatibility = compatibility;
+                        requestedLayoutDensity = layoutDpi;
                         initialRotation = presentation.rotation;
                         initialFull = presentation.full;
                         if (viewport == null) viewport = render;
@@ -395,11 +400,14 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
             try {
                 status = remote.startRearVirtualCast(surface,
                         new File(getApplicationInfo().nativeLibraryDir, "libremrss_input_proxy.so").getPath(), target, host,
-                        getIntent().getIntExtra("dpi", VirtualCastRequest.DEFAULT_DENSITY_DPI), getIntent().getStringExtra("component"), owner, gestures,
+                        requestedLayoutDensity, getIntent().getStringExtra("component"), owner, gestures,
                         RearCastGeometry.encode(viewport), densityCompatibility, initialRotation, initialFull);
                 JSONObject state = new JSONObject(status);
                 session = state.getString("id");
                 sessionPackage = state.getString("package");
+                if (densityCompatibility && !"unrestricted".equals(state.optString("sizePolicy")))
+                    main.post(() -> { if (!ending) android.widget.Toast.makeText(this, R.string.rear_density_partial_support,
+                            android.widget.Toast.LENGTH_LONG).show(); });
                 String monitored = state.optString("package") + ":" + state.optInt("task");
                 android.util.Log.i("VirtualRearHost", status);
                 if (getIntent().getBooleanExtra("managed", false)) main.post(() -> {

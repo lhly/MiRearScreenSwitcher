@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="rear_density_help">允许应用按投放窗口重新排版，并改善局部缩放。下次虚拟投放生效。</string>
+    <string name="rear_density_search">搜索应用名称或包名</string>
+    <string name="rear_density_loading">正在读取应用…</string>
+    <string name="rear_density_failed">无法读取应用列表</string>
+    <string name="rear_density_empty">没有匹配的应用</string>
+    <string name="rear_density_retry">重试</string>
+    <string name="rear_density_layout_title">布局 DPI</string>
+    <string name="rear_density_layout_default">默认（%1$d DPI）</string>
+    <string name="rear_density_layout_value">%1$d DPI</string>
+    <string name="rear_density_layout_help">数值越小，内容越小、可显示的信息越多。范围 72–640，下次虚拟投放生效；URI 中指定的 DPI 优先。</string>
+    <string name="rear_density_layout_error">请输入 72–640 之间的整数</string>
+    <string name="rear_density_layout_save">保存</string>
+    <string name="rear_density_layout_reset">使用默认值</string>
+    <string name="rear_density_layout_cancel">取消</string>
+    <string name="rear_density_partial_support">此系统未完整支持布局适配，已使用原有密度兼容方式</string>
+    <string name="rear_density_group_enabled">已开启（%1$d）</string>
+    <string name="rear_density_group_disabled">未开启（%1$d）</string>
+</resources>

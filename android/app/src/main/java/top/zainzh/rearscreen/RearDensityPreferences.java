@@ -14,4 +14,19 @@ public final class RearDensityPreferences {
     public static void setEnabled(Context context, String packageName, boolean enabled) {
         if (BuildConfig.VIRTUAL_CAST_ENABLED) preferences(context).edit().putBoolean(key(packageName), enabled).apply();
     }
+    public static int layoutDensity(Context context, String packageName) {
+        String key = "dpi:" + VirtualCastRequest.packageName(packageName);
+        int value;
+        try { value = preferences(context).getInt(key, 0); }
+        catch (ClassCastException corrupt) { return 0; }
+        return value >= 72 && value <= 640 ? value : 0;
+    }
+    public static void setLayoutDensity(Context context, String packageName, int value) {
+        if (value != 0 && (value < 72 || value > 640)) throw new IllegalArgumentException("Invalid layout density");
+        String key = "dpi:" + VirtualCastRequest.packageName(packageName);
+        if (!BuildConfig.VIRTUAL_CAST_ENABLED) return;
+        SharedPreferences.Editor edit = preferences(context).edit();
+        if (value == 0) edit.remove(key); else edit.putInt(key, value);
+        edit.apply();
+    }
 }

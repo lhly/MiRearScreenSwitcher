@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <activity android:name=".FixtureRestrictedLayoutActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:screenOrientation="portrait" android:resizeableActivity="false"
+            android:excludeFromRecents="true" android:taskAffinity="${applicationId}.restricted.fixture"
+            android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".FixtureRearScreenshotActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".InputProxyPrototypeActivity" android:exported="true"
             android:permission="android.permission.DUMP" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".FixtureInputActivity" android:exported="true"
@@ -25,4 +30,5 @@
     <instrumentation android:name="top.zainzh.rearscreen.RearCastViewportProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.DensitySettingsProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.RearPresentationProbeInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.LayoutCompatibilityProbeInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

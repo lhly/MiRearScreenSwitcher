@@ -36,17 +36,17 @@ done
 
 ## 发版操作
 
-本轮发布目标为 ReMRSS `3.5.0 / 2018`，包含可选虚拟投放、侧滑菜单与摄像头避让、按 App 兼容与展示记忆、教程磁贴添加，以及显示信息和界面修正。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布目标为 ReMRSS `3.6.0 / 2019`，包含带壳背屏截图、应用布局和密度适配、最大摄像头避让区域、锁屏触摸修复、设置分组与显隐动画，以及更新后的内置教程。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.5.0 -m "ReMRSS 3.5.0"
-git push origin v3.5.0
+git tag -a v3.6.0 -m "ReMRSS 3.6.0"
+git push origin v3.6.0
 ```
 
-预览版可使用下一版本的`v3.5.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.6.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.5.0)提供`ReMRSS-v3.5.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.5.0`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.0)提供`ReMRSS-v3.6.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.0`构建产物14天。
 
 ## 构建与签名检查
 
@@ -154,3 +154,9 @@ RELEASE_TAG=v3.3.2 python3 tools/ci_release.py metadata
 Raw与gh-proxy.com镜像清单均对应同一公开APK；镜像APK再次匿名下载，大小和哈希一致。旧MRSS根清单及旧Release附件的ID、大小、digest和下载地址保持不变。未用本地体验包替代公开附件验收。
 
 当前功能源码已有前述专项真机操作反馈和自动回归，显示信息清理另通过5项API36模拟器通知测试及实际画面检查；本轮公开3.5.0 APK没有另行安装到用户手机，不将静态或模拟器检查等同所有背屏机型上的真实手指验收。
+
+## ReMRSS v3.6.0 发布前检查（2026-10-30）
+
+版本3.6.0/2019，沿用包名和正式证书。16组主机回归、actionlint、Debug/AndroidTest/R8 Release构建与生产Lint通过（0错误、55警告）。最终压缩包在API36通过实际Binder与反射入口契约检查，新增截图事务保留原有编号；签名、版本、非调试及完整LICENSE/NOTICE资产通过本地校验。内置教程已同步当前行为并通过运行回归与明暗、大字、横屏画面检查。
+
+功能专项真机和模拟器结果分别见[带壳截图](rear-screenshot-validation.md)、[密度与布局](density-compatibility-validation.md)、[锁屏触摸](lockscreen-touch-validation.md)及[内置教程](offline-tutorial-validation.md)。本地检查结果不替代公开附件、线上清单或其他机型的验收。

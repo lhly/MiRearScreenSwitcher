@@ -8,14 +8,21 @@ package top.zainzh.rearscreen;
 import java.util.*;
 public class CompatibilityTest {
  static void eq(float a,float b){if(Math.abs(a-b)>.002)throw new AssertionError(a+" != "+b);}
- static RearCastViewport safe=RearCastViewport.safe(976,596,0,450,296,0,0,0,new int[]{101,101,101,101});
+ static RearCastViewport safe=RearCastViewport.safe(976,596,0,450,296,0,0,0);
  static void check(RearCastViewport v,int requested,int actual){
   eq(v.bufferWidth/(actual/160f),v.width()/(requested/160f));eq(v.bufferHeight/(actual/160f),v.height()/(requested/160f));
  }
  public static void main(String[] args)throws Exception{
   if(RearCastCompatibility.density(false,240,480)!=240 || RearCastCompatibility.density(true,240,480)!=480)throw new AssertionError("Explicit preference ignored");
+  if(RearCastCompatibility.layoutDensity(true,240,200,false)!=200
+    ||RearCastCompatibility.layoutDensity(true,320,200,true)!=320
+    ||RearCastCompatibility.layoutDensity(false,240,200,false)!=240
+    ||RearCastCompatibility.layoutDensity(true,320,0,false)!=320)throw new AssertionError("Layout DPI precedence");
+  for(int bad:new int[]{-1,1,71,641}){boolean rejected=false;try{RearCastCompatibility.layoutDensity(true,240,bad,false);}catch(IllegalArgumentException expected){rejected=true;}if(!rejected)throw new AssertionError("Invalid saved layout DPI");}
   RearCastViewport v=RearCastCompatibility.viewport(safe,240,480);check(v,240,480);
-  if(v.bufferWidth!=1296||v.bufferHeight!=1064||v.width()!=648||v.height()!=532||!safe.key().equals(v.key())||safe.renderKey().equals(v.renderKey()))throw new AssertionError("Unsafe buffer geometry");
+  if(v.bufferWidth!=1360||v.bufferHeight!=1192||v.width()!=680||v.height()!=596||!safe.key().equals(v.key())||safe.renderKey().equals(v.renderKey()))throw new AssertionError("Unsafe buffer geometry");
+  RearCastViewport at200=RearCastCompatibility.viewport(safe,200,480);
+  if(at200.bufferWidth!=1632||at200.bufferHeight!=1430)throw new AssertionError("Max-area 200DPI geometry");
   check(RearCastCompatibility.viewport(safe.full(),240,480),240,480);
   check(RearCastCompatibility.viewport(safe,480,480),480,480);
   for(int r=0;r<4;r++){
@@ -28,7 +35,7 @@ public class CompatibilityTest {
    },v);
    state.contentRotation(r,1);
    state.frame(List.of(new RearTouchState.Contact(0,1,500,300)),10);
-   float[][] expected={{408,536},{536,887},{887,527},{527,408}};float[] p=points.get(0);eq(p[0],expected[r][0]);eq(p[1],expected[r][1]);
+   float[][] expected={{408,600},{600,951},{951,591},{591,408}};float[] p=points.get(0);eq(p[0],expected[r][0]);eq(p[1],expected[r][1]);
    state.frame(List.of(new RearTouchState.Contact(0,1,500,300),new RearTouchState.Contact(1,2,700,350)),20);
    state.outputAvailable(false,30);RearCastViewport full=RearCastCompatibility.viewport(safe.full(),240,480);
    state.configure(full,r,40);current[0]=full;state.outputAvailable(true,50);
@@ -36,11 +43,11 @@ public class CompatibilityTest {
    if(!actions.equals(List.of(0,5,3)))throw new AssertionError("Old scaled contacts leaked "+actions);
    state.frame(List.of(new RearTouchState.Contact(0,3,100,100)),80);state.frame(List.of(),90);
    if(!actions.equals(List.of(0,5,3,0,1)))throw new AssertionError("Scaled recovery failed "+actions);
-   float[] edge=v.contentPoint(943.999f,563.999f,r);
+   float[] edge=v.contentPoint(975.999f,595.999f,r);
    if(edge[0]<0||edge[1]<0||edge[0]>=v.contentWidth(r)||edge[1]>=v.contentHeight(r))throw new AssertionError("Fractional edge");
   }
   RearCastViewport rounded=RearCastCompatibility.viewport(safe,240,450);
-  if(rounded.bufferWidth!=1215||rounded.bufferHeight!=998)throw new AssertionError("Fractional scale rounding");
+  if(rounded.bufferWidth!=1275||rounded.bufferHeight!=1118)throw new AssertionError("Fractional scale rounding");
   boolean rejected=false;try{RearCastCompatibility.viewport(safe.full(),72,1280);}catch(IllegalArgumentException expected){rejected=true;}
   if(!rejected)throw new AssertionError("Unbounded buffer allocation");
   System.out.println("PASS explicit density choice, unchanged effective dp, fixed physical bounds, scaled pointers/all rotations, multi cancel and safe/full recovery, fractional scaling and allocation limit");

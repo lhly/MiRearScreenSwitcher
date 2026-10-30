@@ -16,6 +16,9 @@ package top.zainzh.audit;
 
 import android.os.IBinder;
 import android.os.Parcel;
+import android.os.ParcelFileDescriptor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import java.lang.reflect.Field;
 
 public final class ReleaseContractRunner {
@@ -36,6 +39,8 @@ public final class ReleaseContractRunner {
         api.getMethod("getCurrentForegroundApp");
         api.getMethod("setRearDpi", int.class);
         api.getMethod("setDisplayRotation", int.class, int.class);
+        api.getMethod("captureRearScreenshot", int[].class);
+        api.getMethod("saveRearScreenshotLegacy", ParcelFileDescriptor.class);
         if (transaction("executeShellCommand") != IBinder.FIRST_CALL_TRANSACTION + 20
                 || transaction("executeShellCommandWithResult") != IBinder.FIRST_CALL_TRANSACTION + 21)
             throw new AssertionError("Published AIDL transaction IDs changed");
@@ -61,6 +66,27 @@ public final class ReleaseContractRunner {
             reply.readException();
             if (reply.readInt() != 1) throw new AssertionError("Shell boolean result changed");
         } finally { data.recycle(); reply.recycle(); }
+        if (args.length > 0 && "rear-screenshot".equals(args[0])) {
+            data = Parcel.obtain(); reply = Parcel.obtain();
+            try {
+                if (transaction("captureRearScreenshot") != IBinder.FIRST_CALL_TRANSACTION + 37
+                        || transaction("saveRearScreenshotLegacy") != IBinder.FIRST_CALL_TRANSACTION + 38)
+                    throw new AssertionError("Screenshot transaction IDs changed");
+                data.writeInterfaceToken(CONTRACT); data.writeInt(3);
+                if (!binder.transact(transaction("captureRearScreenshot"), data, reply, 0))
+                    throw new AssertionError("Capture transaction rejected");
+                reply.readException();
+                if (reply.readInt() != 1) throw new AssertionError("Missing capture fd");
+                try (ParcelFileDescriptor descriptor = ParcelFileDescriptor.CREATOR.createFromParcel(reply)) {
+                    int[] metadata = reply.createIntArray();
+                    Bitmap bitmap = BitmapFactory.decodeFileDescriptor(descriptor.getFileDescriptor());
+                    if (bitmap == null || metadata.length != 3 || bitmap.getWidth() != metadata[1] || bitmap.getHeight() != metadata[2])
+                        throw new AssertionError("Invalid PNG or capture metadata");
+                    System.out.println("Release rear screenshot fd OK; rotation=" + metadata[0] + "; size=" + bitmap.getWidth() + "x" + bitmap.getHeight());
+                    bitmap.recycle();
+                }
+            } finally { data.recycle(); reply.recycle(); }
+        }
         System.out.println("Release Binder contract OK; uid=" + uid + "; methods=" + api.getDeclaredMethods().length);
     }
 }
@@ -71,6 +97,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
     parser.add_argument("--serial", required=True, help="Dedicated Android test device")
+    parser.add_argument("--rear-screenshot", action="store_true", help="Also capture the physical rear display through the minified fd contract")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     sdk = Path(os.environ.get("ANDROID_HOME", repo / ".local/android-sdk"))
@@ -106,6 +133,8 @@ def main():
             shell("chmod", "444", remote + "/runner.jar", remote + "/app.apk")
             command = "CLASSPATH=" + shlex.quote(remote + "/runner.jar:" + remote + "/app.apk")
             command += " " + shlex.join(["app_process", "/system/bin", "top.zainzh.audit.ReleaseContractRunner"])
+            if args.rear_screenshot:
+                command += " rear-screenshot"
             print(run(adb + ["shell", command]).strip())
         finally:
             shell("rm", "-f", remote + "/runner.jar", remote + "/app.apk")

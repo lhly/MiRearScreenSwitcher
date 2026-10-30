@@ -172,12 +172,23 @@ class HomeComposeTest {
 
     @Test fun unavailableShizukuDoesNotCommitRotation() {
         org.junit.Assume.assumeFalse(rikka.shizuku.Shizuku.pingBinder())
-        val ninety = compose.onNodeWithContentDescription(s("rotation_caption") + " 90°")
-        compose.onNodeWithTag("home_list").performScrollToNode(hasContentDescription(s("rotation_caption") + " 90°"))
-        aboveNavigation(ninety).performClick()
-        compose.waitUntil(5000) { !ninety.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) }
-        ninety.assertIsNotSelected()
-        compose.onNodeWithContentDescription(s("rotation_caption") + " 0°").assertIsNotSelected()
-        compose.onNodeWithTag("rotation_value").assertTextEquals("—").assertIsDisplayed()
+        val mode = RearCastMode.preferences(compose.activity)
+        val saved = mode.all[RearCastMode.VIRTUAL]
+        try {
+            compose.runOnIdle { RearCastMode.setVirtual(compose.activity, false) }
+            val ninety = compose.onNodeWithContentDescription(s("rotation_caption") + " 90°")
+            compose.onNodeWithTag("home_list").performScrollToNode(hasContentDescription(s("rotation_caption") + " 90°"))
+            aboveNavigation(ninety).performClick()
+            compose.waitUntil(5000) { !ninety.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) }
+            ninety.assertIsNotSelected()
+            compose.onNodeWithContentDescription(s("rotation_caption") + " 0°").assertIsNotSelected()
+            compose.onNodeWithTag("rotation_value").assertTextEquals("—").assertIsDisplayed()
+        } finally {
+            compose.runOnIdle {
+                val edit = mode.edit().remove(RearCastMode.VIRTUAL)
+                if (saved is Boolean) edit.putBoolean(RearCastMode.VIRTUAL, saved)
+                edit.apply()
+            }
+        }
     }
 }

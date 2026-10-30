@@ -2,6 +2,11 @@ package top.zainzh.rearscreen;
 
 /** Render policy; the App snapshots the per-package preference before starting a session. */
 final class RearCastCompatibility {
+    static int layoutDensity(boolean enabled, int requested, int perApp, boolean explicitUri) {
+        if (requested < 72 || requested > 640 || (perApp != 0 && (perApp < 72 || perApp > 640)))
+            throw new IllegalArgumentException("Invalid layout density");
+        return enabled && !explicitUri && perApp != 0 ? perApp : requested;
+    }
     static int density(boolean enabled, int requested, int source) {
         if (requested < 72 || requested > 640 || source < 72 || source > 1280)
             throw new IllegalArgumentException("Invalid casting/source density");

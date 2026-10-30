@@ -25,6 +25,12 @@ dependency metadata while retaining the existing feature set.
 per-app rendering and presentation preferences, direct tile addition, and
 validated display-information handling; retained device and session guards.
 
+2026-10-30: added optional device-frame screenshots, per-app layout density
+and size adaptation, maximum camera-avoidance area, reversible lock-screen
+freeze protection, grouped settings and animated mode-dependent controls;
+updated the bundled tutorial. Device-frame artwork is fetched on demand from
+Xiaomi public resources, is not bundled, and retains its original ownership.
+
 Copyright (C) 2026 冷火凉烟, for original contributions to this fork.
 Existing upstream copyright and license notices remain applicable.
 This modified program is distributed under the GNU General Public License,

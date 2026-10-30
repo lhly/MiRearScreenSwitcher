@@ -119,6 +119,8 @@ final class RearVirtualCast {
         volatile boolean closed;
         volatile long lease = SystemClock.uptimeMillis();
         volatile String phase = "starting", inputId = "";
+        String sizePolicy = "disabled";
+        RearAppFreezeGuard freezeGuard;
         int display = -1;
         volatile int contentRotation;
         Object manager, callback;
@@ -161,7 +163,10 @@ final class RearVirtualCast {
             // Keep the cast interactive when the main display locks; never dismiss the main keyguard.
             builderType.getMethod("setFlags", int.class).invoke(builder, CAST_DISPLAY_FLAGS);
             builderType.getMethod("setSurface", Surface.class).invoke(builder, surface);
-            Object config = builderType.getMethod("build").invoke(builder);
+            RearCastResizePolicy.Result resizePolicy = RearCastResizePolicy.build(builder, densityCompatibility);
+            Object config = resizePolicy.config;
+            sizePolicy = resizePolicy.mode;
+            android.util.Log.i("RearVirtualCast", "size_policy=" + sizePolicy + " requested=" + densityCompatibility);
             display = (Integer) iface.getMethod("createVirtualDisplay", config.getClass(), callbackType,
                     Class.forName("android.media.projection.IMediaProjection"), String.class)
                     .invoke(manager, config, callback, null, "com.android.shell");
@@ -170,6 +175,9 @@ final class RearVirtualCast {
             command("wm", "fixed-to-user-rotation", "-d", Integer.toString(display), "enabled");
             command("wm", "user-rotation", "-d", Integer.toString(display), "lock", Integer.toString(contentRotation));
             awaitRotation(contentRotation);
+            // Acquire before the target enters the virtual display. The independent process
+            // restores its mirror entry even if this Shizuku service is killed abruptly.
+            freezeGuard = RearAppFreezeGuard.start(packageName);
             if (task >= 0 && !service.moveTaskToDisplay(task, display)) throw new IOException("Task move failed");
             if (component != null) {
                 if (!service.executeShellCommand("am start --display " + display + " -n '" + component + "'"))
@@ -204,11 +212,13 @@ final class RearVirtualCast {
                 }
             }, contentRotation));
             inputId = started.getString("id");
+            freezeGuard.renew();
             lease = SystemClock.uptimeMillis();
             phase = "running";
             timer.scheduleAtFixedRate(() -> {
                 try {
                     if (SystemClock.uptimeMillis() - lease > 4000) { close("lease_expired"); return; }
+                    freezeGuard.renew();
                     if (!outputAvailable && SystemClock.uptimeMillis() > outputDeadline) { close("output_reconnect_timeout"); return; }
                     if (!owner.isBinderAlive() || (outputAvailable && !surface.isValid()) || !service.isTaskOnDisplay(host, 1)
                             || !service.isTaskOnDisplay(task, display) || !input.renew(inputId)) close("host_task_or_input_left");
@@ -350,6 +360,7 @@ final class RearVirtualCast {
             }
             owner.unlinkToDeath(death, 0);
             surface.release();
+            if (freezeGuard != null) freezeGuard.close();
             // Restore the physical rear only for this closing session, before a new start can proceed.
             try { service.executeShellCommand("am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher"); }
             catch (Exception e) { android.util.Log.w("RearVirtualCast", "Rear launcher restoration", e); }
@@ -362,6 +373,8 @@ final class RearVirtualCast {
                     .put("reason", phase).put("display", display).put("task", task).put("host", host)
                     .put("package", packageName).put("density", density).put("requestedDensity", requestedDensity)
                     .put("compatibility", densityCompatibility ? "source_density" : "none").put("outputAvailable", outputAvailable)
+                    .put("sizePolicy", sizePolicy)
+                    .put("freezeProtection", freezeGuard == null ? "unavailable" : freezeGuard.mode)
                     .put("contentRotation", contentRotation).put("viewport", new JSONObject(RearCastGeometry.encode(viewport)))
                     .put("fullViewport", viewport.isFull()).put("viewportChanging", pendingViewport != null)
                     .put("input", new JSONObject(input.status())).toString(); }

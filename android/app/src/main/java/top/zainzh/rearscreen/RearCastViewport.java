@@ -22,19 +22,11 @@ public final class RearCastViewport {
         this.bufferWidth = bufferWidth; this.bufferHeight = bufferHeight;
     }
     public static RearCastViewport safe(int width, int height, int rotation, int density,
-                                         int left, int top, int right, int bottom, int[] radii) {
-        if (radii == null || radii.length != 4 || left < 0 || top < 0 || right < 0 || bottom < 0)
-            throw new IllegalArgumentException("Invalid rear cutout/corners");
-        int[] margins = new int[4];
-        for (int i = 0; i < 4; i++) {
-            if (radii[i] < 0) throw new IllegalArgumentException("Invalid corner radius");
-            margins[i] = radii[i] == 0 ? 0 : (int) Math.ceil(radii[i] * (1 - 1 / Math.sqrt(2))) + 2;
-        }
-        return new RearCastViewport(width, height, rotation, density,
-                Math.max(left, Math.max(margins[0], margins[3])),
-                Math.max(top, Math.max(margins[0], margins[1])),
-                width - Math.max(right, Math.max(margins[1], margins[2])),
-                height - Math.max(bottom, Math.max(margins[2], margins[3])));
+                                         int left, int top, int right, int bottom) {
+        if (left < 0 || top < 0 || right < 0 || bottom < 0)
+            throw new IllegalArgumentException("Invalid rear cutout");
+        // Use every pixel outside the reported obstruction; rounded corners add no padding.
+        return new RearCastViewport(width, height, rotation, density, left, top, width - right, height - bottom);
     }
     public static void validateContentRotation(int rotation) {
         if (rotation < 0 || rotation > 3) throw new IllegalArgumentException("Invalid cast content rotation");

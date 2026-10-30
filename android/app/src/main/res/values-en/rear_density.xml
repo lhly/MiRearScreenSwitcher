@@ -1,8 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="rear_density_help">Helps with incorrectly scaled content and increases rendering work. Applies to the next virtual cast.</string>
+    <string name="rear_density_help">Allows apps to adapt to the casting window and helps with scaling issues. Applies to the next virtual cast.</string>
     <string name="rear_density_search">Search app name or package</string>
     <string name="rear_density_loading">Loading apps…</string>
     <string name="rear_density_failed">Could not load apps</string>
     <string name="rear_density_empty">No matching apps</string>
     <string name="rear_density_retry">Retry</string>
+    <string name="rear_density_layout_title">Layout DPI</string>
+    <string name="rear_density_layout_default">Default (%1$d DPI)</string>
+    <string name="rear_density_layout_value">%1$d DPI</string>
+    <string name="rear_density_layout_help">Lower values make content smaller and fit more information. Range: 72–640. Applies to the next virtual cast; an explicit DPI in the URI takes priority.</string>
+    <string name="rear_density_layout_error">Enter a whole number from 72 to 640</string>
+    <string name="rear_density_layout_save">Save</string>
+    <string name="rear_density_layout_reset">Use default</string>
+    <string name="rear_density_layout_cancel">Cancel</string>
+    <string name="rear_density_partial_support">Full layout adaptation is unavailable on this system. Using density compatibility.</string>
+    <string name="rear_density_group_enabled">Enabled (%1$d)</string>
+    <string name="rear_density_group_disabled">Not enabled (%1$d)</string>
 </resources>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rear_screenshot_title">背屏截图</string>
+    <string name="rear_screenshot_entry_help">设置外壳、构图和配色</string>
+    <string name="rear_screenshot_shell">添加手机外壳</string>
+    <string name="rear_screenshot_shell_help">截图时带上手机机身外观</string>
+    <string name="rear_screenshot_unsupported">当前机型暂无匹配外壳，仍可保存原始截图</string>
+    <string name="rear_screenshot_style">构图</string>
+    <string name="rear_screenshot_full">完整机身</string>
+    <string name="rear_screenshot_half">局部放大</string>
+    <string name="rear_screenshot_color">机身配色</string>
+    <string name="rear_screenshot_black">黑色</string>
+    <string name="rear_screenshot_white">白色</string>
+    <string name="rear_screenshot_purple">紫色</string>
+    <string name="rear_screenshot_green">绿色</string>
+    <string name="rear_screenshot_keep_original">同时保存原图</string>
+    <string name="rear_screenshot_keep_original_help">带壳截图和原始截图各保存一份</string>
+    <string name="rear_screenshot_preview">效果预览</string>
+    <string name="rear_screenshot_preview_description">%1$s外壳，%2$s</string>
+    <string name="rear_screenshot_preparing">正在准备外壳…</string>
+    <string name="rear_screenshot_preview_failed">外壳预览暂不可用，请稍后重试</string>
+    <string name="rear_screenshot_retry">重试</string>
+    <string name="rear_screenshot_download_help">首次准备外壳需要联网，之后可离线使用。</string>
+    <string name="rear_screenshot_save_help">截图磁贴与截图 URI 共用此设置，图片保存至 Pictures/RearDisplay。</string>
+    <string name="rear_screenshot_saving">正在保存截图…</string>
+    <string name="rear_screenshot_saved_shell">带壳背屏截图已保存</string>
+    <string name="rear_screenshot_saved_both">带壳截图与原图已保存</string>
+    <string name="rear_screenshot_saved_fallback">外壳处理失败，已保存原始截图</string>
+    <string name="rear_screenshot_saved_shell_only">带壳截图已保存，原图未能保存</string>
+    <string name="rear_screenshot_failed">截图失败，请检查 Shizuku 和可用存储空间</string>
+    <string name="rear_screenshot_service_unavailable">控制服务未就绪，请启动 Shizuku 并授权 ReMRSS</string>
+</resources>

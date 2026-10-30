@@ -10,7 +10,8 @@ public final class VirtualRequestChecks {
  static void rejected(Runnable r){try{r.run();throw new AssertionError("accepted invalid input");}catch(IllegalArgumentException expected){}}
  public static void main(String[] args){
   check(VirtualCastRequest.yes("true")&&VirtualCastRequest.yes("TRUE")&&VirtualCastRequest.yes("1")&&!VirtualCastRequest.yes(null));
-  check(VirtualCastRequest.density(null)==240&&VirtualCastRequest.density("72")==72&&VirtualCastRequest.density("640")==640);
+  check(VirtualCastRequest.density(null)==200&&VirtualCastRequest.density("72")==72&&VirtualCastRequest.density("640")==640);
+  check(VirtualCastRequest.density("240")==240&&VirtualCastRequest.density("320")==320);
   rejected(()->VirtualCastRequest.density("71"));rejected(()->VirtualCastRequest.density("641"));rejected(()->VirtualCastRequest.density("abc"));
   VirtualCastRequest.rotation(null);VirtualCastRequest.rotation("0");rejected(()->VirtualCastRequest.rotation("1"));
   check(VirtualCastRequest.component("tv.danmaku.bili/.MainActivity").equals("tv.danmaku.bili/.MainActivity"));

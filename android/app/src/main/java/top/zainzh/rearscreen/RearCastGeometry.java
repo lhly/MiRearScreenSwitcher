@@ -1,7 +1,6 @@
 package top.zainzh.rearscreen;
 
 import android.view.DisplayCutout;
-import android.view.RoundedCorner;
 import org.json.JSONObject;
 import java.io.IOException;
 
@@ -21,18 +20,11 @@ final class RearCastGeometry {
         Class<?> type = info.getClass();
         DisplayCutout cutout = (DisplayCutout) type.getField("displayCutout").get(info);
         if (cutout == null) throw new IOException("Rear cutout unavailable; safe casting cannot start");
-        Object corners = type.getField("roundedCorners").get(info);
-        if (corners == null) throw new IOException("Rear rounded corners unavailable");
-        int[] radii = new int[4];
-        for (int i = 0; i < 4; i++) {
-            RoundedCorner corner = (RoundedCorner) corners.getClass().getMethod("getRoundedCorner", int.class).invoke(corners, i);
-            radii[i] = corner == null ? 0 : corner.getRadius();
-        }
         android.graphics.Insets waterfall = cutout.getWaterfallInsets();
         return RearCastViewport.safe(type.getField("logicalWidth").getInt(info), type.getField("logicalHeight").getInt(info),
                 type.getField("rotation").getInt(info), type.getField("logicalDensityDpi").getInt(info),
                 Math.max(cutout.getSafeInsetLeft(), waterfall.left), Math.max(cutout.getSafeInsetTop(), waterfall.top),
-                Math.max(cutout.getSafeInsetRight(), waterfall.right), Math.max(cutout.getSafeInsetBottom(), waterfall.bottom), radii);
+                Math.max(cutout.getSafeInsetRight(), waterfall.right), Math.max(cutout.getSafeInsetBottom(), waterfall.bottom));
     }
     static String encode(RearCastViewport v) throws Exception {
         return new JSONObject().put("physicalWidth", v.physicalWidth).put("physicalHeight", v.physicalHeight)
