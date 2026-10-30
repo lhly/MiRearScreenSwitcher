@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tutorial_entry_help">Shizuku、控制中心磁贴与背屏功能的离线指南</string>
-    <string name="tutorial_intro">按当前 ReMRSS 界面整理，离线也能阅读。先完成 Shizuku 配置，再按需要开启背屏功能。</string>
-    <string name="tutorial_contents">快速导航</string>
+    <string name="tutorial_intro">点击章节查看操作步骤，离线也能阅读。</string>
     <string name="tutorial_setup_title">准备 Shizuku</string>
     <string name="tutorial_setup_steps">安装并打开 Shizuku。未 Root 的 Android 11 及以上设备可在连接 Wi-Fi 后，按 Shizuku 提示进入开发者选项并启用无线调试。小米若提示 ADB 权限受限，还需开启“USB 调试（安全设置）”。\n在无线调试中选择使用配对码配对设备，将配对码填入 Shizuku 的配对通知。完成后返回 Shizuku，点击“启动”，确认服务正在运行。不要把配对成功当成服务已经启动。\n其他启动方式请遵循 Shizuku 内的引导。未 Root 设备重启后通常需要重新启动 Shizuku，再打开 ReMRSS。</string>
     <string name="tutorial_permissions_title">授权与权限检测</string>
@@ -25,10 +24,11 @@
     <string name="tutorial_source_title">教程来源</string>
     <string name="tutorial_source_help">参考《Mrss 使用教程》并按当前 ReMRSS 界面重新整理。原图文由汐木泽、物博编写，软件原作者为 AntiOblivionis。原文包含旧版界面，在线查看原文需要联网。</string>
     <string name="tutorial_view_original">查看原文</string>
-    <string name="tutorial_back_to_top">返回目录</string>
     <string name="tutorial_add_tile">添加“%1$s”磁贴</string>
     <string name="tutorial_tile_added">已将“%1$s”添加到控制中心</string>
     <string name="tutorial_tile_already_added">控制中心已有“%1$s”磁贴</string>
     <string name="tutorial_tile_add_failed">暂时无法添加“%1$s”，请在控制中心编辑快捷开关并手动添加</string>
     <string name="tutorial_tile_needs_shizuku">请先启动 Shizuku 并授权 ReMRSS，再点击添加；也可在控制中心手动添加磁贴</string>
+    <string name="tutorial_expanded">已展开</string>
+    <string name="tutorial_collapsed">已收起</string>
 </resources>

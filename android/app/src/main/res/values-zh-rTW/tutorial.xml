@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tutorial_entry_help">Shizuku、控制中心快捷開關與背螢幕功能的離線指南</string>
-    <string name="tutorial_intro">依目前 ReMRSS 介面整理，離線也能閱讀。先完成 Shizuku 設定，再依需要啟用背螢幕功能。</string>
-    <string name="tutorial_contents">快速導覽</string>
+    <string name="tutorial_intro">點選章節查看操作步驟，離線也能閱讀。</string>
     <string name="tutorial_setup_title">準備 Shizuku</string>
     <string name="tutorial_setup_steps">安裝並開啟 Shizuku。未 Root 的 Android 11 以上裝置可連線 Wi-Fi，依 Shizuku 指示進入開發人員選項並啟用無線偵錯。小米若提示 ADB 權限受限，還需開啟「USB 偵錯（安全設定）」。\n在無線偵錯中選擇使用配對碼配對裝置，將配對碼填入 Shizuku 的配對通知。完成後返回 Shizuku，點選「啟動」，確認服務正在執行。配對成功不代表服務已啟動。\n其他啟動方式請遵循 Shizuku 的引導。未 Root 裝置重新啟動後，通常需要重新啟動 Shizuku，再開啟 ReMRSS。</string>
     <string name="tutorial_permissions_title">授權與權限檢測</string>
@@ -25,10 +24,11 @@
     <string name="tutorial_source_title">教學來源</string>
     <string name="tutorial_source_help">參考《Mrss 使用教程》並依目前 ReMRSS 介面重新整理。原圖文由汐木澤、物博編寫，軟體原作者為 AntiOblivionis。原文包含舊版介面，線上查看原文需要網路連線。</string>
     <string name="tutorial_view_original">查看原文</string>
-    <string name="tutorial_back_to_top">返回目錄</string>
     <string name="tutorial_add_tile">加入「%1$s」快捷開關</string>
     <string name="tutorial_tile_added">已將「%1$s」加入控制中心</string>
     <string name="tutorial_tile_already_added">控制中心已有「%1$s」快捷開關</string>
     <string name="tutorial_tile_add_failed">暫時無法加入「%1$s」，請在控制中心編輯快捷開關並手動加入</string>
     <string name="tutorial_tile_needs_shizuku">請先啟動 Shizuku 並授權 ReMRSS，再點選加入；也可在控制中心手動加入快捷開關</string>
+    <string name="tutorial_expanded">已展開</string>
+    <string name="tutorial_collapsed">已收起</string>
 </resources>

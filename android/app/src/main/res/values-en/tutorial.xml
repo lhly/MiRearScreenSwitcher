@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tutorial_entry_help">Offline guide to Shizuku, Quick Settings tiles and rear screen features</string>
-    <string name="tutorial_intro">Written for the current ReMRSS interface and available offline. Set up Shizuku first, then enable the features you need.</string>
-    <string name="tutorial_contents">Jump to a topic</string>
+    <string name="tutorial_intro">Tap a chapter to view its steps. This guide works offline.</string>
     <string name="tutorial_setup_title">Set up Shizuku</string>
     <string name="tutorial_setup_steps">Install and open Shizuku. On non-rooted Android 11 or later, connect to Wi-Fi and follow its instructions to enable Wireless debugging in Developer options. On Xiaomi, also enable USB debugging (Security settings) if ADB access is restricted.\nIn Wireless debugging, choose pairing with a pairing code, then enter that code in the Shizuku pairing notification. Return to Shizuku, tap Start and confirm the service is running. Pairing alone does not start the service.\nFor other startup methods, follow the instructions in Shizuku. After rebooting a non-rooted device, start Shizuku again, then open ReMRSS.</string>
     <string name="tutorial_permissions_title">Check permissions</string>
@@ -25,10 +24,11 @@
     <string name="tutorial_source_title">Source and credits</string>
     <string name="tutorial_source_help">Adapted from Mrss 使用教程 for the current ReMRSS interface. Original illustrated guide: 汐木泽 and 物博. Original app author: AntiOblivionis. The source includes older interfaces; viewing it online requires an internet connection.</string>
     <string name="tutorial_view_original">View original</string>
-    <string name="tutorial_back_to_top">Back to contents</string>
     <string name="tutorial_add_tile">Add %1$s tile</string>
     <string name="tutorial_tile_added">%1$s added to Quick Settings</string>
     <string name="tutorial_tile_already_added">%1$s is already in Quick Settings</string>
     <string name="tutorial_tile_add_failed">Could not add %1$s. Edit Quick Settings to add it manually.</string>
     <string name="tutorial_tile_needs_shizuku">Start Shizuku and authorize ReMRSS before adding tiles, or add them manually in Quick Settings.</string>
+    <string name="tutorial_expanded">Expanded</string>
+    <string name="tutorial_collapsed">Collapsed</string>
 </resources>

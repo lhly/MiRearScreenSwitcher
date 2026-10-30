@@ -1,6 +1,6 @@
 # ReMRSS 使用指南
 
-本指南按当前 ReMRSS 界面整理。各版本的功能以对应 [Release](https://github.com/lhly/MiRearScreenSwitcher/releases) 说明为准；可在“背屏”页打开离线“使用教程”，末尾保留腾讯原图文教程入口。
+本指南按当前 ReMRSS 界面整理。各版本的功能以对应 [Release](https://github.com/lhly/MiRearScreenSwitcher/releases) 说明为准；可在“背屏”页打开离线“使用教程”，点击章节展开步骤，末尾“教程来源”保留腾讯原图文教程入口。
 
 ## 初次设置
 

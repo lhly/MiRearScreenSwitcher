@@ -4,6 +4,7 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.os.Bundle
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
@@ -14,39 +15,68 @@ import java.util.concurrent.atomic.AtomicReference
 class TutorialComposeTest {
     @get:Rule val compose = createAndroidComposeRule<TutorialActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private fun header(section: String): SemanticsNodeInteraction {
+        compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_header_$section"))
+        return compose.onNodeWithTag("tutorial_header_$section")
+    }
+    private fun state(section: String, expanded: Boolean) {
+        header(section).assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription,
+            compose.activity.getString(if (expanded) R.string.tutorial_expanded else R.string.tutorial_collapsed)))
+    }
     @Test fun localGuideIncludesAllChaptersAndAttribution() {
+        var previous: String? = null
         TutorialActivity.sections.forEach { section ->
-            compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_section_$section"))
-            compose.onNodeWithTag("tutorial_section_$section").assertExists()
+            state(section, false)
+            compose.onNodeWithTag("tutorial_body_$section").assertDoesNotExist()
+            header(section).performClick()
+            state(section, true)
+            compose.onNodeWithTag("tutorial_body_$section").assertExists()
+            previous?.let { compose.onNodeWithTag("tutorial_body_$it").assertDoesNotExist() }
+            previous = section
         }
-        compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_source"))
+        header("source").performClick()
+        compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasText(compose.activity.getString(R.string.tutorial_source_help)))
         compose.onNodeWithText(compose.activity.getString(R.string.tutorial_source_help)).assertExists()
     }
     private fun saved(): Bundle {
         val bundle = Bundle()
         compose.runOnIdle {
             val field = TutorialActivity::class.java.getDeclaredField("list").apply { isAccessible = true }
-            val state = field.get(compose.activity) as androidx.compose.foundation.lazy.LazyListState
-            bundle.putInt("tutorial_scroll_index", state.firstVisibleItemIndex)
-            bundle.putInt("tutorial_scroll_offset", state.firstVisibleItemScrollOffset)
+            val list = field.get(compose.activity) as androidx.compose.foundation.lazy.LazyListState
+            bundle.putInt("tutorial_scroll_index", list.firstVisibleItemIndex)
+            bundle.putInt("tutorial_scroll_offset", list.firstVisibleItemScrollOffset)
         }
         return bundle
     }
-    @Test fun chapterJumpAndRecreationKeepPositionAndTopActionReturns() {
-        compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_jump_capture"))
-        compose.onNodeWithTag("tutorial_jump_capture").performClick()
-        compose.onNodeWithTag("tutorial_section_capture").assertIsDisplayed()
+    @Test fun chapterExpansionAndRecreationKeepStateAndAllowCollapse() {
+        header("capture").performClick()
         val before = saved()
         compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag("tutorial_body_capture").assertExists()
         assertEquals(before.getInt("tutorial_scroll_index"), saved().getInt("tutorial_scroll_index"))
-        compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_top"))
-        compose.onNodeWithTag("tutorial_top").performClick()
-        compose.onNodeWithText(compose.activity.getString(R.string.tutorial_intro)).assertIsDisplayed()
+        assertEquals(before.getInt("tutorial_scroll_offset"), saved().getInt("tutorial_scroll_offset"))
+        state("capture", true)
+        header("capture").performClick()
+        state("capture", false)
+        compose.onNodeWithTag("tutorial_body_capture").assertDoesNotExist()
+        compose.mainClock.autoAdvance = false
+        try {
+            header("display").performClick()
+            compose.mainClock.advanceTimeBy(64)
+            compose.onNodeWithTag("tutorial_header_display").performClick()
+            compose.mainClock.advanceTimeBy(64)
+            compose.onNodeWithTag("tutorial_header_display").performClick()
+            compose.mainClock.advanceTimeBy(400)
+        } finally { compose.mainClock.autoAdvance = true }
+        state("display", true)
+        compose.onNodeWithTag("tutorial_body_display").assertExists()
+        compose.onNodeWithTag("tutorial_body_capture").assertDoesNotExist()
     }
     @Test fun permissionShortcutOpensInternalPageAndBackReturnsToGuide() {
         val monitor = instrumentation.addMonitor(PermissionChecksActivity::class.java.name, null, false)
         var checks: PermissionChecksActivity? = null
         try {
+            header("permissions").performClick()
             compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_permissions"))
             compose.onNodeWithTag("tutorial_permissions").performClick()
             checks = monitor.waitForActivityWithTimeout(5000) as? PermissionChecksActivity
@@ -66,6 +96,7 @@ class TutorialComposeTest {
         }
         instrumentation.addMonitor(monitor)
         try {
+            header("source").performClick()
             compose.onNodeWithTag("tutorial_scroll").performScrollToNode(hasTestTag("tutorial_original"))
             assertNull(opened.get())
             compose.onNodeWithTag("tutorial_original").performClick()

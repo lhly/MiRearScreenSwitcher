@@ -13,9 +13,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.*
@@ -23,68 +29,76 @@ import kotlin.coroutines.resume
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 
-/** Content, chapter navigation and attribution are bundled resources and work offline. */
+/** Collapsible chapters and attribution are bundled resources and work offline. */
 class TutorialActivity : ComponentActivity() {
     private lateinit var list: androidx.compose.foundation.lazy.LazyListState
     private var addingTile by mutableStateOf(false)
+    private var expandedSection by mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         list = savedInstanceState.listState("tutorial_scroll")
+        expandedSection = savedInstanceState?.getString("tutorial_expanded")
         miuixContent {
             val scope = rememberCoroutineScope()
             PageFrame(NativeStrings.get(this, "tutorial"), ::finish, "tutorial_back") {
                 LazyColumn(Modifier.fillMaxSize().testTag("tutorial_scroll"), state = list,
                     contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     item("intro") { Text(getString(R.string.tutorial_intro), fontSize = 14.sp, color = AppPalette.secondary()) }
-                    item("contents") {
-                        AppSection(getString(R.string.tutorial_contents))
-                        AppCard { sections.forEachIndexed { index, section ->
-                            if (index > 0) AppDivider()
-                            AppRow(getString(titles[index]), null, modifier = Modifier.testTag("tutorial_jump_$section"),
-                                action = { scope.launch { list.animateScrollToItem(index + 2) } })
-                        } }
-                    }
                     sections.forEachIndexed { index, section ->
                         item(section) {
-                            AppCard(Modifier.testTag("tutorial_section_$section")) {
-                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("${index + 1}. ${getString(titles[index])}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                                        color = AppPalette.text(), modifier = Modifier.semantics { heading() })
-                                    getString(steps[index]).replace("{scheme}", BuildConfig.URI_SCHEME).split('\n').forEachIndexed { number, step ->
-                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Text("${number + 1}.", fontSize = 14.sp, color = AppPalette.accent())
-                                            Text(step, fontSize = 14.sp, color = AppPalette.secondary(), modifier = Modifier.weight(1f))
-                                        }
+                            Chapter(section, getString(titles[index])) {
+                                getString(steps[index]).replace("{scheme}", BuildConfig.URI_SCHEME).split('\n').forEachIndexed { number, step ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text("${number + 1}.", fontSize = 14.sp, color = AppPalette.accent())
+                                        Text(step, fontSize = 14.sp, color = AppPalette.secondary(), modifier = Modifier.weight(1f))
                                     }
-                                    if (index == 0) TextButton(NativeStrings.get(this@TutorialActivity, "open_shizuku"), {
-                                        if (!PermissionChecks.openSettings(this@TutorialActivity, PermissionChecks.Item.SHIZUKU)) openError()
-                                    }, Modifier.testTag("tutorial_shizuku"), minHeight = 48.dp)
-                                    if (index == 1) TextButton(getString(R.string.tutorial_open_permissions), {
-                                        startActivity(Intent(this@TutorialActivity, PermissionChecksActivity::class.java))
-                                    }, Modifier.testTag("tutorial_permissions"), minHeight = 48.dp)
-                                    if (section == "tiles") {
-                                        tileShortcuts.forEach { tile ->
-                                            TextButton(getString(R.string.tutorial_add_tile, getString(tile.label)), { addTile(tile, scope) },
-                                                Modifier.fillMaxWidth().testTag("tutorial_add_tile_${tile.tag}"), minHeight = 48.dp,
-                                                enabled = !addingTile)
-                                        }
+                                }
+                                if (index == 0) TextButton(NativeStrings.get(this@TutorialActivity, "open_shizuku"), {
+                                    if (!PermissionChecks.openSettings(this@TutorialActivity, PermissionChecks.Item.SHIZUKU)) openError()
+                                }, Modifier.testTag("tutorial_shizuku"), minHeight = 48.dp, enabled = expandedSection == section)
+                                if (index == 1) TextButton(getString(R.string.tutorial_open_permissions), {
+                                    startActivity(Intent(this@TutorialActivity, PermissionChecksActivity::class.java))
+                                }, Modifier.testTag("tutorial_permissions"), minHeight = 48.dp, enabled = expandedSection == section)
+                                if (section == "tiles") {
+                                    tileShortcuts.forEach { tile ->
+                                        TextButton(getString(R.string.tutorial_add_tile, getString(tile.label)), { addTile(tile, scope) },
+                                            Modifier.fillMaxWidth().testTag("tutorial_add_tile_${tile.tag}"), minHeight = 48.dp,
+                                            enabled = !addingTile && expandedSection == section)
                                     }
                                 }
                             }
                         }
                     }
                     item("source") {
-                        AppCard(Modifier.testTag("tutorial_source")) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(getString(R.string.tutorial_source_title), fontSize = 16.sp, color = AppPalette.text(), fontWeight = FontWeight.Medium)
-                                Text(getString(R.string.tutorial_source_help), fontSize = 13.sp, color = AppPalette.secondary())
-                                TextButton(getString(R.string.tutorial_view_original), ::openOriginal, Modifier.testTag("tutorial_original"), minHeight = 48.dp)
-                            }
+                        Chapter("source", getString(R.string.tutorial_source_title)) {
+                            Text(getString(R.string.tutorial_source_help), fontSize = 13.sp, color = AppPalette.secondary())
+                            TextButton(getString(R.string.tutorial_view_original), ::openOriginal,
+                                Modifier.testTag("tutorial_original"), minHeight = 48.dp, enabled = expandedSection == "source")
                         }
                     }
-                    item("top") { TextButton(getString(R.string.tutorial_back_to_top), { scope.launch { list.animateScrollToItem(0) } },
-                        Modifier.testTag("tutorial_top"), minHeight = 48.dp) }
                 }
+            }
+        }
+    }
+    @Composable
+    private fun Chapter(section: String, title: String, content: @Composable ColumnScope.() -> Unit) {
+        val expanded = expandedSection == section
+        val arrow by animateFloatAsState(if (expanded) 90f else 0f,
+            tween(if (expanded) 200 else 150), label = "tutorial_arrow")
+        val description = getString(if (expanded) R.string.tutorial_expanded else R.string.tutorial_collapsed)
+        AppCard(Modifier.testTag(if (section == "source") "tutorial_source" else "tutorial_section_$section")) {
+            AppRow(title, null, Modifier.testTag("tutorial_header_$section").semantics {
+                heading()
+                role = Role.Button
+                stateDescription = description
+            }, action = { expandedSection = if (expanded) null else section }, trailing = {
+                Text("›", fontSize = 22.sp, color = AppPalette.secondary(),
+                    modifier = Modifier.rotate(arrow).clearAndSetSemantics { })
+            })
+            AppSettingsReveal(expanded) {
+                AppDivider()
+                Column(Modifier.padding(18.dp).testTag("tutorial_body_$section"),
+                    verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
             }
         }
     }
@@ -145,7 +159,11 @@ class TutorialActivity : ComponentActivity() {
         catch (_: SecurityException) { openError() }
     }
     private fun openError() { Toast.makeText(this, NativeStrings.get(this, "open_failed"), Toast.LENGTH_LONG).show() }
-    override fun onSaveInstanceState(outState: Bundle) { outState.saveList("tutorial_scroll", list); super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.saveList("tutorial_scroll", list)
+        outState.putString("tutorial_expanded", expandedSection)
+        super.onSaveInstanceState(outState)
+    }
     private data class TileShortcut(val service: Class<*>, val label: Int, val tag: String)
     companion object {
         private val tileShortcuts = listOf(
