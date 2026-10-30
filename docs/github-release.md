@@ -160,3 +160,11 @@ Raw与gh-proxy.com镜像清单均对应同一公开APK；镜像APK再次匿名�
 版本3.6.0/2019，沿用包名和正式证书。16组主机回归、actionlint、Debug/AndroidTest/R8 Release构建与生产Lint通过（0错误、55警告）。最终压缩包在API36通过实际Binder与反射入口契约检查，新增截图事务保留原有编号；签名、版本、非调试及完整LICENSE/NOTICE资产通过本地校验。内置教程已同步当前行为并通过运行回归与明暗、大字、横屏画面检查。
 
 功能专项真机和模拟器结果分别见[带壳截图](rear-screenshot-validation.md)、[密度与布局](density-compatibility-validation.md)、[锁屏触摸](lockscreen-touch-validation.md)及[内置教程](offline-tutorial-validation.md)。本地检查结果不替代公开附件、线上清单或其他机型的验收。
+
+### 公开发布与校验
+
+2026-10-30，[ReMRSS v3.6.0](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.0)已公开并为Latest，[Actions 41066817630](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/41066817630)的构建、发布与清单三个job全部成功。发布源码为`3e57aae6c332f3cf069e3021b7f8bf70fcd65229`，包含最终折叠教程；CI提交`2118e05`更新ReMRSS稳定清单。
+
+匿名下载公开APK为**1,706,812字节（约1.71MB）**，SHA256为`7500a37edff1d5908975eb5fdb6250a0bac10989aa0c729de31ab4b685c78e73`。实际字节与GitHub asset digest、SHA256SUMS、Raw及gh-proxy.com清单完全一致，镜像APK再次下载也一致。包名`top.zainzh.rearscreen`、3.6.0/2019、非调试、原正式证书、四ABI程序及完整LICENSE/NOTICE均通过复核；公开压缩包在API36再次通过真实Binder与反射入口契约。旧MRSS根清单字节及旧Release四附件的ID、大小、digest和地址保持不变。
+
+本轮手机上的功能验收沿用各专项记录；公开3.6.0 APK另在独立API36模拟器安装并实际渲染首页与折叠教程，展开后的自动化示例为正式`mrss://`协议。未把模拟器或软件输入等同所有背屏机型的真实手势验收。
