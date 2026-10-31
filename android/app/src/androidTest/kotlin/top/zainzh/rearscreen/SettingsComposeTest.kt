@@ -115,10 +115,21 @@ class SettingsComposeTest {
         compose.onNodeWithTag("number_input").assertTextContains("137")
     }
     @Test fun dpiDraftSurvivesRecreation() {
-        row("dpi_caption", "home_list").performClick()
-        compose.onNodeWithTag("number_input").performTextReplacement("420")
-        compose.activityRule.scenario.recreate()
-        compose.onNodeWithTag("number_input").assertTextContains("420")
+        val mode = RearCastMode.preferences(compose.activity)
+        val saved = mode.all[RearCastMode.VIRTUAL]
+        try {
+            compose.runOnIdle { RearCastMode.setVirtual(compose.activity, false) }
+            row("dpi_caption", "home_list").performClick()
+            compose.onNodeWithTag("number_input").performTextReplacement("420")
+            compose.activityRule.scenario.recreate()
+            compose.onNodeWithTag("number_input").assertTextContains("420")
+        } finally {
+            compose.runOnIdle {
+                val edit = mode.edit().remove(RearCastMode.VIRTUAL)
+                if (saved is Boolean) edit.putBoolean(RearCastMode.VIRTUAL, saved)
+                edit.apply()
+            }
+        }
     }
     private fun checker(fetch: ReleaseUpdateChecker.Fetcher): SettingsController {
         val result = AtomicReference<SettingsController>()
@@ -134,14 +145,15 @@ class SettingsComposeTest {
     @Test fun updateCheckPreventsDuplicateRequestsAndHasSingleTargetVersion() {
         val release = CountDownLatch(1)
         val attempts = AtomicInteger()
-        val ui = checker { attempts.incrementAndGet(); release.await(); ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release("v3.4.0")) }
+        val target = "v${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
+        val ui = checker { attempts.incrementAndGet(); release.await(); ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release(target)) }
         try {
             compose.runOnIdle { ui.checkForUpdates(); ui.checkForUpdates() }
             row("check_updates", "about_list").assertIsNotEnabled()
             compose.runOnIdle { release.countDown() }
             compose.waitUntil(5000) { compose.onAllNodesWithText(compose.activity.getString(R.string.ui_download_update)).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, attempts.get())
-            compose.onNode(hasText("v3.4.0", substring = true) and hasAnyAncestor(isDialog())).assertExists()
+            compose.onNode(hasText(target, substring = true) and hasAnyAncestor(isDialog())).assertExists()
             compose.onNodeWithText(s(R.string.ui_view_release)).assertExists()
         } finally { release.countDown() }
     }

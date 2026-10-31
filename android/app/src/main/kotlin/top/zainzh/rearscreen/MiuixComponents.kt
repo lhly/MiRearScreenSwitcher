@@ -19,6 +19,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -43,6 +54,7 @@ internal object AppPalette {
     @Composable fun text() = colorResource(R.color.remrss_foreground)
     @Composable fun secondary() = colorResource(R.color.remrss_secondary)
     @Composable fun accent() = colorResource(R.color.remrss_primary)
+    @Composable fun navigationSurface() = colorResource(R.color.remrss_navigation_surface)
 }
 
 @Composable internal fun AppTheme(content: @Composable () -> Unit) {
@@ -105,7 +117,7 @@ private const val SETTINGS_EXIT_MS = 150
             if (!summary.isNullOrEmpty()) Text(summary, fontSize = 13.sp, color = AppPalette.secondary())
         }
         if (trailing != null) trailing()
-        else if (action != null) Text("›", fontSize = 22.sp, color = AppPalette.secondary(), modifier = Modifier.clearAndSetSemantics { })
+        else if (action != null) AppNavigationChevron()
     }
 }
 
@@ -142,7 +154,14 @@ private const val SETTINGS_EXIT_MS = 150
 
 @Composable internal fun AppBackButton(back: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.ui_back)
-    IconButton(onClick = back, modifier = modifier.size(48.dp).clearAndSetSemantics {
+    val feedback = remember { NavigationPress() }
+    val press = animateFloatAsState(if (feedback.down) 1f else 0f,
+        spring(dampingRatio = .7f, stiffness = 450f), label = "back_press")
+    val material = LocalNavigationMaterial.current
+    IconButton(onClick = back, modifier = modifier.size(48.dp).then(feedback.modifier)
+        .graphicsLayer { scaleX = 1f + .06f * press.value; scaleY = scaleX }
+        .shadow(4.dp, CircleShape, clip = false)
+        .then(with(material) { Modifier.surface(CircleShape, { press.value }, compact = true) }).clearAndSetSemantics {
         contentDescription = label
         role = Role.Button
         onClick { back(); true }
@@ -162,13 +181,71 @@ private const val SETTINGS_EXIT_MS = 150
     }
 }
 
-@Composable internal fun PageFrame(title: String, back: () -> Unit, backTag: String, content: @Composable ColumnScope.() -> Unit) {
-    Box(Modifier.fillMaxSize().background(AppPalette.background()).safeDrawingPadding().imePadding(), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 680.dp).fillMaxSize()) {
-            AppPageHeader(title, back, backTag, Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-            content()
-        }
+@Composable internal fun PageFrame(title: String, back: () -> Unit, backTag: String,
+    content: @Composable (Modifier, Dp) -> Unit) {
+    Box(Modifier.fillMaxSize().background(AppPalette.background()).safeDrawingPadding().imePadding()) {
+        AppPageContent(title, back, backTag, content = content)
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable internal fun AppPageContent(title: String, back: () -> Unit, backTag: String,
+    modifier: Modifier = Modifier, content: @Composable (Modifier, Dp) -> Unit) {
+    val density = LocalDensity.current
+    val background = AppPalette.background()
+    val host = LocalView.current
+    var insetsReady by remember(host) { mutableStateOf(host.isLaidOut && host.rootWindowInsets != null) }
+    DisposableEffect(host) {
+        val observer = host.viewTreeObserver
+        val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (host.rootWindowInsets != null) {
+                    insetsReady = true
+                    if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                }
+                return true
+            }
+        }
+        if (!insetsReady) { observer.addOnPreDrawListener(listener); host.requestApplyInsets() }
+        onDispose { if (observer.isAlive) observer.removeOnPreDrawListener(listener) }
+    }
+    // A short restored list must not be clamped against the pre-insets viewport.
+    if (!insetsReady) return
+    AppNavigationFrame(modifier.fillMaxSize(), content = { capture ->
+        SubcomposeLayout(Modifier.fillMaxSize()) { constraints ->
+            val header = subcompose("header") {
+                Box(Modifier.fillMaxWidth()
+                    .pointerInput(Unit) { detectTapGestures {} }
+                    .background(Brush.verticalGradient(listOf(background, background.copy(alpha = .92f), background.copy(alpha = .0f)))),
+                    contentAlignment = Alignment.TopCenter) {
+                    AppPageHeader(title, back, backTag, Modifier.widthIn(max = 680.dp)
+                        .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp))
+                }
+            }.single().measure(constraints.copy(minHeight = 0))
+            val headerInset = with(density) { header.height.toDp() }
+            val body = subcompose("body") {
+                val focusScroll = remember(headerInset, density) { object : BringIntoViewSpec {
+                    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                        val top = with(density) { headerInset.toPx() }
+                        return when {
+                            offset < top -> offset - top
+                            offset + size > containerSize -> offset + size - containerSize
+                            else -> 0f
+                        }
+                    }
+                } }
+                CompositionLocalProvider(LocalBringIntoViewSpec provides focusScroll) {
+                    Box(capture.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        content(Modifier.widthIn(max = 680.dp).fillMaxSize(), headerInset)
+                    }
+                }
+            }.single().measure(constraints)
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                body.placeRelative(0, 0)
+                header.placeRelative(0, 0)
+            }
+        }
+    }, navigation = {})
 }
 
 internal fun Bundle?.listState(key: String) = LazyListState(this?.getInt(key + "_index", 0) ?: 0, this?.getInt(key + "_offset", 0) ?: 0)

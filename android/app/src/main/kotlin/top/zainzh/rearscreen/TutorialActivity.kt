@@ -40,9 +40,9 @@ class TutorialActivity : ComponentActivity() {
         expandedSection = savedInstanceState?.getString("tutorial_expanded")
         miuixContent {
             val scope = rememberCoroutineScope()
-            PageFrame(NativeStrings.get(this, "tutorial"), ::finish, "tutorial_back") {
-                LazyColumn(Modifier.fillMaxSize().testTag("tutorial_scroll"), state = list,
-                    contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            PageFrame(NativeStrings.get(this, "tutorial"), ::finish, "tutorial_back") { pageModifier, headerInset ->
+                LazyColumn(pageModifier.testTag("tutorial_scroll"), state = list,
+                    contentPadding = PaddingValues(20.dp, headerInset + 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     item("intro") { Text(getString(R.string.tutorial_intro), fontSize = 14.sp, color = AppPalette.secondary()) }
                     sections.forEachIndexed { index, section ->
                         item(section) {
@@ -92,8 +92,7 @@ class TutorialActivity : ComponentActivity() {
                 role = Role.Button
                 stateDescription = description
             }, action = { expandedSection = if (expanded) null else section }, trailing = {
-                Text("›", fontSize = 22.sp, color = AppPalette.secondary(),
-                    modifier = Modifier.rotate(arrow).clearAndSetSemantics { })
+                AppNavigationChevron(Modifier.rotate(arrow))
             })
             AppSettingsReveal(expanded) {
                 AppDivider()

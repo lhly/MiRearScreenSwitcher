@@ -44,8 +44,8 @@ class FixtureInputActivity : ComponentActivity() {
             }
         })
         miuixContent {
-            PageFrame("背屏输入验证", ::finish, "input_probe_back") {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+            PageFrame("背屏输入验证", ::finish, "input_probe_back") { pageModifier, headerInset ->
+                Column(pageModifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, top = headerInset + 8.dp, end = 20.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     AppCard {
                         @Suppress("UNUSED_EXPRESSION") revision

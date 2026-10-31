@@ -75,9 +75,9 @@ class DensityCompatibilityActivity : ComponentActivity() {
                 val (enabled, disabled) = visible.partition { selected[it.packageName] == true }
                 listOf(true to enabled, false to disabled)
             }
-            PageFrame(getString(R.string.rear_density_title), ::finish, "density_back") {
-                LazyColumn(Modifier.fillMaxSize().testTag("density_app_list"), state = list,
-                    contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            PageFrame(getString(R.string.rear_density_title), ::finish, "density_back") { pageModifier, headerInset ->
+                LazyColumn(pageModifier.testTag("density_app_list"), state = list,
+                    contentPadding = PaddingValues(20.dp, headerInset + 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item("help") { Text(getString(R.string.rear_density_help), fontSize = 13.sp, color = AppPalette.secondary()) }
                     item("search") {
                         TextField(search, { search = it; scope.launch { list.scrollToItem(0) } },

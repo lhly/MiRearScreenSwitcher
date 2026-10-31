@@ -78,37 +78,39 @@ class AppPickerModel(private val activity: MainActivity, saved: Bundle?, private
                 .sortedWith { a, b -> val picked = selected.contains(b.info.packageName).compareTo(selected.contains(a.info.packageName)); if (picked != 0) picked else collator.compare(a.name, b.name) }
         }
         val keyboard = LocalSoftwareKeyboardController.current
-        LazyColumn(Modifier.fillMaxSize().testTag("app_picker_list"), state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item("title") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppPageHeader(s("notification_apps"), { keyboard?.hide(); back.run() }, "app_picker_back")
-                    Text(s("apps_summary").replace("{0}", selected.size.toString()).replace("{1}", visible.size.toString()), fontSize = 13.sp, color = AppPalette.secondary())
+        AppPageContent(s("notification_apps"), { keyboard?.hide(); back.run() }, "app_picker_back") { pageModifier, headerInset ->
+            LazyColumn(pageModifier.testTag("app_picker_list"), state = list,
+                contentPadding = PaddingValues(20.dp, headerInset + 12.dp, 20.dp, 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item("title") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(s("apps_summary").replace("{0}", selected.size.toString()).replace("{1}", visible.size.toString()), fontSize = 13.sp, color = AppPalette.secondary())
+                    }
                 }
-            }
-            item("filters") {
-                TextField(search, { search = it }, label = s("search_apps"), singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("app_search"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text))
-                AppToggle(s("system_apps"), null, includeSystem) { includeSystem = it }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(s("select_all"), { choose(visible.map { it.info.packageName }, true) }, minHeight = 48.dp)
-                    TextButton(s("deselect_all"), { choose(visible.map { it.info.packageName }, false) }, minHeight = 48.dp)
-                    TextButton(s("refresh"), ::load, minHeight = 48.dp, enabled = !loading)
+                item("filters") {
+                    TextField(search, { search = it }, label = s("search_apps"), singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("app_search"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text))
+                    AppToggle(s("system_apps"), null, includeSystem) { includeSystem = it }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(s("select_all"), { choose(visible.map { it.info.packageName }, true) }, minHeight = 48.dp)
+                        TextButton(s("deselect_all"), { choose(visible.map { it.info.packageName }, false) }, minHeight = 48.dp)
+                        TextButton(s("refresh"), ::load, minHeight = 48.dp, enabled = !loading)
+                    }
+                    if (!granted) TextButton(s("apps_access_help"), { activity.runAction("requestQueryAllPackagesPermission", null, null) }, minHeight = 48.dp)
                 }
-                if (!granted) TextButton(s("apps_access_help"), { activity.runAction("requestQueryAllPackagesPermission", null, null) }, minHeight = 48.dp)
-            }
-            if (visible.isEmpty()) item("empty") { Text(failure ?: s(if (loading) "loading_apps" else "no_apps_found"), color = AppPalette.secondary()) }
-            items(visible, key = { it.info.packageName }) { app ->
-                AppCard {
-                    Row(Modifier.fillMaxWidth().toggleable(selected.contains(app.info.packageName), role = Role.Checkbox,
-                        onValueChange = { choose(listOf(app.info.packageName), it) }).padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        AppIcon(app)
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(app.name, fontSize = 16.sp, color = AppPalette.text())
-                            Text(app.info.packageName, fontSize = 12.sp, color = AppPalette.secondary())
+                if (visible.isEmpty()) item("empty") { Text(failure ?: s(if (loading) "loading_apps" else "no_apps_found"), color = AppPalette.secondary()) }
+                items(visible, key = { it.info.packageName }) { app ->
+                    AppCard {
+                        Row(Modifier.fillMaxWidth().toggleable(selected.contains(app.info.packageName), role = Role.Checkbox,
+                            onValueChange = { choose(listOf(app.info.packageName), it) }).padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            AppIcon(app)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(app.name, fontSize = 16.sp, color = AppPalette.text())
+                                Text(app.info.packageName, fontSize = 12.sp, color = AppPalette.secondary())
+                            }
+                            Checkbox(if (selected.contains(app.info.packageName)) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
+                                onClick = null, modifier = Modifier.clearAndSetSemantics { })
                         }
-                        Checkbox(if (selected.contains(app.info.packageName)) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
-                            onClick = null, modifier = Modifier.clearAndSetSemantics { })
                     }
                 }
             }

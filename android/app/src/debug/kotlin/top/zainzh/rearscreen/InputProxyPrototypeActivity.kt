@@ -84,8 +84,8 @@ class InputProxyPrototypeActivity : ComponentActivity() {
         enabled = RearInputProxySession.enabled(this)
         TaskServiceManager.acquire(this, connection)
         miuixContent {
-            PageFrame("背屏投放调试", ::finish, "input_proxy_back") {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            PageFrame("背屏投放调试", ::finish, "input_proxy_back") { pageModifier, headerInset ->
+                Column(pageModifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, top = headerInset + 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val snapshot = runCatching { org.json.JSONObject(status) }.getOrNull()
                     val running = snapshot?.optString("state") == "running"
                     val phase = when {

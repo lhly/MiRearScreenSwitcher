@@ -32,9 +32,9 @@ class PermissionChecksActivity : ComponentActivity() {
         list = savedInstanceState.listState("permissions_scroll")
         refresh()
         miuixContent {
-            PageFrame(getString(R.string.ui_permissions_title), ::finish, "permissions_back") {
-                LazyColumn(Modifier.fillMaxSize().testTag("permissions_scroll"), state = list,
-                    contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            PageFrame(getString(R.string.ui_permissions_title), ::finish, "permissions_back") { pageModifier, headerInset ->
+                LazyColumn(pageModifier.testTag("permissions_scroll"), state = list,
+                    contentPadding = PaddingValues(20.dp, headerInset + 12.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text(getString(R.string.ui_permissions_help), fontSize = 13.sp, color = AppPalette.secondary()) }
                     PermissionChecks.Item.entries.forEach { item ->
                         if (item == PermissionChecks.Item.BATTERY) item { AppSection(getString(R.string.ui_permissions_background_title)) }

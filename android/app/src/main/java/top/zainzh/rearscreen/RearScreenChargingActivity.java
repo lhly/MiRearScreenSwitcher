@@ -32,6 +32,7 @@ import android.util.TypedValue;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.widget.TextViewCompat;
 
 /** 背屏液体充电动画，普通模式显示8秒，常亮模式在拔线时退出。 */
@@ -45,6 +46,7 @@ public class RearScreenChargingActivity extends Activity {
     private final Runnable autoFinish = this::finish;
     private android.animation.ValueAnimator liquidAnimator;
     private boolean contentInitialized;
+    private boolean resumed;
     private boolean interrupted;
     private boolean exitInProgress;
     private int rearTaskId = -1;
@@ -120,14 +122,27 @@ public class RearScreenChargingActivity extends Activity {
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
         if (android.os.Build.VERSION.SDK_INT >= 27) setShowWhenLocked(true);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowManager.LayoutParams windowParams = getWindow().getAttributes();
+        if (android.os.Build.VERSION.SDK_INT >= 30) windowParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        else if (android.os.Build.VERSION.SDK_INT >= 28) windowParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        getWindow().setAttributes(windowParams);
         setContentView(R.layout.activity_rear_screen_charging);
         contentInitialized = true;
         TextView batteryText = findViewById(R.id.battery_text);
         TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(batteryText, 24, 60, 1,
                 TypedValue.COMPLEX_UNIT_SP);
+        TextView status = findViewById(R.id.charging_status);
+        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(status, 10, 15, 1, TypedValue.COMPLEX_UNIT_SP);
+        batteryText.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> alignTextInk());
+        status.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> alignTextInk());
         View container = findViewById(R.id.charging_container);
+        WindowCompat.getInsetsController(getWindow(), container).hide(WindowInsetsCompat.Type.systemBars());
         ViewCompat.setOnApplyWindowInsetsListener(container, (view, insets) -> {
-            applySafeAreaToText(batteryText, insets.getInsets(WindowInsetsCompat.Type.displayCutout()));
+            applySafeAreaToText(findViewById(R.id.charging_text_group),
+                    insets.getInsets(WindowInsetsCompat.Type.displayCutout()));
             return insets;
         });
         ViewCompat.requestApplyInsets(container);
@@ -143,15 +158,22 @@ public class RearScreenChargingActivity extends Activity {
         TextView text = findViewById(R.id.battery_text);
         text.animate().cancel();
         text.setText(String.format(java.util.Locale.getDefault(), "%d%%", level));
-        startFullScreenLiquidAnimation(findViewById(R.id.full_screen_liquid), level);
-        startCenterTextAnimation(text);
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        liquid.setAnimationActive(resumed);
+        liquid.restartMotion();
+        updateStatus(level);
+        startFullScreenLiquidAnimation(liquid, level);
+        startCenterTextAnimation(findViewById(R.id.charging_text_group));
         scheduleAutoFinish();
     }
 
     private void scheduleAutoFinish() {
         handler.removeCallbacks(autoFinish);
-        if (!getSharedPreferences("mrss_settings", MODE_PRIVATE)
-                .getBoolean("charging_always_on_enabled", false)) {
+        boolean alwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
+                .getBoolean("charging_always_on_enabled", false);
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        if (liquid != null) liquid.setAlwaysOn(alwaysOn);
+        if (!alwaysOn) {
             handler.postDelayed(autoFinish, DISPLAY_DURATION_MS);
         }
     }
@@ -174,13 +196,28 @@ public class RearScreenChargingActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        resumed = true;
         ensureRearContent();
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        if (liquid != null) liquid.setAnimationActive(true);
+        if (liquidAnimator != null && liquidAnimator.isPaused()) liquidAnimator.resume();
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        if (liquid != null) liquid.setAnimationActive(false);
+        if (liquidAnimator != null && liquidAnimator.isStarted()) liquidAnimator.pause();
+        super.onPause();
     }
 
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
         ensureRearContent();
-        if (contentInitialized) ViewCompat.requestApplyInsets(findViewById(R.id.charging_container));
+        if (contentInitialized) {
+            ViewCompat.requestApplyInsets(findViewById(R.id.charging_container));
+            updateStatus(displayedLevel);
+        }
     }
 
     @Override public void onAttachedToWindow() {
@@ -191,6 +228,8 @@ public class RearScreenChargingActivity extends Activity {
     @Override public void finish() {
         if (isFinishing()) return;
         View container = findViewById(R.id.charging_container);
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        if (liquid != null) liquid.setAnimationActive(false);
         boolean animationsEnabled = android.os.Build.VERSION.SDK_INT < 26
                 || android.animation.ValueAnimator.areAnimatorsEnabled();
         if (interrupted || !contentInitialized || container == null || !animationsEnabled) {
@@ -202,7 +241,7 @@ public class RearScreenChargingActivity extends Activity {
         exitInProgress = true;
         handler.removeCallbacks(autoFinish);
         if (liquidAnimator != null) liquidAnimator.cancel();
-        TextView text = findViewById(R.id.battery_text);
+        View text = findViewById(R.id.charging_text_group);
         if (text != null) text.animate().cancel();
         Log.i(TAG, "exit_started request=" + requestId);
         container.animate().alpha(0f).setDuration(EXIT_DURATION_MS)
@@ -229,7 +268,7 @@ public class RearScreenChargingActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         cancelExit(false);
         if (liquidAnimator != null) liquidAnimator.cancel();
-        TextView text = findViewById(R.id.battery_text);
+        View text = findViewById(R.id.charging_text_group);
         if (text != null) text.animate().cancel();
         unregisterReceiver(finishReceiver);
         super.onDestroy();
@@ -264,13 +303,15 @@ public class RearScreenChargingActivity extends Activity {
         });
         
         animator.start();
+        if (!resumed) animator.pause();
         Log.d(TAG, String.format("🌊 全屏液体填充动画已启动: 0%% → %d%%", targetLevel));
     }
     
     /**
      * V3.5: 中央电量数字淡入动画
      */
-    private void startCenterTextAnimation(TextView textView) {
+    private void startCenterTextAnimation(View textView) {
+        textView.animate().cancel();
         textView.setAlpha(0f);
         textView.setScaleX(0.8f);
         textView.setScaleY(0.8f);
@@ -298,8 +339,13 @@ public class RearScreenChargingActivity extends Activity {
             TextView batteryText = findViewById(R.id.battery_text);
             
             if (liquidView != null && batteryText != null) {
-                // 平滑更新液体填充
-                liquidView.setFillLevel(newLevel / 100f);
+                liquidAnimator = android.animation.ValueAnimator.ofFloat(liquidView.getFillLevel(), newLevel / 100f);
+                liquidAnimator.setDuration(600);
+                liquidAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+                liquidAnimator.addUpdateListener(animation -> liquidView.setFillLevel((float) animation.getAnimatedValue()));
+                liquidAnimator.start();
+                if (!resumed) liquidAnimator.pause();
+                updateStatus(newLevel);
                 // 更新数字
                 batteryText.setText(String.format(java.util.Locale.getDefault(), "%d%%", newLevel));
                 Log.d(TAG, "🔋 电量已更新: " + newLevel + "%");
@@ -311,10 +357,35 @@ public class RearScreenChargingActivity extends Activity {
         }
     }
     
-    /**
-     * 使用当前窗口的安全区域；缓存的物理屏幕Cutout方向不会随旋转更新。
-     */
-    private void applySafeAreaToText(TextView textView, Insets cutout) {
+    /** 按实际字形收紧两行间距，并将可见文字整体对齐到安全区中心。 */
+    private void alignTextInk() {
+        TextView battery = findViewById(R.id.battery_text);
+        TextView status = findViewById(R.id.charging_status);
+        if (battery.getHeight() == 0 || status.getHeight() == 0 || battery.length() == 0 || status.length() == 0) return;
+        android.graphics.Rect numberInk = new android.graphics.Rect();
+        android.graphics.Rect statusInk = new android.graphics.Rect();
+        String number = battery.getText().toString(), label = status.getText().toString();
+        battery.getPaint().getTextBounds(number, 0, number.length(), numberInk);
+        status.getPaint().getTextBounds(label, 0, label.length(), statusInk);
+        int belowNumber = battery.getHeight() - battery.getBaseline() - numberInk.bottom;
+        int aboveLabel = status.getBaseline() + statusInk.top;
+        int gap = Math.round(8 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout.LayoutParams params = (android.widget.LinearLayout.LayoutParams) status.getLayoutParams();
+        int margin = gap - belowNumber - aboveLabel;
+        if (params.topMargin != margin) { params.topMargin = margin; status.setLayoutParams(params); }
+        float leading = battery.getBaseline() + numberInk.top;
+        float trailing = status.getHeight() - status.getBaseline() - statusInk.bottom;
+        float correction = (leading - trailing) / 2f;
+        battery.setTranslationY(-correction); status.setTranslationY(-correction);
+    }
+
+    private void updateStatus(int level) {
+        TextView status = findViewById(R.id.charging_status);
+        if (status != null) status.setText(level >= 100 ? R.string.charging_glass_complete : R.string.charging_glass_status);
+    }
+
+    /** 使用当前窗口的安全区域，随背屏旋转更新。 */
+    private void applySafeAreaToText(View textView, Insets cutout) {
         android.widget.FrameLayout.LayoutParams params =
                 (android.widget.FrameLayout.LayoutParams) textView.getLayoutParams();
         if (params.leftMargin != cutout.left || params.topMargin != cutout.top
@@ -325,6 +396,8 @@ public class RearScreenChargingActivity extends Activity {
             params.bottomMargin = cutout.bottom;
             textView.setLayoutParams(params);
         }
+        ChargingLiquidView liquid = findViewById(R.id.full_screen_liquid);
+        if (liquid != null) liquid.setTextInsets(cutout.left, cutout.top, cutout.right, cutout.bottom);
     }
 }
 

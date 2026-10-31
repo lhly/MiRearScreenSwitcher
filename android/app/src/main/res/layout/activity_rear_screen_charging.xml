@@ -1,31 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V3.5: 充电动画：全屏液体填充 + 中央电量数字 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/charging_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/remrss_oled_background">
-    
-    <!-- 全屏液体填充（带重力感应和波浪） -->
+
     <top.zainzh.rearscreen.ChargingLiquidView
         android:id="@+id/full_screen_liquid"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-    
-    <!-- 安全区域中央的电量数字 -->
-    <TextView
-        android:id="@+id/battery_text"
+
+    <!-- Only the foreground group avoids the current window's camera cutout. -->
+    <LinearLayout
+        android:id="@+id/charging_text_group"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:orientation="vertical"
         android:gravity="center"
-        android:text="100%"
-        android:maxLines="1"
-        android:textSize="60sp"
-        android:textStyle="bold"
-        android:textColor="@color/remrss_on_oled"
-        android:shadowColor="#80000000"
-        android:shadowDx="0"
-        android:shadowDy="6"
-        android:shadowRadius="12"
-        android:letterSpacing="0.05" />
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp">
+        <TextView
+            android:id="@+id/battery_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:maxLines="1"
+            android:includeFontPadding="false"
+            android:textSize="60sp"
+            android:textStyle="bold"
+            android:textColor="@color/remrss_on_oled"
+            android:shadowColor="#80000000"
+            android:shadowRadius="8"
+            android:shadowDy="2"
+            android:letterSpacing="0.01" />
+        <TextView
+            android:id="@+id/charging_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:maxLines="1"
+            android:includeFontPadding="false"
+            android:textSize="15sp"
+            android:textColor="@color/remrss_on_oled"
+            android:shadowColor="#80000000"
+            android:shadowRadius="4" />
+    </LinearLayout>
 </FrameLayout>

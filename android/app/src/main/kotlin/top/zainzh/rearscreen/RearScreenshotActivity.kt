@@ -48,9 +48,9 @@ open class RearScreenshotActivity : ComponentActivity() {
         if (RearScreenshotPreferences.read(this).shell && supported()) loadPreview()
         miuixContent {
             val options = remember(revision) { RearScreenshotPreferences.read(this) }
-            PageFrame(getString(R.string.rear_screenshot_title), ::finish, "screenshot_back") {
-                LazyColumn(state = list, modifier = Modifier.fillMaxSize().testTag("screenshot_scroll"),
-                    contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp),
+            PageFrame(getString(R.string.rear_screenshot_title), ::finish, "screenshot_back") { pageModifier, headerInset ->
+                LazyColumn(state = list, modifier = pageModifier.testTag("screenshot_scroll"),
+                    contentPadding = PaddingValues(20.dp, headerInset + 8.dp, 20.dp, 28.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item("switch") {
                         AppCard {

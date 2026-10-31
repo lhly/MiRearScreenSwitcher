@@ -47,6 +47,9 @@ Miuix 0.9.4, Copyright 2025–2026 compose-miuix-ui contributors.
 https://github.com/compose-miuix-ui/miuix
 Licensed under the Apache License, Version 2.0; full text is bundled as
 MIUIX-LICENSE.txt and retained in third_party/MIUIX-LICENSE.txt.
+Navigation lens shaders are adapted from the Miuix example, Copyright 2026
+compose-miuix-ui contributors, with upstream work Copyright 2025 Kyant.
+These portions are licensed under Apache-2.0; see MIUIX-LICENSE.txt.
 Compose UI, AndroidX and Kotlin are used under Apache-2.0.
 MaterialKolor 5.0.1, Copyright Jordon de Hoog, is used under the MIT License;
 see MATERIALKOLOR-LICENSE.txt. https://github.com/jordond/materialkolor

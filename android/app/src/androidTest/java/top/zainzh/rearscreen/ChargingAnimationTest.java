@@ -157,7 +157,7 @@ public class ChargingAnimationTest {
                                     androidx.core.graphics.Insets.of(edge.left, edge.top, edge.right, edge.bottom))
                             .build();
                     androidx.core.view.ViewCompat.dispatchApplyWindowInsets(container, insets);
-                    android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) text.getLayoutParams();
+                    android.widget.FrameLayout.LayoutParams params = (android.widget.FrameLayout.LayoutParams) activity.findViewById(R.id.charging_text_group).getLayoutParams();
                     assertEquals(edge.left, params.leftMargin); assertEquals(edge.top, params.topMargin);
                     assertEquals(edge.right, params.rightMargin); assertEquals(edge.bottom, params.bottomMargin);
                 }

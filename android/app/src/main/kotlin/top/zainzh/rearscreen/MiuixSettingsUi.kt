@@ -1,6 +1,5 @@
 package top.zainzh.rearscreen
 
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -9,7 +8,6 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -20,7 +18,6 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -28,13 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
@@ -44,13 +38,11 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import kotlinx.coroutines.flow.filterNotNull
-import kotlin.math.abs
 
 /** All settings destinations share the same Miuix theme and reusable components. */
 class MiuixSettingsUi(
@@ -112,14 +104,8 @@ class MiuixSettingsUi(
                     .filterNotNull().collect { if (page != 3) actions.settled(it) }
             }
             AppTheme {
-                // No blur class is loaded by the pre-33 fallback.
-                if (Build.VERSION.SDK_INT >= 33) {
-                    BlurredNavigationFrame(dark, content = { SurfaceContent(it, dark, pager) }, navigation = { Navigation(it, dark, pager) })
-                } else {
-                    Box(Modifier.fillMaxSize().background(AppPalette.background())) {
-                        SurfaceContent(Modifier, dark, pager)
-                        Navigation(Modifier.background(if (dark) Color(0xFF242427) else Color.White), dark, pager)
-                    }
+                AppNavigationFrame(Modifier.fillMaxSize(), content = { SurfaceContent(it, dark, pager) }) {
+                    Navigation(pager)
                 }
             }
         }
@@ -174,47 +160,20 @@ class MiuixSettingsUi(
         }
     }
 
-    @Composable private fun BoxScope.Navigation(modifier: Modifier, dark: Boolean, pager: PagerState) {
+    @Composable private fun BoxScope.Navigation(pager: PagerState) {
         if (page == 3 || insets.ime > insets.bottom) return
         val bottom = with(LocalDensity.current) { insets.bottom.toDp() }
-        val primary = AppPalette.accent()
-        val muted = AppPalette.secondary()
-        val shape = RoundedCornerShape(32.dp)
-        Box(Modifier.align(Alignment.BottomCenter).padding(start = 20.dp, end = 20.dp, bottom = bottom + 12.dp).widthIn(max = 340.dp).fillMaxWidth()
-            .onSizeChanged { navigationHeight = it.height }.shadow(6.dp, shape, clip = false).clip(shape).then(modifier).border(0.8.dp, if (dark) Color.White.copy(alpha = .12f) else Color.White.copy(alpha = .8f), shape)) {
-            NavigationBar(color = Color.Transparent, showDivider = false, defaultWindowInsetsPadding = false, modifier = Modifier.padding(6.dp)) {
-                Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                    Canvas(Modifier.matchParentSize()) {
-                        val progress = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, 2f)
-                        val tabWidth = size.width / 3
-                        drawRoundRect(if (dark) Color.White.copy(alpha = .10f) else Color.White.copy(alpha = .8f),
-                            topLeft = Offset(tabWidth * progress, 0f), size = Size(tabWidth, size.height), cornerRadius = CornerRadius(26.dp.toPx()))
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        val labels = listOf("nav_screen", "nav_notifications", "about")
-                        labels.forEachIndexed { index, key ->
-                            val selected = pager.currentPage == index
-                            val color = if (selected) AppPalette.accent() else AppPalette.secondary()
-                            Column(Modifier.weight(1f).clip(RoundedCornerShape(26.dp))
-                                .selectable(selected, role = Role.Tab, onClick = { actions.navigate(index) })
-                                .clearAndSetSemantics {
-                                    contentDescription = s(if (index == 0) "screen_title" else if (index == 1) "notifications_title" else "about")
-                                    role = Role.Tab
-                                    this.selected = selected
-                                    onClick { actions.navigate(index); true }
-                                }
-                                .heightIn(min = 60.dp).padding(vertical = 7.dp, horizontal = 3.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Icon(listOf("screen", "bell", "info")[index], color, Modifier.size(23.dp), tintProvider = {
-                                    val emphasis = (1f - abs(pager.currentPage + pager.currentPageOffsetFraction - index)).coerceIn(0f, 1f)
-                                    lerp(muted, primary, emphasis)
-                                })
-                                Text(s(key), fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = color, modifier = Modifier.clearAndSetSemantics { })
-                            }
-                        }
-                    }
-                }
-            }
+        Box(Modifier.align(Alignment.BottomCenter)
+            .padding(start = 20.dp, end = 20.dp, bottom = bottom + 12.dp)
+            .widthIn(max = 360.dp).fillMaxWidth()) {
+            AppBottomNavigation(
+                progress = { pager.currentPage + pager.currentPageOffsetFraction },
+                selectedIndex = pager.currentPage,
+                labels = listOf(s("nav_screen"), s("nav_notifications"), s("about")),
+                descriptions = listOf(s("screen_title"), s("notifications_title"), s("about")),
+                onSelected = actions::navigate,
+                modifier = Modifier.fillMaxWidth().onSizeChanged { navigationHeight = it.height },
+            ) { index, color -> Icon(listOf("screen", "bell", "info")[index], color, Modifier.size(23.dp)) }
         }
     }
 
@@ -306,7 +265,7 @@ class MiuixSettingsUi(
                                     Description("dpi_help", dark)
                                 }
                                 Text(if (state.dpi > 0) "${state.dpi}" else "—", fontSize = 23.sp, fontWeight = FontWeight.SemiBold, color = AppPalette.accent())
-                                Text("›", fontSize = 22.sp, color = AppPalette.secondary(), modifier = Modifier.clearAndSetSemantics { })
+                                AppNavigationChevron()
                             }
                             Divider(dark)
                             Row(Modifier.padding(18.dp, 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -362,7 +321,7 @@ class MiuixSettingsUi(
                             Label("tutorial", dark)
                             Text(activity.getString(R.string.tutorial_entry_help), fontSize = 13.sp, color = AppPalette.secondary())
                         }
-                        Text("›", fontSize = 22.sp, color = AppPalette.secondary(), modifier = Modifier.clearAndSetSemantics { })
+                        AppNavigationChevron()
                     }
                 }
             }

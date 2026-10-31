@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="charging_glass_status">正在充电</string>
+    <string name="charging_glass_complete">充电完成</string>
+</resources>
