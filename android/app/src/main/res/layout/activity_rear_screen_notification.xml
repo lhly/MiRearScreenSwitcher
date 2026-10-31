@@ -5,6 +5,11 @@
     android:layout_height="match_parent"
     android:background="@color/remrss_background">
 
+    <top.zainzh.rearscreen.RearNotificationGlassView
+        android:id="@+id/notification_glass"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <!-- 外层铺满背屏，内层由 Activity 应用刘海安全区。 -->
     <RelativeLayout
         android:id="@+id/notification_container"
@@ -26,10 +31,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
-            android:layout_margin="16dp"
             android:alpha="0"
-            android:background="@drawable/bg_rear_notification_card"
-            android:padding="16dp"
+            android:padding="20dp"
             android:orientation="vertical">
 
             <LinearLayout

@@ -42,6 +42,7 @@ public class RearScreenNotificationActivity extends Activity {
     private final Runnable autoFinish = this::finish;
     private final java.util.concurrent.ExecutorService wakeupWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean contentInitialized = false;  // 标记内容是否已初始化
+    private boolean rearWindowConfigured;
     
     // 通知动画期间短时保亮，保留官方进程。
     private android.os.Handler wakeupHandler;
@@ -93,6 +94,12 @@ public class RearScreenNotificationActivity extends Activity {
         
         // ✅ 统一设置布局，确保主屏占位后移动到背屏也能正常显示
         setContentView(R.layout.activity_rear_screen_notification);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.notification_root), (view, insets) -> {
+            androidx.core.view.DisplayCutoutCompat cutout = insets.getDisplayCutout();
+            if (cutout != null) applySafeArea(new android.graphics.Rect(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(),
+                    cutout.getSafeInsetRight(), cutout.getSafeInsetBottom()));
+            return insets;
+        });
         
         applyNotificationStyle(darkMode);
         findViewById(R.id.notification_container).addOnLayoutChangeListener(
@@ -610,6 +617,7 @@ public class RearScreenNotificationActivity extends Activity {
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         applyNotificationStyle(getIntent().getBooleanExtra("darkMode", false));
+        if (contentInitialized) applySafeAreaPadding();
         findViewById(R.id.notification_container).post(this::fitNotificationContent);
         long configTime = System.currentTimeMillis();
         
@@ -787,40 +795,47 @@ public class RearScreenNotificationActivity extends Activity {
      */
     private void applySafeAreaPadding() {
         try {
+            if (!rearWindowConfigured && currentDisplayId() == 1) {
+                rearWindowConfigured = true;
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+                android.view.WindowManager.LayoutParams window = getWindow().getAttributes();
+                if (android.os.Build.VERSION.SDK_INT >= 30) window.layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+                else if (android.os.Build.VERSION.SDK_INT >= 28) window.layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                getWindow().setAttributes(window);
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), findViewById(R.id.notification_root))
+                        .hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            }
+            androidx.core.view.WindowInsetsCompat insets = androidx.core.view.ViewCompat.getRootWindowInsets(findViewById(R.id.notification_root));
+            if (insets != null && insets.getDisplayCutout() != null) {
+                androidx.core.view.DisplayCutoutCompat cutout = insets.getDisplayCutout();
+                applySafeArea(new android.graphics.Rect(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(),
+                        cutout.getSafeInsetRight(), cutout.getSafeInsetBottom()));
+                return;
+            }
             // 从缓存获取背屏信息
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
             if (info == null) return;
-            
-            // 已确认无cutout时也应用零边距，清除之前的避让；未知信息已在上方排除。
-            // 获取内容布局的根容器（RelativeLayout with id=notification_container）
-            android.view.View contentLayout = findViewById(R.id.notification_container);
-            if (contentLayout != null && contentLayout.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
-                android.view.ViewGroup.MarginLayoutParams params = 
-                    (android.view.ViewGroup.MarginLayoutParams) contentLayout.getLayoutParams();
-                
-                // 检查是否已经设置过margin（避免重复设置）
-                if (params.leftMargin == info.cutout.left && 
-                    params.topMargin == info.cutout.top && 
-                    params.rightMargin == info.cutout.right && 
-                    params.bottomMargin == info.cutout.bottom) {
-                    Log.d(TAG, "ℹ️ 安全区域margin已设置，跳过");
-                    return;
-                }
-                
-                // 设置margin（避开cutout区域），中性背景会填充cutout区域
-                params.leftMargin = info.cutout.left;
-                params.topMargin = info.cutout.top;
-                params.rightMargin = info.cutout.right;
-                params.bottomMargin = info.cutout.bottom;
-                contentLayout.setLayoutParams(params);
-                
-                Log.d(TAG, String.format("✓ 已应用安全区域margin: left=%d, top=%d, right=%d, bottom=%d",
-                    info.cutout.left, info.cutout.top, info.cutout.right, info.cutout.bottom));
-            }
-            
+            applySafeArea(info.cutout);
         } catch (Exception e) {
-            Log.e(TAG, "❌ 应用安全区域失败", e);
+            Log.e(TAG, "应用安全区域失败", e);
         }
+    }
+
+    private void applySafeArea(android.graphics.Rect cutout) {
+        if (currentDisplayId() != 1 || cutout == null) return;
+        View container = findViewById(R.id.notification_container);
+        android.view.ViewGroup.MarginLayoutParams params =
+                (android.view.ViewGroup.MarginLayoutParams) container.getLayoutParams();
+        // 已确认无cutout时也应用零边距，清除之前的避让。
+        if (params.leftMargin == cutout.left && params.topMargin == cutout.top
+                && params.rightMargin == cutout.right && params.bottomMargin == cutout.bottom) return;
+        params.leftMargin = cutout.left;
+        params.topMargin = cutout.top;
+        params.rightMargin = cutout.right;
+        params.bottomMargin = cutout.bottom;
+        container.setLayoutParams(params);
     }
     
     /** 常规通知随系统主题；用户启用的暗夜模式始终保留纯黑背屏。 */
@@ -830,11 +845,7 @@ public class RearScreenNotificationActivity extends Activity {
         int secondary = getColor(oledMode ? R.color.remrss_on_oled_secondary : R.color.remrss_secondary);
         findViewById(R.id.notification_root).setBackgroundColor(background);
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(background));
-        View wrapper = findViewById(R.id.notification_wrapper);
-        // setBackgroundResource 会忽略相同资源 ID，主题切换必须重新解析 Drawable。
-        wrapper.setBackground(oledMode ? new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
-            : getDrawable(R.drawable.bg_rear_notification_card));
-        wrapper.setElevation(oledMode ? 0 : getResources().getDisplayMetrics().density);
+        ((RearNotificationGlassView) findViewById(R.id.notification_glass)).configure(oledMode);
         ((TextView) findViewById(R.id.app_name)).setTextColor(secondary);
         ((TextView) findViewById(R.id.notification_title)).setTextColor(foreground);
         ((TextView) findViewById(R.id.notification_content)).setTextColor(secondary);
