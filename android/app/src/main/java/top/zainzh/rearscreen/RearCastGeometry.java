@@ -15,11 +15,16 @@ final class RearCastGeometry {
     static RearCastViewport read() throws Exception {
         if (android.os.Build.VERSION.SDK_INT < 31) throw new IOException("Safe rear casting requires Android 12 or later");
         Object global = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null);
-        Object info = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, 1);
+        Object info = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, RearDisplay.requireId());
         if (info == null) throw new IOException("Rear display unavailable");
         Class<?> type = info.getClass();
         DisplayCutout cutout = (DisplayCutout) type.getField("displayCutout").get(info);
-        if (cutout == null) throw new IOException("Rear cutout unavailable; safe casting cannot start");
+        // A successful DisplayInfo query explicitly returning null means there is no platform cutout.
+        // Missing fields/reflection failures still propagate; no camera boundary is guessed.
+        if (cutout == null) {
+            return RearCastViewport.safe(type.getField("logicalWidth").getInt(info), type.getField("logicalHeight").getInt(info),
+                    type.getField("rotation").getInt(info), type.getField("logicalDensityDpi").getInt(info), 0, 0, 0, 0);
+        }
         android.graphics.Insets waterfall = cutout.getWaterfallInsets();
         return RearCastViewport.safe(type.getField("logicalWidth").getInt(info), type.getField("logicalHeight").getInt(info),
                 type.getField("rotation").getInt(info), type.getField("logicalDensityDpi").getInt(info),

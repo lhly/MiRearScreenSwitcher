@@ -154,5 +154,9 @@ interface ITaskService {
     // Metadata is [display rotation, logical width, logical height]. PNG travels through an fd.
     ParcelFileDescriptor captureRearScreenshot(out int[] metadata) = 37;
     boolean saveRearScreenshotLegacy(in ParcelFileDescriptor source) = 38;
+    // Transaction 39 is reserved for an unpublished experiment; keep later IDs stable.
+    String getRearDisplayState() = 40;
+    String getCompatibilityDiagnostics() = 41;
+    String getRearPhysicalDisplayId() = 42;
 }
 

@@ -14,6 +14,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'top/zainzh/rearscreen'
 STUBS = {
+'android/annotation/SuppressLint.java': 'package android.annotation; public @interface SuppressLint { String[] value(); }',
+ f'{PACKAGE}/RearDisplay.java': 'package top.zainzh.rearscreen; public class RearDisplay {static void attach(ITaskService s){} static int requireId(){return 1;} }',
 'android/content/ComponentName.java': '''package android.content; public class ComponentName { public ComponentName(String p,String c){} }''',
 'android/content/Context.java': '''package android.content; public class Context {
  public static final java.util.List<Intent> started=new java.util.ArrayList<>();
@@ -24,10 +26,12 @@ STUBS = {
  public String getString(int id,Object... args){return "message";}
 }''',
 'android/content/SharedPreferences.java': '''package android.content; public class SharedPreferences { public boolean getBoolean(String k,boolean d){return d;} }''',
-'android/content/Intent.java': '''package android.content; public class Intent { public Class<?> target; public android.net.Uri data; private java.util.Map<String,Boolean> flags=new java.util.HashMap<>(); public Intent(Context c,Class<?> t){target=t;} public Intent setData(android.net.Uri u){data=u;return this;} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){flags.put(n,v);return this;} public boolean getBooleanExtra(String n,boolean d){return flags.getOrDefault(n,d);} }''',
+'android/content/Intent.java': '''package android.content; public class Intent { public static final String ACTION_VIEW="android.intent.action.VIEW"; public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000,FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS=0x00800000; public Class<?> target; public android.net.Uri data; public String action; public int activityFlags; private java.util.Map<String,Boolean> flags=new java.util.HashMap<>(); public Intent(Context c,Class<?> t){target=t;} public Intent setAction(String a){action=a;return this;} public Intent addFlags(int f){activityFlags|=f;return this;} public Intent setData(android.net.Uri u){data=u;return this;} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){flags.put(n,v);return this;} public boolean getBooleanExtra(String n,boolean d){return flags.getOrDefault(n,d);} }''',
+'android/app/PendingIntent.java': '''package android.app; public class PendingIntent { public static final int FLAG_UPDATE_CURRENT=1,FLAG_IMMUTABLE=2; public static int lastFlags; public android.content.Intent intent; public static PendingIntent getActivity(android.content.Context c,int request,android.content.Intent i,int flags){PendingIntent p=new PendingIntent();p.intent=i;lastFlags=flags;return p;} }''',
 'android/net/Uri.java': '''package android.net; public class Uri { private String value; public static Uri parse(String s){Uri u=new Uri();u.value=s;return u;} public String toString(){return value;} }''',
 f'{PACKAGE}/BuildConfig.java': '''package top.zainzh.rearscreen; public class BuildConfig { public static boolean INPUT_PROXY_PROTOTYPE=false; public static boolean VIRTUAL_CAST_ENABLED=false; public static final boolean DEBUG=true; public static final String URI_SCHEME="mrss-debug"; }''',
 f'{PACKAGE}/UriCommandService.java': '''package top.zainzh.rearscreen; public class UriCommandService {}''',
+f'{PACKAGE}/UriReceiverActivity.java': '''package top.zainzh.rearscreen; public class UriReceiverActivity {}''',
 f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class RearCastMode { public static boolean useVirtual(android.content.Context c){return true;} }''',
 'android/content/ServiceConnection.java': '''package android.content; public interface ServiceConnection { void onServiceConnected(ComponentName n,android.os.IBinder b); void onServiceDisconnected(ComponentName n); }''',
 'android/content/pm/PackageManager.java': '''package android.content.pm; public class PackageManager { public static final int PERMISSION_GRANTED=0; public Object getApplicationInfo(String p,int f){return p;} public CharSequence getApplicationLabel(Object a){return a.toString();} }''',
@@ -44,10 +48,10 @@ f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class R
  public static void advance(long ms){SystemClock.now+=ms;drain();}
  public static void drain(){while(true){Job next=null;synchronized(jobs){for(Job j:jobs)if(j.at<=SystemClock.now&&(next==null||j.at<next.at))next=j;if(next!=null)jobs.remove(next);}if(next==null)return;next.r.run();}}
 }''',
-'android/os/Build.java': '''package android.os; public class Build { public static class VERSION { public static final int SDK_INT=37; } public static class VERSION_CODES { public static final int O=26,Q=29; } }''',
+'android/os/Build.java': '''package android.os; public class Build { public static class VERSION { public static int SDK_INT=37; } public static class VERSION_CODES { public static final int O=26,Q=29; } }''',
 'android/util/Log.java': '''package android.util; public class Log { public static int i(String t,String m){return 0;} public static int w(String t,String m){return 0;} public static int w(String t,String m,Throwable e){return 0;} public static int e(String t,String m,Throwable e){return 0;} }''',
 'android/service/quicksettings/Tile.java': '''package android.service.quicksettings; public class Tile { public static final int STATE_INACTIVE=1; public String subtitle; public void setState(int n){} public void setSubtitle(String s){subtitle=s;} public void setStateDescription(String s){} public void updateTile(){} }''',
-'android/service/quicksettings/TileService.java': '''package android.service.quicksettings; public class TileService extends android.content.Context { private final Tile tile=new Tile(); public Tile getQsTile(){return tile;} public void onStartListening(){} public void onStopListening(){} public void onDestroy(){} public void onClick(){} }''',
+'android/service/quicksettings/TileService.java': '''package android.service.quicksettings; public class TileService extends android.content.Context { public static int pendingStarts,intentStarts; private final Tile tile=new Tile(); public Tile getQsTile(){return tile;} public void startActivityAndCollapse(android.app.PendingIntent p){pendingStarts++;started.add(p.intent);} public void startActivityAndCollapse(android.content.Intent i){intentStarts++;started.add(i);} public void onStartListening(){} public void onStopListening(){} public void onDestroy(){} public void onClick(){} }''',
 'android/widget/Toast.java': '''package android.widget; public class Toast { public static final int LENGTH_LONG=1,LENGTH_SHORT=0; public static Toast makeText(android.content.Context c,String s,int n){return new Toast();} public void show(){} }''',
 'rikka/shizuku/Shizuku.java': '''package rikka.shizuku; import android.content.*; import android.os.*; import java.util.*; public class Shizuku {
  public interface OnBinderReceivedListener{void onBinderReceived();} public interface OnBinderDeadListener{void onBinderDead();} public interface OnRequestPermissionResultListener{void onRequestPermissionResult(int q,int r);}
@@ -117,11 +121,17 @@ public class ConnectionRegressionTest {
     SwitchToRearTileService tile=new SwitchToRearTileService();tile.onStartListening();
     try {
      switch(scenario){
+      case "tile_prototype_serial_route_pre34": Build.VERSION.SDK_INT=33;
       case "tile_prototype_serial_route":
        BuildConfig.VIRTUAL_CAST_ENABLED=true;tile.onClick();
-       check(Context.started.size()==1&&Context.started.get(0).target==UriCommandService.class
+       check(Context.started.size()==1&&Context.started.get(0).target==UriReceiverActivity.class
         &&Context.started.get(0).data.toString().equals("mrss-debug://switch?current=1")
-        &&Context.started.get(0).getBooleanExtra("fromQuickSettings",false)&&service.moves==0,"prototype bypassed shared mode routing");break;
+        &&Intent.ACTION_VIEW.equals(Context.started.get(0).action)
+        &&Context.started.get(0).getBooleanExtra("fromQuickSettings",false)&&service.moves==0,"tile lost the foreground Activity route");
+       check((Context.started.get(0).activityFlags&Intent.FLAG_ACTIVITY_NEW_TASK)!=0,"tile receiver missing new-task flag");
+       if(Build.VERSION.SDK_INT>=34) check(android.service.quicksettings.TileService.pendingStarts==1
+        &&(android.app.PendingIntent.lastFlags&android.app.PendingIntent.FLAG_IMMUTABLE)!=0,"modern tile did not use immutable Activity pending intent");
+       else check(android.service.quicksettings.TileService.intentStarts==1,"old Android did not use Activity overload");break;
       case "tile_prototype_permission_denied":
        BuildConfig.VIRTUAL_CAST_ENABLED=true;Shizuku.permission=-1;tile.onClick();
        check(Context.started.isEmpty()&&service.moves==0,"prototype bypassed permission gate");break;
@@ -184,7 +194,7 @@ for scenario in ['shared_release', 'callback_release', 'release_pending', 'bind_
                  'tile_delayed_ready', 'tile_duplicate_click', 'tile_close_pending',
                  'tile_timeout', 'tile_other_owner', 'tile_destroy_pending',
                  'tile_failed_move', 'tile_close_during_target', 'tile_prototype_serial_route',
-                 'tile_prototype_permission_denied']:
+                 'tile_prototype_serial_route_pre34', 'tile_prototype_permission_denied']:
     setattr(ConnectionTests, 'test_' + scenario, lambda self, name=scenario: self.run_scenario(name))
 
 if __name__ == '__main__':

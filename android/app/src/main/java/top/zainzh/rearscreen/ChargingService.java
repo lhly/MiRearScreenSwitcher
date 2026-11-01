@@ -232,13 +232,13 @@ public class ChargingService extends Service {
             request.rearTaskId = request.session.rearTaskId;
             if (!isCurrent(request)) return;
             String component = getPackageName() + "/" + RearScreenChargingActivity.class.getName();
-            String command = "am start --display 1 -n " + component
+            String command = "am start --display " + RearDisplay.requireId() + " -n " + component
                     + " --ei batteryLevel " + request.level + " --ei rearTaskId " + request.rearTaskId
                     + " --el " + RearScreenChargingActivity.EXTRA_REQUEST_ID + " " + request.id;
             if (!service.executeShellCommand(command)) throw new IllegalStateException("am start failed");
             started = RearAnimationDisplay.awaitForeground(service, component, getPackageName(), () -> isCurrent(request));
             if (!started) throw new IllegalStateException("charging activity not on rear display");
-            Log.i(TAG, "launch_verified display_id=1 request=" + request.id);
+            Log.i(TAG, "launch_verified display_id=" + RearDisplay.requireId() + " request=" + request.id);
             handler.post(() -> {
                 if (isCurrent(request)) startWakeupLoop();
             });
@@ -271,8 +271,8 @@ public class ChargingService extends Service {
     static void restoreRearScreen(ITaskService service, int taskId, long sessionId) {
         if (!RearAnimationManager.isIdle(sessionId)) return;
         try {
-            if (taskId > 0 && service.isTaskOnDisplay(taskId, 1)
-                    && service.moveTaskToDisplay(taskId, 1)) {
+            if (taskId > 0 && service.isTaskOnDisplay(taskId, RearDisplay.requireId())
+                    && service.moveTaskToDisplay(taskId, RearDisplay.requireId())) {
                 Log.i(TAG, "restored projected_task=" + taskId);
             } else {
                 service.enableSubScreenLauncher();
@@ -309,7 +309,7 @@ public class ChargingService extends Service {
             ITaskService service = taskService;
             worker.execute(() -> {
                 if (service != null && isCurrent(request)) {
-                    try { service.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP"); }
+                    try { service.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP"); }
                     catch (Exception e) { Log.w(TAG, "wakeup_failed", e); }
                 }
                 handler.post(() -> {

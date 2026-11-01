@@ -33,7 +33,8 @@ class SettingsComposeTest {
         compose.onNodeWithText(s("version_label").replace("{0}", BuildConfig.VERSION_NAME)).assertExists()
         row("author_anti", "about_list").assertExists()
         row("diagnostics", "about_list").performClick()
-        compose.onNodeWithText(s("license")).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithText(s("license")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(s("license")).performScrollTo().performClick()
         compose.onNodeWithText("GNU GENERAL PUBLIC LICENSE", substring = true).assertExists()
         compose.onNodeWithText("https://www.gnu.org/licenses/why-not-lgpl.html", substring = true).assertExists()
         compose.onNodeWithText("MIUIX-LICENSE.txt", substring = true).assertExists()

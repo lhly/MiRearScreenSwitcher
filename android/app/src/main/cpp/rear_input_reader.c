@@ -3,6 +3,7 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <poll.h>
@@ -23,14 +24,14 @@ static int64_t millis(void) {
     struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
     return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
-static int checked_open(const char *path, int flags) {
+static int checked_open(const char *path, int flags, const char *expected_name) {
     if (strncmp(path, "/dev/input/event", 16) || !path[16] || strspn(path + 16, "0123456789") != strlen(path + 16)) {
         errno = EINVAL; return -1;
     }
     int fd = open(path, flags | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0) return -1;
     char name[128] = {0};
-    if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) < 0 || strcmp(name, "Xiaomi_Touch_Input_1")) {
+    if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) < 0 || strcmp(name, expected_name)) {
         close(fd); errno = ENODEV; return -1;
     }
     return fd;
@@ -48,11 +49,15 @@ static void frame(int slots, const int *ids, const int *xs, const int *ys, int64
     putchar('\n');
     if (fflush(stdout) == EOF) stopping = 1;
 }
-static int stream(int fd, const char *path) {
+static int stream(int fd, const char *path, const int *expected) {
     struct input_absinfo slot, ax, ay;
     if (ioctl(fd, EVIOCGABS(ABS_MT_SLOT), &slot) || ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &ax)
             || ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &ay)) return 3;
     int slots = slot.maximum + 1;
+    if (expected && (ax.minimum != expected[0] || ax.maximum != expected[1] || ay.minimum != expected[2]
+            || ay.maximum != expected[3] || slots != expected[4])) {
+        fprintf(stderr, "ERROR selected rear input capabilities changed\n"); return 3;
+    }
     if (slot.minimum != 0 || slots < 1 || slots > MAX_CONTACTS || ax.maximum <= ax.minimum || ay.maximum <= ay.minimum) return 3;
     int ids[MAX_CONTACTS], xs[MAX_CONTACTS] = {0}, ys[MAX_CONTACTS] = {0};
     struct input_event events[64];
@@ -127,17 +132,32 @@ static int stream(int fd, const char *path) {
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--find")) {
         char found[64] = {0}; int count = 0;
-        for (int i = 0; i < 128; i++) {
-            char path[64]; snprintf(path, sizeof(path), "/dev/input/event%d", i);
-            int fd = checked_open(path, O_RDONLY);
-            if (fd >= 0) { snprintf(found, sizeof(found), "%s", path); count++; close(fd); }
+        DIR *directory = opendir("/dev/input");
+        if (!directory) return 3;
+        struct dirent *entry;
+        while ((entry = readdir(directory))) {
+            if (strncmp(entry->d_name, "event", 5) || !entry->d_name[5]
+                    || strspn(entry->d_name + 5, "0123456789") != strlen(entry->d_name + 5)) continue;
+            char path[512]; int length = snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
+            if (length < 0 || (size_t) length >= sizeof(path) || (size_t) length >= sizeof(found)) continue;
+            int fd = checked_open(path, O_RDONLY, "Xiaomi_Touch_Input_1");
+            if (fd >= 0) { memcpy(found, path, (size_t) length + 1); count++; close(fd); }
         }
+        closedir(directory);
         if (count != 1) { fprintf(stderr, "ERROR expected one rear touch device, found %d\n", count); return 3; }
         puts(found); return 0;
     }
     if (argc < 3) return 2;
-    if (argc != 3 || strcmp(argv[1], "--stream")) return 2;
-    int fd = checked_open(argv[2], O_RDONLY);
+    if ((argc != 3 && argc != 9) || strcmp(argv[1], "--stream")) return 2;
+    const char *expected_name = argc == 9 ? argv[3] : "Xiaomi_Touch_Input_1";
+    if (!*expected_name || !strcmp(expected_name, "Xiaomi_Touch_Input_0")) return 2;
+    int expected[5];
+    if (argc == 9) for (int i = 0; i < 5; i++) {
+        char *end; errno = 0; long value = strtol(argv[i + 4], &end, 10);
+        if (errno || !*argv[i + 4] || *end || value < INT32_MIN || value > INT32_MAX) return 2;
+        expected[i] = (int) value;
+    }
+    int fd = checked_open(argv[2], O_RDONLY, expected_name);
     if (fd < 0) { fprintf(stderr, "ERROR open rear input errno=%d\n", errno); return 3; }
     pid_t parent = getppid();
     signal(SIGTERM, stop); signal(SIGINT, stop); signal(SIGPIPE, SIG_IGN);
@@ -146,5 +166,5 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     /* A stalled Java reader must never keep the grab alive by blocking stdout. */
     fcntl(STDOUT_FILENO, F_SETFL, fcntl(STDOUT_FILENO, F_GETFL) | O_NONBLOCK);
-    int result = stream(fd, argv[2]); close(fd); return result;
+    int result = stream(fd, argv[2], argc == 9 ? expected : NULL); close(fd); return result;
 }

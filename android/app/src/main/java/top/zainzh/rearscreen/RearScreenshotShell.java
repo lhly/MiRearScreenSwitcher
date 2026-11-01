@@ -12,12 +12,13 @@ final class RearScreenshotShell {
     private RearScreenshotShell() {}
     private static Object displayInfo() throws Exception {
         Object manager = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null);
-        Object info = manager.getClass().getMethod("getDisplayInfo", int.class).invoke(manager, 1);
+        Object info = manager.getClass().getMethod("getDisplayInfo", int.class).invoke(manager, RearDisplay.requireId());
         if (info == null) throw new IOException("Rear display unavailable");
         return info;
     }
     static ParcelFileDescriptor capture(int[] metadata) throws Exception {
         if (metadata == null || metadata.length != 3) throw new IllegalArgumentException("Expected rotation, width and height");
+        String identity = RearDisplay.identity();
         Object info = displayInfo(); Class<?> type = info.getClass();
         int rotation = type.getField("rotation").getInt(info);
         int width = type.getField("logicalWidth").getInt(info), height = type.getField("logicalHeight").getInt(info);
@@ -28,11 +29,11 @@ final class RearScreenshotShell {
         File file = File.createTempFile("remrss-capture-", ".png", new File("/data/local/tmp"));
         try {
             // Waking the rear display does not unlock the main screen.
-            run(new String[]{"/system/bin/input", "-d", "1", "keyevent", "KEYCODE_WAKEUP"});
+            run(new String[]{"/system/bin/input", "-d", Integer.toString(RearDisplay.requireId()), "keyevent", "KEYCODE_WAKEUP"});
             Thread.sleep(200);
             run(new String[]{"/system/bin/screencap", "-p", "-d", Long.toUnsignedString(id), file.getPath()});
             Object after = displayInfo();
-            if (rotation != type.getField("rotation").getInt(after) || width != type.getField("logicalWidth").getInt(after)
+            if (!identity.equals(RearDisplay.identity()) || rotation != type.getField("rotation").getInt(after) || width != type.getField("logicalWidth").getInt(after)
                     || height != type.getField("logicalHeight").getInt(after)) throw new IOException("Rear display changed during capture");
             if (file.length() < 24) throw new IOException("Empty rear screenshot");
             metadata[0] = rotation; metadata[1] = width; metadata[2] = height;

@@ -133,7 +133,7 @@ public class AlwaysWakeUpService extends Service {
                 // 发送wakeup命令
                 try {
                     if (taskService != null) {
-                        taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                        taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                     }
                 } catch (Throwable t) {
                     Log.w(TAG, "发送wakeup失败: " + t.getMessage());

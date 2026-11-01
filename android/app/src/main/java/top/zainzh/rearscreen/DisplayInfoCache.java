@@ -80,7 +80,8 @@ public class DisplayInfoCache {
      * 获取已确认的背屏信息；尚未读取成功时返回 null。
      */
     public synchronized RearDisplayHelper.RearDisplayInfo getCachedInfo() {
-        return initialized && cachedInfo != null && cachedInfo.isValid() ? cachedInfo : null;
+        return initialized && cachedInfo != null && cachedInfo.isValid()
+                && cachedInfo.displayId == RearDisplay.id() ? cachedInfo : null;
     }
     
     /**

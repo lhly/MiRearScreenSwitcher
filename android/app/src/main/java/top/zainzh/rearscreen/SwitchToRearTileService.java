@@ -15,6 +15,7 @@
 
 package top.zainzh.rearscreen;
 
+import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
@@ -148,9 +149,16 @@ public class SwitchToRearTileService extends TileService {
             if (BuildConfig.VIRTUAL_CAST_ENABLED) {
                 Log.i(TAG, "stage=cast_mode_route virtual=" + RearCastMode.useVirtual(this));
                 // Both casting modes share the serial command service, including its live-session guard.
-                Intent command = new Intent(this, UriCommandService.class).setData(android.net.Uri.parse(BuildConfig.URI_SCHEME + "://switch?current=1"))
+                Intent command = new Intent(this, UriReceiverActivity.class).setAction(Intent.ACTION_VIEW)
+                        .setData(android.net.Uri.parse(BuildConfig.URI_SCHEME + "://switch?current=1"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                         .putExtra("fromQuickSettings", true);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(command); else startService(command);
+                // Preserve the system's user-initiated Activity launch path; starting only a
+                // background service loses the visible entry used by the normal URI route.
+                if (Build.VERSION.SDK_INT >= 34) {
+                    startActivityAndCollapse(PendingIntent.getActivity(this, 0, command,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                } else startLegacyActivityAndCollapse(command);
                 showTemporaryFeedback("正在启动投放...");
                 return;
             }
@@ -168,6 +176,12 @@ public class SwitchToRearTileService extends TileService {
             handler.removeCallbacks(readyTimeout);
             showTemporaryFeedback("服务连接失败");
         }
+    }
+
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
+    private void startLegacyActivityAndCollapse(Intent command) {
+        // API 24–33 have no PendingIntent overload. The caller excludes API 34 and above.
+        startActivityAndCollapse(command);
     }
 
     private void executePending() {
@@ -193,7 +207,7 @@ public class SwitchToRearTileService extends TileService {
         boolean moved = false;
         try {
             if (request.cancelled) return;
-            if (lastMovedTask != null && lastMovedTask.equals(service.getForegroundAppOnDisplay(1))) {
+            if (lastMovedTask != null && lastMovedTask.equals(service.getForegroundAppOnDisplay(RearDisplay.requireId()))) {
                 feedback = "✗ 背屏已占用";
                 service.collapseStatusBar();
                 String appName = getAppName(lastMovedTask.split(":")[0]);
@@ -209,11 +223,11 @@ public class SwitchToRearTileService extends TileService {
             }
             String[] parts = currentApp.split(":");
             int taskId = Integer.parseInt(parts[1]);
-            Log.i(TAG, "request=" + request.id + " stage=target task_id=" + taskId + " display_id=1");
+            Log.i(TAG, "request=" + request.id + " stage=target task_id=" + taskId + " display_id=" + RearDisplay.requireId());
             if (request.cancelled) return;
             launcherStopped = service.disableSubScreenLauncher();
             if (request.cancelled) return;
-            moved = service.moveTaskToDisplay(taskId, 1);
+            moved = service.moveTaskToDisplay(taskId, RearDisplay.requireId());
             Log.i(TAG, "request=" + request.id + " stage=move_result task_id=" + taskId + " verified=" + moved);
             if (!moved) {
                 feedback = "✗ 切屏失败，请查看日志";
@@ -232,7 +246,7 @@ public class SwitchToRearTileService extends TileService {
                 feedback = "已切换，保活服务未启动";
                 Log.e(TAG, "request=" + request.id + " stage=keeper_failed", e);
             }
-            service.launchWakeActivity(1);
+            service.launchWakeActivity(RearDisplay.requireId());
             service.collapseStatusBar();
             String appName = getAppName(parts[0]);
             handler.postDelayed(() -> Toast.makeText(this,

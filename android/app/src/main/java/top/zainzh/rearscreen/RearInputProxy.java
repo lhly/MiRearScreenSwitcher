@@ -24,7 +24,7 @@ final class RearInputProxy {
         return false;
     }
     synchronized String start(String path, int task, IBinder owner) throws Exception {
-        return start(path, task, owner, 1);
+        return start(path, task, owner, RearDisplay.requireId());
     }
     synchronized String start(String path, int task, IBinder owner, int display) throws Exception {
         return start(path, task, owner, display, null);
@@ -51,7 +51,7 @@ final class RearInputProxy {
         Session next = new Session(file.getPath(), task, owner, display, feedback, viewport, menu, contentRotation);
         current = next;
         try { next.begin(); return next.status(); }
-        catch (Exception e) { next.close(e.toString()); throw e; }
+        catch (Exception e) { CompatibilityDiagnostics.record("input_start_failed", e.toString()); next.close(e.toString()); throw e; }
     }
     synchronized void stop(String id) {
         Session s = current;
@@ -103,6 +103,7 @@ final class RearInputProxy {
     private final class Session {
         final String id = UUID.randomUUID().toString(), path;
         final int task, display;
+        final String physicalIdentity = RearDisplay.identity();
         final IBinder owner;
         final RearTouchRouter.Feedback feedback;
         final RearTouchRouter.Menu menu;
@@ -138,18 +139,14 @@ final class RearInputProxy {
                     injector.touch(action, ids, xs, ys, down, time); events++;
                 }
                 public void ended(float x, float y) throws Exception {
-                    if (display == 1) injector.resetSystemGesture("scroll", x, y);
+                    if (RearDisplay.isRear(display)) injector.resetSystemGesture("scroll", x, y);
                 }
             }, viewport);
             state.configure(viewport, contentRotation, SystemClock.uptimeMillis());
-            Process finder = new ProcessBuilder(path, "--find").redirectErrorStream(true).start();
-            try {
-                if (!waitForProcess(finder, 2000)) throw new IOException("Rear reader discovery timeout");
-                try (BufferedReader r = new BufferedReader(new InputStreamReader(finder.getInputStream()))) { node = r.readLine(); }
-                if (finder.exitValue() != 0 || node == null || !node.matches("/dev/input/event[0-9]+")) throw new IOException("Rear reader discovery failed: " + node);
-            } finally { finder.destroy(); }
+            RearInputPolicy.Device device = RearInputDevices.require();
+            node = device.path;
             geometry();
-            router = new RearTouchRouter(state, width, height, density, display > 1, time -> {
+            router = new RearTouchRouter(state, width, height, density, !RearDisplay.isRear(display), time -> {
                 if (!outputAvailable || !guard.allowed(task, display)) throw new IOException("Virtual Back target left");
                 injector.back(time); backs++;
                 android.util.Log.i("RearInputProxy", "back_sent id=" + id + " display=" + display + " task=" + task);
@@ -159,7 +156,8 @@ final class RearInputProxy {
                 try { synchronized (this) { if (!closed) router.tick(SystemClock.uptimeMillis()); } }
                 catch (Exception e) { close(e.toString()); }
             }, 20, 20, TimeUnit.MILLISECONDS);
-            process = new ProcessBuilder(path, "--stream", node).redirectErrorStream(true).start();
+            process = new ProcessBuilder(path, "--stream", node, device.name, Integer.toString(device.xmin), Integer.toString(device.xmax),
+                    Integer.toString(device.ymin), Integer.toString(device.ymax), Integer.toString(device.slots)).redirectErrorStream(true).start();
             commands = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
             CountDownLatch started = new CountDownLatch(1);
             new Thread(() -> read(started), "rear-input-reader").start();
@@ -174,15 +172,16 @@ final class RearInputProxy {
             if (!started.await(3500, TimeUnit.MILLISECONDS) || !ready || closed) throw new IOException("Rear grab failed: " + reason);
         }
         synchronized void geometry() throws Exception {
+            if (!physicalIdentity.equals(RearDisplay.identity())) throw new IOException("Rear identity changed; restart casting");
             Object global = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null);
-            Object info = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, 1);
+            Object info = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, RearDisplay.requireId());
             if (info == null) throw new IOException("Rear display missing");
             width = info.getClass().getField("logicalWidth").getInt(info);
             height = info.getClass().getField("logicalHeight").getInt(info);
             rotation = info.getClass().getField("rotation").getInt(info);
             density = info.getClass().getField("logicalDensityDpi").getInt(info);
             if (width < 2 || height < 2) throw new IOException("Invalid rear dimensions");
-            if (display != 1) {
+            if (!RearDisplay.isRear(display)) {
                 Object target = global.getClass().getMethod("getDisplayInfo", int.class).invoke(global, display);
                 if (viewport == null || !safeViewport.key().equals(RearCastGeometry.read().key()) || target == null
                         || (!configuring && (target.getClass().getField("rotation").getInt(target) != contentRotation

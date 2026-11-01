@@ -92,6 +92,15 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("compatibility") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".compat"
+            versionNameSuffix = "-compat.3"
+            manifestPlaceholders["appLabel"] = "ReMRSS 兼容性测试"
+            manifestPlaceholders["mrssScheme"] = "mrss-compat"
+            buildConfigField("String", "URI_SCHEME", "\"mrss-compat\"")
+        }
     }
 
 }
@@ -142,7 +151,7 @@ androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(prepareLegalAssets) { it.outputDirectory }
     variant.sources.jniLibs?.addGeneratedSourceDirectory(inputReader) { it.outputDirectory }
     variant.packaging.jniLibs.useLegacyPackaging.set(true)
-    if (variant.buildType == "release") {
+    if (variant.buildType == "release" || variant.buildType == "compatibility") {
         // No full kotlin-reflect or coroutine debug agent is used in production.
         // Keep debug inspector metadata, service providers, profiles and licenses.
         variant.packaging.resources.excludes.addAll(
@@ -160,7 +169,7 @@ val validateReleaseSigning = tasks.register("validateReleaseSigning") {
     }
 }
 
-tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+tasks.matching { it.name == "preReleaseBuild" || it.name == "preCompatibilityBuild" }.configureEach {
     dependsOn(validateReleaseSigning)
 }
 

@@ -256,7 +256,7 @@ internal fun Bundle.saveList(key: String, state: LazyListState) {
 /** Java controllers publish plain modal state; only this renderer creates UI. */
 class MiuixDialogUi(private val activity: ComponentActivity) {
     private data class Model(val title: String, val message: String, val labels: List<String>, val actions: List<Runnable?>,
-        val number: Boolean = false, val min: Int = 1, val max: Int = Int.MAX_VALUE, val save: java.util.function.IntConsumer? = null)
+        val number: Boolean = false, val min: Int = 1, val max: Int = Int.MAX_VALUE, val save: java.util.function.IntConsumer? = null, val pinned: Int = 0)
     private var model by mutableStateOf<Model?>(null)
     private var draft by mutableStateOf("")
     private var error by mutableStateOf(false)
@@ -267,6 +267,9 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
     }
     fun show(title: String, message: String, labels: Array<String>, actions: Array<Runnable?>) {
         kind = null; model = Model(title, message, labels.toList(), actions.toList())
+    }
+    fun showWithPinnedActions(title: String, message: String, labels: Array<String>, actions: Array<Runnable?>) {
+        kind = null; model = Model(title, message, labels.toList(), actions.toList(), pinned = minOf(2, labels.size))
     }
     fun number(kind: String, title: String, help: String, value: Int, min: Int, max: Int, save: java.util.function.IntConsumer, reset: Runnable?) {
         this.kind = kind; draft = value.toString(); error = false
@@ -280,29 +283,41 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
     fun saveState(bundle: Bundle) {
         if (model?.number == true) { bundle.putString("native_number_kind", kind); bundle.putString("native_number_draft", draft) }
     }
+    fun isShowing(title: String): Boolean = model?.title == title
     fun dismiss() { model = null; kind = null }
+    @Composable private fun DialogAction(current: Model, index: Int) {
+        TextButton(current.labels[index], {
+            if (current.number && index == 0) {
+                val value = draft.trim().toIntOrNull()
+                if (value == null || value !in current.min..current.max) error = true
+                else { dismiss(); current.save?.accept(value) }
+            } else { dismiss(); current.actions[index]?.run() }
+        }, Modifier.fillMaxWidth(), minHeight = 48.dp,
+            colors = if (index == 0) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+    }
+    @Composable private fun DialogBody(current: Model) {
+        SelectionContainer { Text(current.message, fontSize = 14.sp, color = AppPalette.secondary()) }
+        if (current.number) {
+            TextField(value = draft, onValueChange = { draft = it; error = false }, label = current.title,
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag("number_input").semantics { if (error) error(current.message) })
+            if (error) Text(current.message, color = AppPalette.accent(), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        }
+        for (index in current.pinned until current.labels.size) DialogAction(current, index)
+    }
     @Composable private fun Render() {
         val current = model
         WindowDialog(show = current != null, title = current?.title, onDismissRequest = ::dismiss) {
             if (current != null) {
-                Column(Modifier.fillMaxWidth().heightIn(max = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .65f })
-                    .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SelectionContainer { Text(current.message, fontSize = 14.sp, color = AppPalette.secondary()) }
-                    if (current.number) {
-                        TextField(value = draft, onValueChange = { draft = it; error = false }, label = current.title,
-                            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth().testTag("number_input").semantics { if (error) error(current.message) })
-                        if (error) Text(current.message, color = AppPalette.accent(), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    }
-                    current.labels.forEachIndexed { index, label ->
-                        TextButton(label, {
-                            if (current.number && index == 0) {
-                                val value = draft.trim().toIntOrNull()
-                                if (value == null || value !in current.min..current.max) error = true
-                                else { dismiss(); current.save?.accept(value) }
-                            } else { dismiss(); current.actions[index]?.run() }
-                        }, Modifier.fillMaxWidth(), minHeight = 48.dp,
-                            colors = if (index == 0) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+                val maximum = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .65f }
+                if (current.pinned == 0) {
+                    Column(Modifier.fillMaxWidth().heightIn(max = maximum).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current) }
+                } else {
+                    Column(Modifier.fillMaxWidth().heightIn(max = maximum), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current) }
+                        for (index in 0 until current.pinned) DialogAction(current, index)
                     }
                 }
             }

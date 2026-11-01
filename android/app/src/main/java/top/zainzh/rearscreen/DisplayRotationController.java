@@ -54,7 +54,7 @@ final class DisplayRotationController {
         try {
             previousUser = checked("wm", "user-rotation", "-d", id).trim();
             if (!previousUser.matches("free|lock [0-3]")) throw new IOException("Unknown user rotation: " + previousUser);
-            if (displayId == 1) {
+            if (displayId > 0) {
                 previousFixed = checked("wm", "fixed-to-user-rotation", "-d", id).trim();
                 if (!previousFixed.matches("default|enabled|disabled|enabled_if_no_auto_rotation")) {
                     throw new IOException("Unknown fixed-to-user policy: " + previousFixed);

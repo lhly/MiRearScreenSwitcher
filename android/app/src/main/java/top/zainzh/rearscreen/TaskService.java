@@ -26,6 +26,17 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
+    @Override public String getRearDisplayState() { return RearDisplay.state(); }
+    @Override public String getCompatibilityDiagnostics() {
+        try { return new org.json.JSONObject(CompatibilityDiagnostics.report())
+                .put("virtualCast", new org.json.JSONObject(virtualCast.status()))
+                .put("inputProxy", new org.json.JSONObject(inputProxy.status())).toString(); }
+        catch (Exception e) { return CompatibilityDiagnostics.report(); }
+    }
+    @Override public String getRearPhysicalDisplayId() {
+        try { return RearDisplay.physicalId(); }
+        catch (Exception e) { throw new IllegalStateException("Rear physical display: " + e, e); }
+    }
     private final RearInputProxy inputProxy = new RearInputProxy(this::isTaskOnDisplay);
     private final RearVirtualCast virtualCast = new RearVirtualCast(this, inputProxy);
 
@@ -75,10 +86,11 @@ public class TaskService extends ITaskService.Stub {
     @Override public boolean renewRearInputProxyLease(String id) { return inputProxy.renew(id); }
     @Override public void stopRearInputProxy(String id) { inputProxy.stop(id); }
     private final DisplayRotationController rotationController = new DisplayRotationController(
-            DisplayRotationController::runCommand, Thread::sleep, message -> Log.i(TAG, message));
+            DisplayRotationController::runCommand, Thread::sleep, message -> { Log.i(TAG, message); CompatibilityDiagnostics.record("rotation", message); });
 
     @Keep
     public TaskService() {
+        RearDisplay.initializeShell();
         RearAppFreezeGuard.recoverStale();
     }
 
@@ -190,39 +202,25 @@ public class TaskService extends ITaskService.Stub {
 
     @Override
     public boolean moveTaskToDisplay(int taskId, int displayId) throws RemoteException {
-        if (displayId != 1) inputProxy.taskLeaving(taskId);
+        if (!RearDisplay.isRear(displayId)) inputProxy.taskLeaving(taskId);
         try {
             long startTime = System.currentTimeMillis();
 
             // 先获取包名
             String packageName = getPackageNameFromTaskId(taskId);
 
-            // 执行service call命令，在Shizuku进程中具有shell权限
-            // 注意：Android系统的每个显示器都有独立的状态栏（SystemUI�?
-            // 当应用切换到背屏时，它会显示背屏的状态栏，这是系统默认行�?
-            // 要保持主屏状态栏可见需要系统级修改，无法通过应用层实�?
-            String cmd = "service call activity_task 50 i32 " + taskId + " i32 " + displayId;
-
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (output.length() < 1024) output.append(line).append(' ');
-                }
+            boolean invoked = RearSystemBridge.moveTask(taskId, displayId);
+            boolean success = false;
+            for (int attempt = 0; invoked && attempt < 10; attempt++) {
+                if (isTaskOnDisplay(taskId, displayId)) { success = true; break; }
+                Thread.sleep(50);
             }
-            int exitCode = process.waitFor();
-            // service call can return a Parcel containing an exception with exit code 0.
-            boolean success = exitCode == 0 && isTaskOnDisplay(taskId, displayId);
-            Log.i(TAG, "move_result task_id=" + taskId + " display_id=" + displayId
-                    + " exit_code=" + exitCode + " verified=" + success
-                    + " elapsed_ms=" + (System.currentTimeMillis() - startTime)
-                    + " response=" + output);
+            CompatibilityDiagnostics.record("move_result", "task_id=" + taskId + " display_id=" + displayId
+                    + " verified=" + success + " elapsed_ms=" + (System.currentTimeMillis() - startTime));
+            Log.i(TAG, "move_result task_id=" + taskId + " display_id=" + displayId + " verified=" + success);
 
-            // 如果成功移动到背屏（displayId=1），保存任务信息
-            if (success && displayId == 1) {
+            // 如果成功移动到当前背屏，保存任务信息
+            if (success && RearDisplay.isRear(displayId)) {
                 try {
                     if (packageName != null) {
                         // 保存到广播接收器，以便系统事件后恢复
@@ -239,6 +237,7 @@ public class TaskService extends ITaskService.Stub {
             return success;
             
         } catch (Exception e) {
+            CompatibilityDiagnostics.record("task_move_failed", e.toString());
             Log.e(TAG, "❌ EXCEPTION in moveTaskToDisplay", e);
             return false;
         }
@@ -416,31 +415,7 @@ public class TaskService extends ITaskService.Stub {
         inputProxy.stop(null);
         try {
 
-            // 启动SubScreenLauncher（进程会自动启动）
-            String startCmd = "am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher";
-
-            ProcessBuilder pb = new ProcessBuilder("sh", "-c", startCmd);
-            Process process = pb.start();
-            
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()), 8192
-            );
-            
-            String line;
-            while ((line = reader.readLine()) != null) {
-
-            }
-            reader.close();
-            
-            int exitCode = process.waitFor();
-            if (exitCode == 0) {
-
-            } else {
-
-            }
-
-            return true;
-            
+            return RearSystemBridge.restoreLauncher();
         } catch (Exception e) {
             Log.e(TAG, "❌ EXCEPTION in enableSubScreenLauncher", e);
             return false;
@@ -567,8 +542,8 @@ public class TaskService extends ITaskService.Stub {
     public int getCurrentRearDpi() throws RemoteException {
         try {
 
-            // 使用 wm density 命令获取display 1的DPI
-            String cmd = "wm density -d 1";
+            // 使用 wm density 命令获取当前背屏的DPI
+            String cmd = "wm density -d " + RearDisplay.requireId();
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
             Process process = pb.start();
@@ -631,7 +606,7 @@ public class TaskService extends ITaskService.Stub {
         try {
 
             // 使用 wm density 命令设置display 1的DPI
-            String cmd = "wm density " + dpi + " -d 1";
+            String cmd = "wm density " + dpi + " -d " + RearDisplay.requireId();
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
             Process process = pb.start();
@@ -661,7 +636,7 @@ public class TaskService extends ITaskService.Stub {
         try {
 
             // 使用 wm density reset 命令还原display 1的DPI
-            String cmd = "wm density reset -d 1";
+            String cmd = "wm density reset -d " + RearDisplay.requireId();
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
             Process process = pb.start();
@@ -698,7 +673,7 @@ public class TaskService extends ITaskService.Stub {
 
     @Override public android.os.ParcelFileDescriptor captureRearScreenshot(int[] metadata) {
         try { return RearScreenshotShell.capture(metadata); }
-        catch (Exception e) { throw new IllegalStateException("Rear screenshot capture failed", e); }
+        catch (Exception e) { CompatibilityDiagnostics.record("screenshot_failed", e.toString()); throw new IllegalStateException("Rear screenshot capture failed", e); }
     }
 
     @Override public boolean saveRearScreenshotLegacy(android.os.ParcelFileDescriptor source) {
@@ -799,8 +774,8 @@ public class TaskService extends ITaskService.Stub {
             // 获取当前背屏前台应用（如果有）
             String currentApp = null;
             int currentTaskId = -1;
-            if (displayId == 1) {
-                currentApp = getForegroundAppOnDisplay(1);
+            if (RearDisplay.isRear(displayId)) {
+                currentApp = getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (currentApp != null && currentApp.contains(":")) {
                     String[] parts = currentApp.split(":");
                     try {
@@ -812,15 +787,15 @@ public class TaskService extends ITaskService.Stub {
             boolean applied = rotationController.setRotation(displayId, rotation);
 
             // 如果是背屏且有应用在运行，等待500ms后检查并复活
-            if (displayId == 1 && applied && currentTaskId > 0) {
+            if (RearDisplay.isRear(displayId) && applied && currentTaskId > 0) {
                 Thread.sleep(500);
                 
                 // 检查应用是否还在背屏
-                boolean stillOnRear = isTaskOnDisplay(currentTaskId, 1);
+                boolean stillOnRear = isTaskOnDisplay(currentTaskId, RearDisplay.requireId());
                 
                 if (!stillOnRear) {
                     // 应用被关闭了，重新投放
-                    moveTaskToDisplay(currentTaskId, 1);
+                    moveTaskToDisplay(currentTaskId, RearDisplay.requireId());
                 }
             }
             
@@ -872,6 +847,8 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process.waitFor();
             
+            if (exitCode != 0 && cmd.startsWith("input -d ") && cmd.endsWith(" keyevent KEYCODE_WAKEUP"))
+                CompatibilityDiagnostics.record("wake_failed", "exit=" + exitCode + " response=" + errorOutput);
             // 记录详细输出
             if (output.length() > 0) {
                 Log.d(TAG, "Command stdout: " + output.toString().trim());

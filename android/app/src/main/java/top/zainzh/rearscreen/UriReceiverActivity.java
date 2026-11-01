@@ -51,6 +51,7 @@ public class UriReceiverActivity extends Activity {
                 // 转发到UriCommandService处理
                 Intent serviceIntent = new Intent(this, UriCommandService.class);
                 serviceIntent.setData(uri);
+                serviceIntent.putExtra("fromQuickSettings", intent.getBooleanExtra("fromQuickSettings", false));
                 if (BuildConfig.VIRTUAL_CAST_ENABLED && android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent);
                 else startService(serviceIntent);
                 

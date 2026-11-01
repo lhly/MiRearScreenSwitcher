@@ -200,9 +200,9 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 if (id.equals(current.optString("id")) && "running".equals(current.optString("state"))) {
                     // HyperOS sleeps physical display 1 as part of the main power-button action.
                     // Wake that display once after the transition, never dismiss/wake the main keyguard.
-                    remote.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    remote.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                     // Refocus the existing rear task. Starting a new Activity while locked is denied by HyperOS.
-                    if (!ending && id.equals(session) && remote.renewRearVirtualCastLease(id) && remote.isTaskOnDisplay(host, 1))
+                    if (!ending && id.equals(session) && remote.renewRearVirtualCastLease(id) && remote.isTaskOnDisplay(host, RearDisplay.requireId()))
                         remote.executeShellCommand("am task focus " + host);
                     android.util.Log.i("VirtualRearHost", "Main locked; rear-only wake/refocus session=" + id);
                 }
@@ -278,7 +278,9 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if (Build.VERSION.SDK_INT < 33) { finish(); return; }
-        if (!BuildConfig.VIRTUAL_CAST_ENABLED || getDisplay().getDisplayId() != 1 || getIntent().getBooleanExtra("stop", false)
+        android.util.Log.i("VirtualRearHost", "Launch display=" + getDisplay().getDisplayId() + " rear=" + RearDisplay.id()
+                + " task=" + getIntent().getIntExtra("task", -1) + " stop=" + getIntent().getBooleanExtra("stop", false));
+        if (!BuildConfig.VIRTUAL_CAST_ENABLED || !RearDisplay.isRear(getDisplay().getDisplayId()) || getIntent().getBooleanExtra("stop", false)
                 || (getIntent().getIntExtra("task", -1) < 0 && getIntent().getStringExtra("component") == null)) { finish(); return; }
         instance = this;
         setShowWhenLocked(true);

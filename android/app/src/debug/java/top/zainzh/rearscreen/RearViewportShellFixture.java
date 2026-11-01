@@ -3,10 +3,12 @@ package top.zainzh.rearscreen;
 import android.os.SystemClock;
 import java.util.Arrays;
 
-/** Shell-only software replay through the same safe-area mapping; never writes evdev. */
+/** Privileged debug-only software replay through the safe-area mapping; never writes evdev. */
 public final class RearViewportShellFixture {
     public static void main(String[] args) throws Exception {
-        if (android.os.Process.myUid() != 2000 || !BuildConfig.INPUT_PROXY_PROTOTYPE) throw new SecurityException("Shell prototype only");
+        int uid = android.os.Process.myUid();
+        if ((uid != 2000 && uid != 0) || !BuildConfig.INPUT_PROXY_PROTOTYPE) throw new SecurityException("Privileged debug prototype only");
+        RearDisplay.initializeShell();
         if (args.length == 1 && args[0].equals("--display-api")) {
             System.out.println(Class.forName("android.hardware.display.IDisplayManager").getMethod("resizeVirtualDisplay",
                     Class.forName("android.hardware.display.IVirtualDisplayCallback"), int.class, int.class, int.class)); return;

@@ -66,6 +66,23 @@ public final class ReleaseContractRunner {
             reply.readException();
             if (reply.readInt() != 1) throw new AssertionError("Shell boolean result changed");
         } finally { data.recycle(); reply.recycle(); }
+        data = Parcel.obtain(); reply = Parcel.obtain();
+        try {
+            if (transaction("getRearDisplayState") != IBinder.FIRST_CALL_TRANSACTION + 40
+                    || transaction("getCompatibilityDiagnostics") != IBinder.FIRST_CALL_TRANSACTION + 41
+                    || transaction("getRearPhysicalDisplayId") != IBinder.FIRST_CALL_TRANSACTION + 42)
+                throw new AssertionError("Compatibility transaction IDs changed");
+            data.writeInterfaceToken(CONTRACT);
+            if (!binder.transact(transaction("getCompatibilityDiagnostics"), data, reply, 0))
+                throw new AssertionError("Compatibility diagnostic transaction rejected");
+            reply.readException();
+            org.json.JSONObject report = new org.json.JSONObject(reply.readString());
+            if (report.getInt("schema") != 1 || report.getInt("sdk") < 24 || !report.has("display")
+                    || report.getJSONObject("display").optInt("selectedId", -1) == 0)
+                throw new AssertionError("Invalid compatibility diagnostic report: " + report);
+            System.out.println("Release compatibility diagnostics OK; display=" + report.getJSONObject("display")
+                    + "; transaction=" + report.opt("moveRootTaskTransaction"));
+        } finally { data.recycle(); reply.recycle(); }
         if (args.length > 0 && "rear-screenshot".equals(args[0])) {
             data = Parcel.obtain(); reply = Parcel.obtain();
             try {

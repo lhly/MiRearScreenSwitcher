@@ -36,17 +36,17 @@ done
 
 ## 发版操作
 
-本轮发布目标为 ReMRSS `3.6.0 / 2019`，包含带壳背屏截图、应用布局和密度适配、最大摄像头避让区域、锁屏触摸修复、设置分组与显隐动画，以及更新后的内置教程。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布目标为 ReMRSS `3.6.1 / 2020`，包含动态背屏与触摸识别、诊断导出、磁贴虚拟投放启动和退出重试修复，以及液态玻璃导航、充电和通知样式。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.6.0 -m "ReMRSS 3.6.0"
-git push origin v3.6.0
+git tag -a v3.6.1 -m "ReMRSS 3.6.1"
+git push origin v3.6.1
 ```
 
-预览版可使用下一版本的`v3.6.1-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.6.2-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.0)提供`ReMRSS-v3.6.0.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.0`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.1)提供`ReMRSS-v3.6.1.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.1`构建产物14天。
 
 ## 构建与签名检查
 
@@ -168,3 +168,9 @@ Raw与gh-proxy.com镜像清单均对应同一公开APK；镜像APK再次匿名�
 匿名下载公开APK为**1,706,812字节（约1.71MB）**，SHA256为`7500a37edff1d5908975eb5fdb6250a0bac10989aa0c729de31ab4b685c78e73`。实际字节与GitHub asset digest、SHA256SUMS、Raw及gh-proxy.com清单完全一致，镜像APK再次下载也一致。包名`top.zainzh.rearscreen`、3.6.0/2019、非调试、原正式证书、四ABI程序及完整LICENSE/NOTICE均通过复核；公开压缩包在API36再次通过真实Binder与反射入口契约。旧MRSS根清单字节及旧Release四附件的ID、大小、digest和地址保持不变。
 
 本轮手机上的功能验收沿用各专项记录；公开3.6.0 APK另在独立API36模拟器安装并实际渲染首页与折叠教程，展开后的自动化示例为正式`mrss://`协议。未把模拟器或软件输入等同所有背屏机型的真实手势验收。
+
+## v3.6.1 发布前验证
+
+v3.6.1 / 2020 合并动态背屏与触摸识别、诊断导出、虚拟投放退出重试及系统磁贴启动修复，同时发布液态玻璃导航、充电与单层通知样式。小米 17 Pro Max 的实际磁贴、普通/虚拟投放与主屏非交互保持已完成回归；用户已确认本地正式签名覆盖包可用，其他机型与第三方 ROM 的边界见[兼容性说明](rear-compatibility.md)。
+
+发布源码快照通过 18 组主机回归、Release 和 AndroidTest 编译、release lint（0 错误、62 项警告）；正式 APK 的包名、3.6.1/2020、既有证书、非调试标记和法律资产已复核。真实设备上的混淆 Binder 契约通过，四 ABI 原生库的 LOAD 对齐均至少 16 KiB。以上为发布前核验，公开附件与稳定版更新清单以成功发布后的检查为准。

@@ -79,7 +79,7 @@ public class RearScreenWakeupActivity extends Activity {
             return;
         }
         
-        // --- 以下代码只在背屏 (displayId == 1) 执行 ---
+        // --- 以下代码只在背屏 (RearDisplay.isRear(displayId)) 执行 ---
         
         // 关键：在背屏时点亮屏幕并保持常亮
         getWindow().addFlags(

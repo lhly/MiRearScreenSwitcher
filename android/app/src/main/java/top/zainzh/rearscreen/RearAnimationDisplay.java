@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** 充电和通知的短时背屏显示，不停止官方进程或修改系统息屏设置。 */
 final class RearAnimationDisplay {
     static void prepare(ITaskService service, RearAnimationManager.Session session, String ownPackage) throws Exception {
-        String foreground = service.getForegroundAppOnDisplay(1);
+        String foreground = service.getForegroundAppOnDisplay(RearDisplay.requireId());
         if (foreground != null && !foreground.startsWith(ownPackage + ":")
                 && !foreground.startsWith("com.xiaomi.subscreencenter:")
                 && !foreground.startsWith("com.xiaomi.mirror:")) {
@@ -15,7 +15,7 @@ final class RearAnimationDisplay {
             catch (NumberFormatException ignored) { }
         }
         // 先唤醒，让系统退出Doze，再将动画置前。force-stop会触发官方延迟重睡眠。
-        service.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+        service.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
     }
 
     static boolean awaitForeground(ITaskService service, String component, String ownPackage,
@@ -27,8 +27,8 @@ final class RearAnimationDisplay {
                 Matcher task = Pattern.compile("taskId=(\\d+):").matcher(line);
                 if (task.find()) {
                     int id = Integer.parseInt(task.group(1));
-                    if (service.isTaskOnDisplay(id, 1)
-                            && (ownPackage + ":" + id).equals(service.getForegroundAppOnDisplay(1))) return true;
+                    if (service.isTaskOnDisplay(id, RearDisplay.requireId())
+                            && (ownPackage + ":" + id).equals(service.getForegroundAppOnDisplay(RearDisplay.requireId()))) return true;
                 }
             }
             Thread.sleep(50);

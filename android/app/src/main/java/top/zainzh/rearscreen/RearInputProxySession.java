@@ -29,7 +29,7 @@ public final class RearInputProxySession implements AutoCloseable {
             try {
                 if (closed) return;
                 long deadline = android.os.SystemClock.uptimeMillis() + 3500;
-                while (!closed && !service.isTaskOnDisplay(task, 1) && android.os.SystemClock.uptimeMillis() < deadline)
+                while (!closed && !service.isTaskOnDisplay(task, RearDisplay.requireId()) && android.os.SystemClock.uptimeMillis() < deadline)
                     Thread.sleep(100);
                 if (closed) return;
                 id = new JSONObject(service.startRearInputProxy(path, task, owner)).getString("id");

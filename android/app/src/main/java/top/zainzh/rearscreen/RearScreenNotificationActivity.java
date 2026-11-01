@@ -321,7 +321,7 @@ public class RearScreenNotificationActivity extends Activity {
         wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         
         // 如果在背屏，立即启动wakeup循环
-        if (displayId == 1) {
+        if (RearDisplay.isRear(displayId)) {
             startWakeupLoop();
         }
     }
@@ -433,7 +433,7 @@ public class RearScreenNotificationActivity extends Activity {
                 resumeTime, resumeTime, currentDisplayId, contentInitialized, (container != null ? "存在" : "null")));
             
             // 如果当前在背屏且内容还未初始化（说明是从主屏移动过来的）
-            if (currentDisplayId == 1 && !contentInitialized && container != null) {
+            if (RearDisplay.isRear(currentDisplayId) && !contentInitialized && container != null) {
                 Log.d(TAG, String.format("[%tT.%tL] 🔄 检测到从主屏移动到背屏，初始化内容", resumeTime, resumeTime));
                 
                 // 显示内容
@@ -606,7 +606,7 @@ public class RearScreenNotificationActivity extends Activity {
                 startWakeupLoop();
                 
                 Log.d(TAG, String.format("[%tT.%tL] ✓ 移动后初始化完成", resumeTime, resumeTime));
-            } else if (currentDisplayId == 1 && !isWakeupRunning) {
+            } else if (RearDisplay.isRear(currentDisplayId) && !isWakeupRunning) {
                 // 如果已经在背屏但循环未启动，也启动（防止遗漏）
                 startWakeupLoop();
             }
@@ -795,7 +795,7 @@ public class RearScreenNotificationActivity extends Activity {
      */
     private void applySafeAreaPadding() {
         try {
-            if (!rearWindowConfigured && currentDisplayId() == 1) {
+            if (!rearWindowConfigured && RearDisplay.isRear(currentDisplayId())) {
                 rearWindowConfigured = true;
                 androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
                 android.view.WindowManager.LayoutParams window = getWindow().getAttributes();
@@ -824,7 +824,7 @@ public class RearScreenNotificationActivity extends Activity {
     }
 
     private void applySafeArea(android.graphics.Rect cutout) {
-        if (currentDisplayId() != 1 || cutout == null) return;
+        if (!RearDisplay.isRear(currentDisplayId()) || cutout == null) return;
         View container = findViewById(R.id.notification_container);
         android.view.ViewGroup.MarginLayoutParams params =
                 (android.view.ViewGroup.MarginLayoutParams) container.getLayoutParams();
@@ -902,7 +902,7 @@ public class RearScreenNotificationActivity extends Activity {
                 if (taskService != null && !wakeupWorker.isShutdown()) {
                     wakeupWorker.execute(() -> {
                         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) return;
-                        try { taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP"); }
+                        try { taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP"); }
                         catch (Exception error) { Log.w(TAG, "wakeup_failed", error); }
                     });
                 }

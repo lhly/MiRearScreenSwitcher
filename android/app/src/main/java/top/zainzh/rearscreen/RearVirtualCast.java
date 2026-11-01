@@ -54,14 +54,17 @@ final class RearVirtualCast {
         if (!RearCastGeometry.decode(plan.toString()).renderKey().equals(RearCastGeometry.decode(viewport).renderKey()))
             throw new IllegalStateException("Rear render plan changed before start");
         if (surface == null || !surface.isValid() || owner == null || !owner.isBinderAlive()
-                || (task < 0 ? component == null : !service.isTaskOnDisplay(task, 0)) || !service.isTaskOnDisplay(host, 1))
+                || (task < 0 ? component == null : !service.isTaskOnDisplay(task, 0)) || !service.isTaskOnDisplay(host, RearDisplay.requireId()))
             throw new IllegalStateException("Main task / rear host unavailable");
         stop(null);
         input.stop(null);
+        // Closing the previous session may have released its host Surface while we waited.
+        if (!surface.isValid() || !owner.isBinderAlive() || !service.isTaskOnDisplay(host, RearDisplay.requireId()))
+            throw new IllegalStateException("Rear host changed during previous session cleanup");
         Session s = new Session(surface, reader, task, host, density, component, owner, gestures, safe, plan.getInt("renderDensity"), compatibility, rotation, full);
         current = s;
         try { s.begin(); return s.status(); }
-        catch (Exception e) { s.close("start_failed: " + root(e)); throw e; }
+        catch (Exception e) { CompatibilityDiagnostics.record("virtual_start_failed", root(e).toString()); s.close("start_failed: " + root(e)); throw e; }
     }
     synchronized void stop(String id) { Session s = current; if (s != null && (id == null || s.id.equals(id))) s.close("stopped"); }
     String status() { Session s = current; return s == null ? last : s.status(); }
@@ -106,6 +109,7 @@ final class RearVirtualCast {
         final int host, density, requestedDensity;
         final String packageName, component;
         final boolean densityCompatibility;
+        final String physicalIdentity = RearDisplay.identity();
         volatile Surface surface;
         volatile boolean outputAvailable = true;
         volatile long outputDeadline;
@@ -170,7 +174,7 @@ final class RearVirtualCast {
             display = (Integer) iface.getMethod("createVirtualDisplay", config.getClass(), callbackType,
                     Class.forName("android.media.projection.IMediaProjection"), String.class)
                     .invoke(manager, config, callback, null, "com.android.shell");
-            if (display < 2) throw new IOException("Virtual display creation failed: " + display);
+            if (display <= 0 || RearDisplay.isRear(display)) throw new IOException("Virtual display creation failed: " + display);
             // Apply the saved orientation before moving the task or enabling hardware input.
             command("wm", "fixed-to-user-rotation", "-d", Integer.toString(display), "enabled");
             command("wm", "user-rotation", "-d", Integer.toString(display), "lock", Integer.toString(contentRotation));
@@ -220,7 +224,7 @@ final class RearVirtualCast {
                     if (SystemClock.uptimeMillis() - lease > 4000) { close("lease_expired"); return; }
                     freezeGuard.renew();
                     if (!outputAvailable && SystemClock.uptimeMillis() > outputDeadline) { close("output_reconnect_timeout"); return; }
-                    if (!owner.isBinderAlive() || (outputAvailable && !surface.isValid()) || !service.isTaskOnDisplay(host, 1)
+                    if (!physicalIdentity.equals(RearDisplay.identity()) || !owner.isBinderAlive() || (outputAvailable && !surface.isValid()) || !service.isTaskOnDisplay(host, RearDisplay.requireId())
                             || !service.isTaskOnDisplay(task, display) || !input.renew(inputId)) close("host_task_or_input_left");
                 } catch (Exception e) { close(root(e).toString()); }
             }, 500, 500, TimeUnit.MILLISECONDS);
@@ -338,7 +342,7 @@ final class RearVirtualCast {
             closed = true; phase = reason; timer.shutdown();
             if (!inputId.isEmpty()) input.stop(inputId);
             // Also restore tasks newly opened by the app on our display. Never inspect/move other displays.
-            if (display >= 2) {
+            if (display > 0 && !RearDisplay.isRear(display)) {
                 try {
                     List<Integer> tasks = new ArrayList<>();
                     java.lang.Process p = new ProcessBuilder("am", "stack", "list").redirectErrorStream(true).start();
@@ -362,13 +366,23 @@ final class RearVirtualCast {
             surface.release();
             if (freezeGuard != null) freezeGuard.close();
             // Restore the physical rear only for this closing session, before a new start can proceed.
-            try { service.executeShellCommand("am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher"); }
+            try {
+                if (physicalIdentity.equals(RearDisplay.identity())) {
+                    String foreground = service.getForegroundAppOnDisplay(RearDisplay.requireId());
+                    if (foreground == null || foreground.endsWith(":" + host)
+                            || foreground.startsWith("com.xiaomi.subscreencenter:") || foreground.startsWith("com.xiaomi.mirror:"))
+                        RearSystemBridge.restoreLauncher();
+                    else CompatibilityDiagnostics.record("launcher_restore_skipped", "A newer rear task owns the display: " + foreground);
+                }
+            }
             catch (Exception e) { android.util.Log.w("RearVirtualCast", "Rear launcher restoration", e); }
+            CompatibilityDiagnostics.record("virtual_closed", "reason=" + reason);
             last = status();
             android.util.Log.i("RearVirtualCast", last);
             if (current == this) current = null;
         }
-        String status() {
+        // A stopped result means resource restoration has finished, including asynchronous watchdog closes.
+        synchronized String status() {
             try { return new JSONObject().put("id", id).put("state", closed ? "stopped" : phase)
                     .put("reason", phase).put("display", display).put("task", task).put("host", host)
                     .put("package", packageName).put("density", density).put("requestedDensity", requestedDensity)

@@ -117,7 +117,7 @@ public class RearScreenChargingActivity extends Activity {
             finish();
             return;
         }
-        if (currentDisplayId() != 1 || contentInitialized) return;
+        if (!RearDisplay.isRear(currentDisplayId()) || contentInitialized) return;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
@@ -187,7 +187,7 @@ public class RearScreenChargingActivity extends Activity {
         if (requestId != 0 && !ChargingService.isRequestActive(requestId)) {
             interrupted = true;
             finish();
-        } else if (contentInitialized && currentDisplayId() == 1) {
+        } else if (contentInitialized && RearDisplay.isRear(currentDisplayId())) {
             playAnimation();
         } else {
             ensureRearContent();

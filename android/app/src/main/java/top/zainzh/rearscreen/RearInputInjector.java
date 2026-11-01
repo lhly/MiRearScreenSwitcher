@@ -25,7 +25,7 @@ public final class RearInputInjector {
 
     /** Called inside the Shizuku process, never with the ordinary app's identity. */
     public static RearInputInjector shell() throws Exception {
-        return shell(1);
+        return shell(RearDisplay.requireId());
     }
 
     /** Virtual IDs are supplied only by the session that owns that display. */
@@ -45,7 +45,7 @@ public final class RearInputInjector {
 
     /** Navigation stays on the owned virtual display, including while the main keyguard is showing. */
     public void back(long eventTime) throws Exception {
-        if (displayId < 2) throw new IllegalStateException("Back requires a virtual cast display");
+        if (displayId <= 0 || RearDisplay.isRear(displayId)) throw new IllegalStateException("Back requires a virtual cast display");
         long now = SystemClock.uptimeMillis();
         KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);

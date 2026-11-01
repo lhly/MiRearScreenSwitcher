@@ -41,7 +41,7 @@ final class VirtualCastUriFlow {
             VirtualCastRequest.rotation(uri.getQueryParameter("rotation"));
             int density = VirtualCastRequest.density(uri.getQueryParameter("dpi"));
             finishOldHost(remote, before);
-            String rear = remote.getForegroundAppOnDisplay(1);
+            String rear = remote.getForegroundAppOnDisplay(RearDisplay.requireId());
             if (rear != null && !rear.startsWith("com.xiaomi.subscreencenter:")
                     && !rear.startsWith(context.getPackageName() + ":"))
                 throw new IllegalStateException("背屏已有其他应用，请先停止投放");
@@ -71,8 +71,8 @@ final class VirtualCastUriFlow {
                 // Existing package casts preserve their page; explicit Activity requests launch on the owned virtual display.
                 if (task >= 0 && activity == null) launchComponent = null;
             }
-            remote.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-            if (!remote.executeShellCommand("am start -f " + HOST_START_FLAGS + " --display 1 --windowingMode " + WINDOWING_MODE_FULLSCREEN + " -n " + context.getPackageName() + "/" + HOST
+            remote.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
+            if (!remote.executeShellCommand("am start -f " + HOST_START_FLAGS + " --display " + RearDisplay.requireId() + " --windowingMode " + WINDOWING_MODE_FULLSCREEN + " -n " + context.getPackageName() + "/" + HOST
                     + " --ei task " + task + " --ei dpi " + density
                     + " --ez explicitDpi " + (uri.getQueryParameter("dpi") != null) + " --es targetPackage " + targetPackage
                     + (launchComponent == null ? "" : " --es component '" + launchComponent + "'") + " --ez managed true"))
@@ -91,7 +91,7 @@ final class VirtualCastUriFlow {
                 Thread.sleep(100);
             } while (SystemClock.uptimeMillis() < end);
             // Finish only the host we just requested; its queued start then scoped stop releases resources.
-            remote.executeShellCommand("am start --display 1 -n " + context.getPackageName() + "/" + HOST + " --ez stop true");
+            remote.executeShellCommand("am start --display " + RearDisplay.requireId() + " -n " + context.getPackageName() + "/" + HOST + " --ez stop true");
             throw new IllegalStateException("虚拟背屏启动超时，已取消");
         } catch (Exception e) {
             Log.e(TAG, "Virtual casting URI failed", e);
@@ -116,7 +116,7 @@ final class VirtualCastUriFlow {
         if (!("running".equals(state.optString("state")) || "starting".equals(state.optString("state")))) {
             String physicalTask = RearScreenKeeperService.physicalCastTask();
             if (physicalTask != null) return stopDirect(context, remote, uri, physicalTask);
-            String rear = remote.getForegroundAppOnDisplay(1);
+            String rear = remote.getForegroundAppOnDisplay(RearDisplay.requireId());
             if (rear != null && !rear.startsWith("com.xiaomi.subscreencenter:") && !rear.startsWith(context.getPackageName() + ":")) return false;
             Log.i(TAG, "return_noop");
             return true;
@@ -152,7 +152,7 @@ final class VirtualCastUriFlow {
             return true;
         }
         // A temporary rear wake Activity can be foreground immediately after start. Restore the cast's task.
-        if (remote.isTaskOnDisplay(task, 1) && !remote.moveTaskToDisplay(task, 0))
+        if (remote.isTaskOnDisplay(task, RearDisplay.requireId()) && !remote.moveTaskToDisplay(task, 0))
             throw new IllegalStateException("直接投放任务未能返回主屏");
         remote.enableSubScreenLauncher();
         context.stopService(new android.content.Intent(context, RearScreenKeeperService.class));
@@ -162,11 +162,11 @@ final class VirtualCastUriFlow {
     }
     private static void finishOldHost(ITaskService remote, JSONObject state) throws Exception {
         int host = state.optInt("host", -1);
-        if (host >= 0 && remote.isTaskOnDisplay(host, 1)) {
+        if (host >= 0 && remote.isTaskOnDisplay(host, RearDisplay.requireId())) {
             remote.executeShellCommand("am stack remove " + host);
             long end = SystemClock.uptimeMillis() + 2000;
-            while (remote.isTaskOnDisplay(host, 1) && SystemClock.uptimeMillis() < end) Thread.sleep(50);
-            if (remote.isTaskOnDisplay(host, 1)) throw new IllegalStateException("上一轮背屏宿主正在退出，请重试");
+            while (remote.isTaskOnDisplay(host, RearDisplay.requireId()) && SystemClock.uptimeMillis() < end) Thread.sleep(50);
+            if (remote.isTaskOnDisplay(host, RearDisplay.requireId())) throw new IllegalStateException("上一轮背屏宿主正在退出，请重试");
         }
     }
     private static void toast(Context context, String text) {

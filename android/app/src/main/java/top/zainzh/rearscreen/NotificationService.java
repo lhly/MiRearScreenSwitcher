@@ -331,7 +331,7 @@ public class NotificationService extends NotificationListenerService {
             RearAnimationDisplay.prepare(service, session, getPackageName());
             if (!isCurrent(session)) return;
             String component = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-            String command = "am start --display 1 -n " + component
+            String command = "am start --display " + RearDisplay.requireId() + " -n " + component
                     + " --es packageName " + RearAnimationDisplay.quote(packageName)
                     + " --es title " + RearAnimationDisplay.quote(title)
                     + " --es text " + RearAnimationDisplay.quote(text)
@@ -343,7 +343,7 @@ public class NotificationService extends NotificationListenerService {
                     || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(), () -> isCurrent(session))) {
                 throw new IllegalStateException("Notification is not foreground on rear display");
             }
-            Log.i(TAG, "launch_verified display_id=1 session=" + session.id);
+            Log.i(TAG, "launch_verified display_id=" + RearDisplay.requireId() + " session=" + session.id);
         } catch (Exception error) {
             Log.e(TAG, "launch_failed session=" + session.id, error);
             sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION")

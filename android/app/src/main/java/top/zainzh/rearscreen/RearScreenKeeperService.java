@@ -365,8 +365,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
             if (monitoredTaskInfo != null && taskService != null) {
                 try {
-                    // V15.2: 检查背屏(displayId=1)的前台应用是否还是我们监控的应用
-                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                    // V15.2: 检查当前背屏的前台应用是否还是我们监控的应用
+                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
 
                     // V2.3: 排除充电动画/通知动画（临时占用背屏，不应导致Service销毁）
                     if (rearForegroundApp != null && (rearForegroundApp.contains("RearScreenChargingActivity")
@@ -414,8 +414,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             // 检查开关状态
             if (keepScreenOnEnabled && taskService != null) {
                 try {
-                    // 向背屏(displayId=1)发送WAKEUP唤醒信号
-                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    // 向当前背屏发送WAKEUP唤醒信号
+                    taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                     // Log.d(TAG, "✨ 背屏保活唤醒已发送"); // 注释掉以减少日志
                 } catch (Exception e) {
                     Log.w(TAG, "背屏唤醒失败: " + e.getMessage());

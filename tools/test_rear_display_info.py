@@ -7,6 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 STUBS = {
+    "top/zainzh/rearscreen/RearDisplay.java": "package top.zainzh.rearscreen; final class RearDisplay { static int id(){return 1;} static int requireId(){return 1;} }",
     "android/graphics/Rect.java": """package android.graphics;
 public class Rect { public int left,top,right,bottom;
  public Rect(int l,int t,int r,int b){left=l;top=t;right=r;bottom=b;}
@@ -51,6 +52,8 @@ public class RearDisplayInfoChecks {
   for(String invalid:new String[]{null,"","permission denied",viewport(11,"rear-dynamic",880,440,", densityDpi=320")})
    check(parse(invalid)==null,"invalid/missing viewport accepted");
   RearDisplayHelper.RearDisplayInfo info=parse(good());
+  check(RearDisplayHelper.parseRearDisplayInfo(good().replace("displayId=1,", "displayId=7,"),7)!=null,"dynamic rear ID rejected");
+  check(RearDisplayHelper.parseRearDisplayInfo(good(),7)==null,"unrelated display accepted");
   check(info!=null&&info.width==880&&info.height==440&&info.densityDpi==320&&info.cutout.left==180,"wrong display or override density");
   String longModes="supportedModes [{id=1, data={value=\"brace } {\"}}], "+" ".repeat(6000);
   info=parse(viewport(1,"other-rear",777,333,"")+device("other-rear",777,333,"density 280",

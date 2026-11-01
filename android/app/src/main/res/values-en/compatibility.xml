@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="compat_collecting">Collecting diagnostics…</string>
+    <string name="compat_diagnostics_help">After reproducing the issue, share or copy this report. It contains device, display and touch capabilities and recent compatibility errors; notification content is excluded.</string>
+    <string name="compat_share">Share report</string>
+    <string name="compat_copy">Copy report</string>
+    <string name="compat_summary">Device: %1$s\nAndroid %2$s (API %3$d)\nReMRSS: %4$s\nRear display: %5$s\nCasting: %6$s</string>
+    <string name="compat_not_detected">Not detected</string>
+    <string name="compat_virtual">Virtual</string>
+    <string name="compat_direct">Direct</string>
+</resources>

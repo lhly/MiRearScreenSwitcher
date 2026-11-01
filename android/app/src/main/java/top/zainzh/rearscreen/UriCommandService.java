@@ -146,7 +146,7 @@ public class UriCommandService extends IntentService {
         try {
             // 0. 检查背屏是否已有应用在运行（拒绝重复投放）
             try {
-                String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 Log.d(TAG, "背屏前台应用: " + rearForegroundApp);
 
                 if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
@@ -216,7 +216,7 @@ public class UriCommandService extends IntentService {
                     String oldPackageName = oldParts[0];
 
                     // 检查旧应用是否还在背屏
-                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                     if (rearForegroundApp != null && rearForegroundApp.equals(lastMovedTask)) {
                         // 背屏已有应用在运行，禁止操作
                         String oldAppName = getAppName(oldPackageName);
@@ -230,7 +230,7 @@ public class UriCommandService extends IntentService {
 
             // 额外检查：确保背屏没有其他用户应用
             try {
-                String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
                     // 排除允许的进程
                     if (!rearForegroundApp.contains("RearScreenChargingActivity") &&
@@ -282,7 +282,7 @@ public class UriCommandService extends IntentService {
                 int taskId = Integer.parseInt(parts[1]);
 
                 // 步骤4: 切换到display 1 (背屏)
-                boolean success = taskService.moveTaskToDisplay(taskId, 1);
+                boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
                 if (success) {
                     Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
@@ -291,17 +291,17 @@ public class UriCommandService extends IntentService {
                     try {
                         if (taskService != null) {
                             try {
-                                boolean launchResult = taskService.launchWakeActivity(1);
+                                boolean launchResult = taskService.launchWakeActivity(RearDisplay.requireId());
                                 if (!launchResult) {
                                     Log.w(TAG, "TaskService launch failed, fallback to shell");
                                     // Fallback: shell命令启动
-                                    String cmd = "am start --display 1 -n " + getPackageName() + "/"
+                                    String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
                                             + RearScreenWakeupActivity.class.getName();
                                     taskService.executeShellCommand(cmd);
                                 }
                             } catch (NoSuchMethodError e) {
                                 // 旧版本TaskService没有launchWakeActivity，使用shell命令
-                                String cmd = "am start --display 1 -n " + getPackageName() + "/"
+                                String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
                                         + RearScreenWakeupActivity.class.getName();
                                 taskService.executeShellCommand(cmd);
                             }
@@ -484,7 +484,7 @@ public class UriCommandService extends IntentService {
 
             // 步骤5: 移动到背屏
             Log.d(TAG, "→ 步骤5: 移动Task到背屏 (taskId=" + taskId + ")");
-            boolean success = taskService.moveTaskToDisplay(taskId, 1);
+            boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
             if (success) {
                 Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
@@ -517,17 +517,17 @@ public class UriCommandService extends IntentService {
                 // 步骤6: 主动点亮背屏（关键步骤！）
                 Log.d(TAG, "→ 步骤6: 点亮背屏");
                 try {
-                    boolean launchResult = taskService.launchWakeActivity(1);
+                    boolean launchResult = taskService.launchWakeActivity(RearDisplay.requireId());
                     if (!launchResult) {
                         Log.w(TAG, "TaskService launch failed, fallback to shell");
-                        String cmd = "am start --display 1 -n " + getPackageName() + "/"
+                        String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
                                 + RearScreenWakeupActivity.class.getName();
                         taskService.executeShellCommand(cmd);
                     }
                     Log.d(TAG, "✓ 背屏已点亮");
                 } catch (NoSuchMethodError e) {
                     // 旧版本兼容
-                    String cmd = "am start --display 1 -n " + getPackageName() + "/"
+                    String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
                             + RearScreenWakeupActivity.class.getName();
                     taskService.executeShellCommand(cmd);
                     Log.d(TAG, "✓ 背屏已点亮（旧版本fallback）");
@@ -546,25 +546,25 @@ public class UriCommandService extends IntentService {
                         Thread.sleep(500);
 
                         // 验证旋转是否生效
-                        int currentRotation = taskService.getDisplayRotation(1);
+                        int currentRotation = taskService.getDisplayRotation(RearDisplay.requireId());
                         Log.d(TAG, "  目标旋转: " + targetRotation + ", 当前旋转: " + currentRotation);
 
                         if (currentRotation != targetRotation) {
                             Log.w(TAG, "  ⚠ 旋转不匹配，重新设置");
-                            taskService.setDisplayRotation(1, targetRotation);
+                            taskService.setDisplayRotation(RearDisplay.requireId(), targetRotation);
                             Thread.sleep(500); // 等待重新设置生效
                         } else {
                             Log.d(TAG, "  ✓ 旋转已生效");
                         }
 
                         // 检查应用是否还在背屏（可能被旋转杀死）
-                        boolean stillOnRear = taskService.isTaskOnDisplay(taskId, 1);
+                        boolean stillOnRear = taskService.isTaskOnDisplay(taskId, RearDisplay.requireId());
                         Log.d(TAG, "  应用是否还在背屏: " + stillOnRear);
 
                         if (!stillOnRear) {
                             // 应用被旋转杀死了，重新投放
                             Log.w(TAG, "  ⚠ 应用因旋转被杀，重新投放");
-                            taskService.moveTaskToDisplay(taskId, 1);
+                            taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
                             Thread.sleep(200);
                             Log.d(TAG, "  ✓ 应用已复活");
                         } else {
@@ -607,7 +607,7 @@ public class UriCommandService extends IntentService {
             String targetPackage = null;
 
             if ("true".equalsIgnoreCase(currentParam) || "1".equals(currentParam)) {
-                String rearApp = taskService.getForegroundAppOnDisplay(1);
+                String rearApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (rearApp != null && rearApp.contains(":")) {
                     String[] parts = rearApp.split(":");
                     targetPackage = parts[0];
@@ -616,12 +616,12 @@ public class UriCommandService extends IntentService {
             } else if (taskIdStr != null) {
                 targetTaskId = Integer.parseInt(taskIdStr);
                 // 尝试从背屏前台应用获取包名
-                String rearApp = taskService.getForegroundAppOnDisplay(1);
+                String rearApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (rearApp != null && rearApp.contains(":")) {
                     targetPackage = rearApp.split(":")[0];
                 }
             } else if (packageName != null) {
-                String rearApp = taskService.getForegroundAppOnDisplay(1);
+                String rearApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (rearApp != null && rearApp.startsWith(packageName + ":")) {
                     targetPackage = packageName;
                     targetTaskId = Integer.parseInt(rearApp.split(":")[1]);
@@ -630,7 +630,7 @@ public class UriCommandService extends IntentService {
 
             if (targetTaskId != -1) {
                 // 检查任务是否真的在背屏
-                boolean onRear = taskService.isTaskOnDisplay(targetTaskId, 1);
+                boolean onRear = taskService.isTaskOnDisplay(targetTaskId, RearDisplay.requireId());
 
                 if (onRear) {
                     String appName = getAppName(targetPackage != null ? targetPackage : String.valueOf(targetTaskId));
@@ -748,11 +748,11 @@ public class UriCommandService extends IntentService {
 
             if (rotationStr != null) {
                 int rotation = Integer.parseInt(rotationStr);
-                Log.d(TAG, "→ 调用 taskService.setDisplayRotation(1, " + rotation + ")");
+                Log.d(TAG, "→ 调用 taskService.setDisplayRotation(RearDisplay.requireId(), " + rotation + ")");
 
                 // 直接调用TaskService.setDisplayRotation - 完全照抄MainActivity逻辑
                 // TaskService内部会自动处理：等待500ms + 检查应用 + 复活
-                boolean success = taskService.setDisplayRotation(1, rotation);
+                boolean success = taskService.setDisplayRotation(RearDisplay.requireId(), rotation);
 
                 if (success) {
                     Log.d(TAG, "✅ 旋转设置成功: " + rotation);

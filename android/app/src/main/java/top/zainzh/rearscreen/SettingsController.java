@@ -43,6 +43,8 @@ final class SettingsController {
     private final UriConflictMonitor uriConflicts;
     private java.util.List<String> uriConflictApps = Collections.emptyList();
     private boolean checkingUpdates;
+    private boolean diagnosticsLoading;
+    private String diagnosticsReport;
     private ReleaseUpdateChecker.Result updateResult;
     private int page;
     private boolean destroyed, resumed, restoringServices, permissionPrompted;
@@ -102,6 +104,10 @@ final class SettingsController {
         });
         if (page == 3) navigate(3);
         else { composeUi.showPage(page); refreshStatus(); }
+        if (state != null && state.containsKey("compatibility_report")) {
+            String restored = state.getString("compatibility_report");
+            root.post(() -> { if (!destroyed) presentDiagnostics(restored); });
+        }
         if (state != null && state.containsKey("native_number_kind")) {
             String kind = state.getString("native_number_kind");
             String draft = state.getString("native_number_draft", "");
@@ -164,6 +170,7 @@ final class SettingsController {
         state.putInt("native_rotation", rotation);
         if (picker != null) picker.saveState(state);
         modal.saveState(state);
+        if (diagnosticsReport != null && modal.isShowing(s("diagnostics"))) state.putString("compatibility_report", diagnosticsReport);
     }
 
     boolean navigateBack() {
@@ -309,7 +316,7 @@ final class SettingsController {
             if (destroyed) return;
             if (value instanceof Number) currentDpi = ((Number) value).intValue();
             updateHome();
-            activity.runAction("getDisplayRotation", argument("displayId", 1), (angle, failure) -> {
+            activity.runAction("getDisplayRotation", argument("displayId", RearDisplay.id()), (angle, failure) -> {
                 if (destroyed) return;
                 checkingDisplay = false;
                 // 本次读取已完成；未知状态保持未选中，重新进入/连接时再读取。
@@ -335,13 +342,50 @@ final class SettingsController {
     }
 
     private void showDetails() {
-        activity.runAction("getShizukuInfo", null, (value, error) -> {
+        if (diagnosticsLoading) return;
+        diagnosticsLoading = true;
+        toast(activity.getString(R.string.compat_collecting));
+        activity.runAction("getCompatibilityDiagnostics", null, (value, error) -> {
+            diagnosticsLoading = false;
             if (destroyed) return;
-            String message = String.valueOf(error == null ? value : error) + "\nTaskService: " + activity.isTaskServiceReady()
-                    + "\nPackage: " + activity.getPackageName() + "\nVersion: " + BuildConfig.VERSION_NAME;
-            modal.show(s("diagnostics"), message, new String[]{s("confirm"), s("license"), s("restart_app")},
-                    new Runnable[]{null, this::showLicense, this::restart});
+            presentDiagnostics(String.valueOf(error == null ? value : error));
         });
+    }
+
+    private void presentDiagnostics(String report) {
+            diagnosticsReport = report;
+            String summary = report;
+            try {
+                org.json.JSONObject data = new org.json.JSONObject(report);
+                org.json.JSONObject capabilities = data.optJSONObject("capabilities");
+                org.json.JSONObject display = capabilities == null ? null : capabilities.optJSONObject("display");
+                int id = display == null ? -1 : display.optInt("selectedId", -1);
+                summary = activity.getString(R.string.compat_summary, data.optString("model"), data.optString("android"),
+                        data.optInt("sdk"), data.optString("version"), id < 0 ? activity.getString(R.string.compat_not_detected) : Integer.toString(id),
+                        data.optBoolean("virtualCasting") ? activity.getString(R.string.compat_virtual) : activity.getString(R.string.compat_direct));
+                if (data.has("serviceError")) summary += "\n" + data.optString("serviceError");
+            } catch (Exception ignored) { }
+            String message = activity.getString(R.string.compat_diagnostics_help) + "\n\n" + summary;
+            modal.showWithPinnedActions(s("diagnostics"), message,
+                    new String[]{activity.getString(R.string.compat_share), activity.getString(R.string.compat_copy), s("license"), s("restart_app"), s("confirm")},
+                    new Runnable[]{() -> shareDiagnostics(report), () -> {
+                        ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                        clipboard.setPrimaryClip(ClipData.newPlainText("ReMRSS diagnostics", report)); toast(s("copied"));
+                    }, this::showLicense, this::restart, null});
+    }
+
+    private void shareDiagnostics(String report) {
+        try {
+            java.io.File directory = new java.io.File(activity.getCacheDir(), "diagnostics");
+            if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot create diagnostics directory");
+            java.io.File file = new java.io.File(directory, "ReMRSS-compatibility.json");
+            try (java.io.FileOutputStream output = new java.io.FileOutputStream(file)) { output.write(report.getBytes(StandardCharsets.UTF_8)); }
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.getPackageName() + ".updates", file);
+            Intent share = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            share.setClipData(ClipData.newRawUri("ReMRSS diagnostics", uri));
+            activity.startActivity(Intent.createChooser(share, activity.getString(R.string.compat_share)));
+        } catch (Exception e) { toast(e.getMessage()); }
     }
 
     private void showDpi() {
@@ -373,7 +417,7 @@ final class SettingsController {
     private void setRotation(int target) {
         if (remoteBusy || checkingDisplay) return;
         remoteBusy = true; updateHome();
-        Map<String, Object> arguments = argument("displayId", 1); arguments.put("rotation", target);
+        Map<String, Object> arguments = argument("displayId", RearDisplay.id()); arguments.put("rotation", target);
         activity.runAction("setDisplayRotation", arguments, (value, error) -> {
             remoteBusy = false;
             if (destroyed) return;

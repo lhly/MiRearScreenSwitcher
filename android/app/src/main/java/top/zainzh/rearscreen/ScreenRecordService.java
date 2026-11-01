@@ -406,8 +406,8 @@ public class ScreenRecordService extends Service {
         public void run() {
             if (isRecording && taskService != null) {
                 try {
-                    // 向背屏(displayId=1)发送WAKEUP唤醒信号
-                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    // 向当前背屏发送WAKEUP唤醒信号
+                    taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                     // 不输出日志以减少刷屏
                 } catch (Exception e) {
                     Log.w(TAG, "背屏唤醒失败: " + e.getMessage());
@@ -458,7 +458,7 @@ public class ScreenRecordService extends Service {
             
             // 启动录制前先发送一次keycode wakeup到背屏
             try {
-                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                 Thread.sleep(200); // 等待wakeup生效
             } catch (Exception e) {
                 Log.w(TAG, "启动前背屏keycode wakeup失败: " + e.getMessage());
@@ -474,18 +474,9 @@ public class ScreenRecordService extends Service {
                 taskService.executeShellCommand("mkdir -p /storage/emulated/0/Movies");
                 Log.d(TAG, "✓ 目录已创建");
                 
-                // 获取背屏的真实display ID（照抄截图逻辑）
-                String getDisplayIdCmd = "dumpsys SurfaceFlinger --display-id | grep -oE 'Display [0-9]+' | awk 'NR==2{print $2}'";
-                String displayId = taskService.executeShellCommandWithResult(getDisplayIdCmd);
-                
-                if (displayId == null || displayId.trim().isEmpty()) {
-                    displayId = "1"; // 默认使用1
-                    Log.w(TAG, "⚠ 未能获取display ID，使用默认值: 1");
-                } else {
-                    displayId = displayId.trim();
-                    Log.d(TAG, "✓ 背屏display ID: " + displayId);
-                }
-                
+                // Physical address belongs to the selected rear panel, not SurfaceFlinger's list order.
+                String displayId = taskService.getRearPhysicalDisplayId();
+                if (displayId == null || !displayId.matches("[0-9]+")) throw new IllegalStateException("Rear physical display unavailable");
                 // 先测试screenrecord命令是否可用
                 String testCmd = "which screenrecord";
                 String testResult = taskService.executeShellCommandWithResult(testCmd);
@@ -582,7 +573,7 @@ public class ScreenRecordService extends Service {
                     Log.e(TAG, "❌ 录屏进程未启动");
                     
                     // 检查错误原因
-                    String errorCheck = "screenrecord --display-id 1 --help 2>&1 | head -n 5";
+                    String errorCheck = "screenrecord --help 2>&1 | head -n 5";
                     String errorMsg = taskService.executeShellCommandWithResult(errorCheck);
                     Log.e(TAG, "错误信息: " + errorMsg);
                     

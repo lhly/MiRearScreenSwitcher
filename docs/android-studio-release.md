@@ -1,6 +1,6 @@
 # Android Studio 构建正式 APK
 
-当前源码为 ReMRSS v3.6.0 / 2019；旧 v3.3.2 tag 对应 MRSS。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0，以及 NDK 27.0.12077973。虚拟背屏的原生输入程序由 Gradle 自动编译，SDK Manager 需安装该版本 NDK。
+当前源码为 ReMRSS v3.6.1 / 2020；旧 v3.3.2 tag 对应 MRSS。构建需要 JDK 21、Gradle 9.7.1、AGP 9.4.1、Kotlin 2.4.20、Android SDK 37.0 / Build Tools 37.0.0，以及 NDK 27.0.12077973。虚拟背屏的原生输入程序由 Gradle 自动编译，SDK Manager 需安装该版本 NDK。
 
 ## Android Studio
 
@@ -20,8 +20,8 @@
 脚本自动加载本机 `.local/env.sh`，也允许其他机器使用已有 Java/SDK 环境。版本在根目录 `version.properties` 中设置：
 
 ```properties
-versionName=3.6.0
-versionCode=2019
+versionName=3.6.1
+versionCode=2020
 ```
 
 正式版启用 R8 与资源压缩；同一 APK 包含 arm64-v8a、armeabi-v7a、x86、x86_64 的原生输入程序，无需用户选择架构。
@@ -32,7 +32,7 @@ versionCode=2019
 
 Gradle 的 `prepareLegalAssets` 从根目录 LICENSE 和 NOTICE 生成 APK assets；请维护根文件，不手工复制到资源目录。关于页可离线阅读完整文本。`BuildConfig.SOURCE_TAG` 使用 `versionName` 生成 `v<版本号>`，不附加 debug 后缀。
 
-公开发版时必须将该 tag 指向构建所用的完整源码，并保留对应版本的构建说明。ReMRSS v3.6.0 使用同名 tag 提供对应源码；本地修改以工作区为准。正式发布步骤见 [自动发版说明](github-release.md)。
+公开发版时必须将该 tag 指向构建所用的完整源码，并保留对应版本的构建说明。ReMRSS v3.6.1 使用同名 tag 提供对应源码；本地修改以工作区为准。正式发布步骤见 [自动发版说明](github-release.md)。
 
 ## 签名和更新
 

@@ -5,6 +5,10 @@
             android:permission="android.permission.DUMP" android:screenOrientation="portrait" android:resizeableActivity="false"
             android:excludeFromRecents="true" android:taskAffinity="${applicationId}.restricted.fixture"
             android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".FixtureLandscapeMigrationActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:screenOrientation="landscape" android:resizeableActivity="false"
+            android:excludeFromRecents="true" android:taskAffinity="${applicationId}.landscape.fixture"
+            android:theme="@style/MiuixHostTheme" />
         <activity android:name=".FixtureRearScreenshotActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".InputProxyPrototypeActivity" android:exported="true"
             android:permission="android.permission.DUMP" android:theme="@style/MiuixHostTheme" />
@@ -31,4 +35,6 @@
     <instrumentation android:name="top.zainzh.rearscreen.DensitySettingsProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.RearPresentationProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.LayoutCompatibilityProbeInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.LandscapeCastProbeInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.CompatibilityCleanupInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

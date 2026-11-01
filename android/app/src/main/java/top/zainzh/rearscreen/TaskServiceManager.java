@@ -20,6 +20,8 @@ import rikka.shizuku.Shizuku;
 /** One Shizuku connection shared by all consumers in this app process. */
 public final class TaskServiceManager {
     private static final String TAG = "TaskServiceManager";
+    private static volatile String lastConnectionEvent = "not_requested";
+    static String diagnostics() { return lastConnectionEvent; }
     private static final TaskServiceManager INSTANCE = new TaskServiceManager();
     private static final long BIND_TIMEOUT_MS = 5000;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -53,7 +55,7 @@ public final class TaskServiceManager {
             component = new ComponentName(packageName, TaskService.class.getName());
             // 更新远端实现时递增，防止升级后复用旧的 shell 服务进程。
             args = new Shizuku.UserServiceArgs(component).daemon(false)
-                    .processNameSuffix("task_service").debuggable(false).version(28);
+                    .processNameSuffix("task_service").debuggable(false).version(33);
             Shizuku.addBinderReceivedListenerSticky(() -> onMain(this::connect));
             Shizuku.addBinderDeadListener(() -> onMain(() -> disconnect("shizuku_died")));
             Shizuku.addRequestPermissionResultListener((request, result) -> onMain(this::connect));
@@ -88,15 +90,18 @@ public final class TaskServiceManager {
         }
         try {
             if (!Shizuku.pingBinder()) {
+                lastConnectionEvent = "shizuku_unavailable";
                 Log.w(TAG, "waiting reason=shizuku_unavailable owners=" + consumers.size());
                 return; // Binder-received listener will resume the connection.
             }
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                lastConnectionEvent = "permission_denied";
                 Log.w(TAG, "waiting reason=permission_denied owners=" + consumers.size());
                 return; // Permission-result listener will resume the connection.
             }
             long attempt = ++generation;
             binding = true;
+            lastConnectionEvent = "binding generation=" + attempt;
             bindStartedAt = SystemClock.elapsedRealtime();
             remoteConnection = new ServiceConnection() {
                 @Override
@@ -137,10 +142,12 @@ public final class TaskServiceManager {
             disconnect("link_to_death_failed");
             return;
         }
+        RearDisplay.attach(ITaskService.Stub.asInterface(service));
         binder = service;
         deathRecipient = recipient;
         binding = false;
         handler.removeCallbacks(bindTimeout);
+        lastConnectionEvent = "ready generation=" + attempt;
         Log.i(TAG, "bind_ready generation=" + attempt + " elapsed_ms="
                 + (SystemClock.elapsedRealtime() - bindStartedAt) + " owners=" + consumers.size());
         for (ServiceConnection consumer : new ArrayList<>(consumers.keySet())) {
@@ -151,6 +158,7 @@ public final class TaskServiceManager {
     }
 
     private void disconnect(String reason) {
+        lastConnectionEvent = reason;
         boolean wasConnected = binder != null;
         Log.w(TAG, "disconnected reason=" + reason + " owners=" + consumers.size());
         detach();

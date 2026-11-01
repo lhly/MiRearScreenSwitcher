@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="compat_collecting">正在收集诊断信息…</string>
+    <string name="compat_diagnostics_help">复现问题后，可分享或复制这份报告。报告包含机型、显示与触摸能力及近期兼容性错误，不包含通知内容。</string>
+    <string name="compat_share">分享诊断报告</string>
+    <string name="compat_copy">复制诊断报告</string>
+    <string name="compat_summary">机型：%1$s\nAndroid %2$s（API %3$d）\nReMRSS：%4$s\n背屏编号：%5$s\n投放方式：%6$s</string>
+    <string name="compat_not_detected">未识别</string>
+    <string name="compat_virtual">虚拟投放</string>
+    <string name="compat_direct">直接投放</string>
+</resources>

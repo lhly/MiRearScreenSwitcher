@@ -147,7 +147,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                 taskService.disableSubScreenLauncher();
                 
                 // 步骤2: 唤醒背屏
-                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                taskService.executeShellCommand("input -d " + RearDisplay.requireId() + " keyevent KEYCODE_WAKEUP");
                 Thread.sleep(50);
                 
                 // 步骤3: 在主屏启动Activity
@@ -183,8 +183,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                 
                 if (notifTaskId != null) {
                     // 步骤5: 移动到背屏
-                    String moveCmd = "service call activity_task 50 i32 " + notifTaskId + " i32 1";
-                    taskService.executeShellCommand(moveCmd);
+                    taskService.moveTaskToDisplay(Integer.parseInt(notifTaskId), RearDisplay.requireId());
                     Thread.sleep(40);
                     
                     // 步骤6: 检查是否锁屏，决定是否关闭主屏
@@ -270,7 +269,8 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         };
         boolean remote = method.equals("getCurrentRearDpi") || method.equals("setRearDpi")
                 || method.equals("resetRearDpi") || method.equals("getDisplayRotation")
-                || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart");
+                || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart")
+                || method.equals("getCompatibilityDiagnostics");
         Runnable action = () -> {
             try {
                 if (remote) {
@@ -305,6 +305,27 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         break;
                     }
                     
+                    case "getCompatibilityDiagnostics": {
+                        try {
+                        org.json.JSONObject report = new org.json.JSONObject();
+                        boolean running = Shizuku.pingBinder();
+                        report.put("package", getPackageName()).put("version", BuildConfig.VERSION_NAME)
+                                .put("device", Build.DEVICE).put("model", Build.MODEL)
+                                .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
+                                .put("incremental", Build.VERSION.INCREMENTAL)
+                                .put("virtualCasting", RearCastMode.useVirtual(this))
+                                .put("shizukuRunning", running).put("shizukuPermission", running && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+                                .put("shizukuUid", running ? Shizuku.getUid() : -1).put("shizukuVersion", running ? Shizuku.getVersion() : -1)
+                                .put("connection", TaskServiceManager.diagnostics()).put("taskServiceReady", isTaskServiceReady());
+                        if (taskService != null) {
+                            try { report.put("capabilities", new org.json.JSONObject(taskService.getCompatibilityDiagnostics())); }
+                            catch (Exception e) { report.put("serviceError", e.toString()); }
+                        } else report.put("serviceError", "Shizuku service not connected");
+                        result.success(report.toString(2));
+                        } catch (Exception e) { result.error("DIAGNOSTICS", e.toString(), null); }
+                        break;
+                    }
+
                     case "getShizukuInfo": {
                         try {
                             boolean isRunning = Shizuku.pingBinder();
@@ -470,7 +491,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                                     int taskId = Integer.parseInt(parts[1]);
                                     
                                     // 检查任务是否还在背屏
-                                    boolean onRear = taskService.isTaskOnDisplay(taskId, 1);
+                                    boolean onRear = taskService.isTaskOnDisplay(taskId, RearDisplay.requireId());
                                     
                                     if (onRear) {
                                         // 拉回主屏

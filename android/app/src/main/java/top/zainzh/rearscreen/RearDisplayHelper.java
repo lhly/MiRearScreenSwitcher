@@ -23,11 +23,11 @@ import java.util.regex.Pattern;
 /** Reads confirmed rear-display metrics; missing or ambiguous data is never guessed. */
 public class RearDisplayHelper {
     private static final String TAG = "RearDisplayHelper";
-    private static final int REAR_DISPLAY_ID = 1;
 
     /** An unpopulated instance is invalid and must not be cached or applied. */
     public static class RearDisplayInfo {
-        public int width, height, densityDpi;
+        public int width, height, densityDpi, displayId = -1;
+        public String uniqueId;
         public Rect cutout;
 
         public boolean isValid() {
@@ -47,7 +47,7 @@ public class RearDisplayHelper {
     public static RearDisplayInfo getRearDisplayInfo(ITaskService taskService) {
         if (taskService == null) return null;
         try {
-            RearDisplayInfo info = parseRearDisplayInfo(taskService.executeShellCommandWithResult("dumpsys display"));
+            RearDisplayInfo info = parseRearDisplayInfo(taskService.executeShellCommandWithResult("dumpsys display"), RearDisplay.requireId());
             if (info == null) Log.w(TAG, "背屏信息缺失或无法确认，等待后续重试");
             return info;
         } catch (Exception e) {
@@ -57,13 +57,17 @@ public class RearDisplayHelper {
     }
 
     static RearDisplayInfo parseRearDisplayInfo(String dumpsys) {
-        if (dumpsys == null || dumpsys.isEmpty()) return null;
+        return parseRearDisplayInfo(dumpsys, RearDisplay.requireId());
+    }
+
+    static RearDisplayInfo parseRearDisplayInfo(String dumpsys, int rearId) {
+        if (rearId < 1 || dumpsys == null || dumpsys.isEmpty()) return null;
         try {
             Matcher viewports = Pattern.compile("DisplayViewport\\{[^}]*\\}").matcher(dumpsys);
             String viewport = null;
             while (viewports.find()) {
                 String candidate = viewports.group();
-                if (Pattern.compile("\\bdisplayId\\s*=\\s*" + REAR_DISPLAY_ID + "\\b").matcher(candidate).find()
+                if (Pattern.compile("\\bdisplayId\\s*=\\s*" + rearId + "\\b").matcher(candidate).find()
                         && !Pattern.compile("\\bvalid\\s*=\\s*false\\b").matcher(candidate).find()) {
                     if (viewport != null && !viewport.equals(candidate)) return null;
                     viewport = candidate;
@@ -71,11 +75,13 @@ public class RearDisplayHelper {
             }
             if (viewport == null) return null;
             RearDisplayInfo info = new RearDisplayInfo();
+            info.displayId = rearId;
             info.width = number(viewport, "\\bdeviceWidth=(\\d+)");
             info.height = number(viewport, "\\bdeviceHeight=(\\d+)");
             if (info.width <= 0 || info.height <= 0) return null;
             Matcher identity = Pattern.compile("\\buniqueId=['\"]([^'\"]+)['\"]").matcher(viewport);
             String uniqueId = identity.find() ? identity.group(1) : null;
+            info.uniqueId = uniqueId;
             String device = null;
             int position = 0;
             while ((position = dumpsys.indexOf("DisplayDeviceInfo{", position)) >= 0) {

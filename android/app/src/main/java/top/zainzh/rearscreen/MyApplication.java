@@ -22,6 +22,11 @@ import rikka.sui.Sui;
  */
 public class MyApplication extends Application {
     
+    @Override public void onCreate() {
+        super.onCreate();
+        RearDisplay.initialize(this);
+    }
+
     private static final String TAG = "MyApplication";
     
     static {
