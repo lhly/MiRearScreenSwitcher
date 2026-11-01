@@ -40,6 +40,16 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private RearCastMenuUi castMenu;
     private RearCameraGapBatteryController cameraGapBattery;
     private RearCameraStatusController cameraStatus;
+    private RearCastNotificationOverlay castNotification;
+    private boolean hostResumed;
+    private final RearCastNotification.Target notificationTarget = new RearCastNotification.Target() {
+        public void show(RearCastNotification.Message message) {
+            main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.offer(message); });
+        }
+        public void clearCharging() {
+            main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismissCharging(); });
+        }
+    };
     private boolean menuVisible, menuBusy;
     private final Runnable viewportTimeout = () -> { if (resizing) fail(new IllegalStateException("Rear viewport change timed out")); };
     private void toggleViewport() {
@@ -84,25 +94,26 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     private void dismissMenu() {
         if (ending || menuBusy || !menuVisible) return;
-        castMenu.show(false); menuVisible = false;
+        castMenu.show(false); menuVisible = false; updateCastNotification();
         String id = session;
         worker.execute(() -> { try { if (service != null && id != null) service.dismissRearCastMenu(id); } catch (Exception e) { fail(e); } });
     }
     private void rotateContent(int direction) {
         if (ending || menuBusy || session == null || reconnecting) return;
         menuBusy = true; castMenu.setBusy(true); menuVisible = false; castMenu.show(false); String id = session;
+        updateCastNotification();
         worker.execute(() -> {
             try {
                 if (service == null) throw new IllegalStateException("Shizuku disconnected");
                 String confirmed = service.rotateRearVirtualCast(id, direction);
                 status = confirmed;
                 rememberPresentation(confirmed, true);
-                main.post(() -> { menuBusy = false; castMenu.setBusy(false); });
+                main.post(() -> { menuBusy = false; castMenu.setBusy(false); updateCastNotification(); });
             } catch (Exception e) {
                 android.util.Log.w("VirtualRearHost", "Content rotation failed", e);
                 main.post(() -> {
                     if (ending) return;
-                    menuBusy = false; castMenu.setBusy(false);
+                    menuBusy = false; castMenu.setBusy(false); updateCastNotification();
                     android.widget.Toast.makeText(this, R.string.rear_cast_menu_failed, android.widget.Toast.LENGTH_SHORT).show();
                 });
             }
@@ -123,6 +134,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
             castMenu.anchor(anchor);
         }
         clearFeedback(); menuVisible = open; castMenu.show(open);
+        updateCastNotification();
         if (open) root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
     }
     private final Object feedbackLock = new Object();
@@ -167,6 +179,9 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
             });
     }
     private final IRearGestureListener gestures = new IRearGestureListener.Stub() {
+        @Override public void onNotificationDismiss(String id, long token) {
+            main.post(() -> { if (!ending && id.equals(session) && castNotification != null) castNotification.dismiss(token); });
+        }
         @Override public void onCastMenu(String id, boolean open) {
             int generation = outputGeneration;
             main.post(() -> { if (generation == outputGeneration) renderMenu(id, open); });
@@ -305,12 +320,30 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         RearCameraStatusView statusLayer = new RearCameraStatusView(this);
         root.addView(statusLayer, new FrameLayout.LayoutParams(-1, -1));
         cameraStatus = new RearCameraStatusController(this, statusLayer);
+        castNotification = new RearCastNotificationOverlay(this, (token, left, top, right, bottom) -> {
+            String id = session;
+            if (id == null) return;
+            worker.execute(() -> {
+                boolean success = false;
+                try {
+                    ITaskService remote = service;
+                    if (!ending && remote != null && id.equals(session))
+                        success = remote.setRearCastNotificationBounds(id, token, left, top, right, bottom);
+                } catch (Exception error) { android.util.Log.w("VirtualRearHost", "Notification touch region unavailable", error); }
+                boolean registered = success;
+                main.post(() -> {
+                    if (!ending && id.equals(session)) castNotification.regionRegistered(token, left, top, right, bottom, registered);
+                });
+            });
+        });
+        root.addView(castNotification, new FrameLayout.LayoutParams(1, -2));
         backIndicator = new RearBackGestureView(this);
         root.addView(backIndicator, new FrameLayout.LayoutParams(backIndicator.dp(32), backIndicator.dp(40), Gravity.RIGHT | Gravity.TOP));
         castMenu = new RearCastMenuUi(this, this::finish, () -> rotateContent(-1), () -> rotateContent(1), this::toggleViewport, this::dismissMenu);
         root.addView(castMenu.getView(), new FrameLayout.LayoutParams(1, 1));
         root.getViewTreeObserver().addOnGlobalLayoutListener(this::layoutViewport);
         setContentView(root);
+        RearCastNotification.attach(notificationTarget);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
         IntentFilter screenEvents = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         screenEvents.addAction(Intent.ACTION_SCREEN_ON);
@@ -443,6 +476,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) { return true; /* hardware is exclusively read by evdev */ }
     private void updateCameraGapBattery() {
+        updateCastNotification();
         if (cameraGapBattery == null || root == null) return;
         int[] origin = new int[2]; root.getLocationOnScreen(origin);
         cameraGapBattery.session(safeViewport, !ending && session != null && viewportPlaced && holder != null
@@ -450,12 +484,20 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         if (cameraStatus != null) cameraStatus.session(safeViewport, !ending && session != null && viewportPlaced && holder != null
                 && !resizing && !reconnecting, viewport == null || viewport.isFull(), origin[0], origin[1]);
     }
+    private void updateCastNotification() {
+        if (castNotification == null || root == null) return;
+        int[] origin = new int[2]; root.getLocationOnScreen(origin);
+        castNotification.hostState(safeViewport, origin[0], origin[1], hostResumed && !ending && session != null
+                && viewportPlaced && holder != null && !resizing && !reconnecting && !menuVisible && !menuBusy);
+    }
     @Override protected void onResume() {
         super.onResume();
+        hostResumed = true; updateCastNotification();
         if (cameraGapBattery != null) { cameraGapBattery.visible(true); updateCameraGapBattery(); }
         if (cameraStatus != null) cameraStatus.visible(true);
     }
     @Override protected void onPause() {
+        hostResumed = false; updateCastNotification();
         if (cameraGapBattery != null) cameraGapBattery.visible(false);
         if (cameraStatus != null) cameraStatus.visible(false);
         super.onPause();
@@ -497,6 +539,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         if (backIndicator != null) backIndicator.applyTheme();
         if (cameraGapBattery != null) cameraGapBattery.themeChanged();
         if (cameraStatus != null) cameraStatus.themeChanged();
+        if (castNotification != null) castNotification.applyTheme();
         if (safeViewport != null) worker.execute(() -> {
             try {
                 if (!safeViewport.key().equals(RearCastGeometry.decode(service.getRearCastViewport()).key()))
@@ -506,6 +549,8 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     @Override protected void onDestroy() {
         ending = true; main.removeCallbacksAndMessages(null);
+        RearCastNotification.detach(notificationTarget);
+        if (castNotification != null) castNotification.close();
         if (cameraGapBattery != null) cameraGapBattery.close();
         if (cameraStatus != null) cameraStatus.close();
         clearFeedback();

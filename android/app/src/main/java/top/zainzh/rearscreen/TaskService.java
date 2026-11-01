@@ -75,6 +75,9 @@ public class TaskService extends ITaskService.Stub {
     @Override public String getRearVirtualCastStatus() { return virtualCast.status(); }
     @Override public boolean renewRearVirtualCastLease(String id) { return virtualCast.renew(id); }
     @Override public void stopRearVirtualCast(String id) { virtualCast.stop(id); }
+    @Override public boolean setRearCastNotificationBounds(String id, long token, int left, int top, int right, int bottom) {
+        return virtualCast.notification(id, token, left, top, right, bottom);
+    }
     @Override public boolean updateRearVirtualCastSurface(String id, android.view.Surface surface) {
         try { return virtualCast.updateSurface(id, surface); }
         catch (Exception e) { throw new IllegalStateException("Rear output reconnect: " + e, e); }

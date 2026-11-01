@@ -68,6 +68,15 @@ final class RearVirtualCast {
     }
     synchronized void stop(String id) { Session s = current; if (s != null && (id == null || s.id.equals(id))) s.close("stopped"); }
     String status() { Session s = current; return s == null ? last : s.status(); }
+    boolean notification(String id, long token, int left, int top, int right, int bottom) {
+        Session s = current;
+        if (s == null || s.closed || !s.id.equals(id)) return false;
+        return input.notification(s.inputId, token, left, top, right, bottom, tapped -> {
+            if (s.closed || s.gestures == null) return;
+            try { s.gestures.onNotificationDismiss(s.id, tapped); }
+            catch (RemoteException | RuntimeException e) { android.util.Log.w("RearVirtualCast", "Notification dismiss unavailable", e); }
+        });
+    }
     boolean updateSurface(String id, Surface surface) throws Exception {
         Session s = current;
         if (s == null || !s.id.equals(id)) { if (surface != null) surface.release(); return false; }

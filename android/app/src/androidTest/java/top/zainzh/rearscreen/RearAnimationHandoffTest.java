@@ -31,6 +31,7 @@ public class RearAnimationHandoffTest {
     private static final Context context = inst.getTargetContext();
     private static ImageReader images;
     private static VirtualDisplay display;
+    private static RearDisplayTestIdentity fixtureIdentity;
     private AttachedNotificationService service;
     private RearScreenNotificationActivity activity;
     private SharedPreferences prefs;
@@ -41,16 +42,19 @@ public class RearAnimationHandoffTest {
     private Runnable beforeWake;
     private CountDownLatch resume;
 
-    @BeforeClass public static void prepareDisplay() {
+    @BeforeClass public static void prepareDisplay() throws Exception {
         inst.getUiAutomation().adoptShellPermissionIdentity();
+        if (RearDisplay.id() < 1) fixtureIdentity = new RearDisplayTestIdentity(1);
         images = ImageReader.newInstance(976, 596, PixelFormat.RGBA_8888, 3);
         images.setOnImageAvailableListener(reader -> { Image image = reader.acquireLatestImage(); if (image != null) image.close(); }, new Handler(Looper.getMainLooper()));
         display = context.getSystemService(DisplayManager.class).createVirtualDisplay("notification-regression", 976, 596, 450,
                 images.getSurface(), DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
         assertNotNull(display);
     }
-    @AfterClass public static void releaseDisplay() {
-        display.release(); images.close(); inst.getUiAutomation().dropShellPermissionIdentity();
+    @AfterClass public static void releaseDisplay() throws Exception {
+        display.release(); images.close();
+        if (fixtureIdentity != null) fixtureIdentity.close();
+        inst.getUiAutomation().dropShellPermissionIdentity();
     }
     @Before public void prepare() throws Exception {
         RearAnimationManager.endAnimation(RearAnimationManager.getCurrentAnimation());

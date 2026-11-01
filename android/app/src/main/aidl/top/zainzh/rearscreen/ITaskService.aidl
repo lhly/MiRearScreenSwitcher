@@ -160,5 +160,6 @@ interface ITaskService {
     String getRearPhysicalDisplayId() = 42;
     // Only temperature, condition and update time; no location or arbitrary query access.
     String readSystemWeather() = 43;
+    boolean setRearCastNotificationBounds(String sessionId, long token, int left, int top, int right, int bottom) = 44;
 }
 

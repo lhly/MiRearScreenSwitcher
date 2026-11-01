@@ -55,7 +55,7 @@ public final class TaskServiceManager {
             component = new ComponentName(packageName, TaskService.class.getName());
             // 更新远端实现时递增，防止升级后复用旧的 shell 服务进程。
             args = new Shizuku.UserServiceArgs(component).daemon(false)
-                    .processNameSuffix("task_service").debuggable(false).version(35);
+                    .processNameSuffix("task_service").debuggable(false).version(37);
             Shizuku.addBinderReceivedListenerSticky(() -> onMain(this::connect));
             Shizuku.addBinderDeadListener(() -> onMain(() -> disconnect("shizuku_died")));
             Shizuku.addRequestPermissionResultListener((request, result) -> onMain(this::connect));

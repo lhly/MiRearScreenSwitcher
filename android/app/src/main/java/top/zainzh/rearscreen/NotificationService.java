@@ -299,6 +299,10 @@ public class NotificationService extends NotificationListenerService {
     }
     
     void showNotificationOnRearScreen(String packageName, String title, String text, long when) {
+        // The existing host can present a passive capsule without changing display or input ownership.
+        if (!RearAnimationManager.isAnimationPlaying() && RearCastNotification.offer(packageName, title, text,
+                android.os.SystemClock.elapsedRealtime(), prefs.getInt("notification_duration", 10),
+                prefs.getBoolean("notification_dark_mode", false))) return;
         RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
         if (session.previous == RearAnimationManager.AnimationType.CHARGING) {
             RearAnimationManager.markInterruptedChargingAsAlwaysOn(prefs.getBoolean("charging_always_on_enabled", false));

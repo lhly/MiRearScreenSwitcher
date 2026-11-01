@@ -59,6 +59,14 @@ final class RearInputProxy {
     }
     void taskLeaving(int task) { Session s = current; if (s != null && s.task == task) stop(s.id); }
     String status() { Session s = current; return s == null ? lastStatus : s.status(); }
+    boolean notification(String id, long token, int left, int top, int right, int bottom, RearTouchRouter.NotificationDismiss dismiss) {
+        Session s = current;
+        if (s == null || !s.id.equals(id)) return false;
+        synchronized (s) {
+            if (s.closed) return false;
+            s.router.notification(token, left, top, right, bottom, dismiss); return true;
+        }
+    }
     boolean renew(String id) {
         Session s = current;
         if (s == null || !s.id.equals(id) || s.closed) return false;

@@ -1,0 +1,6 @@
+<resources>
+  <string name="cast_notification_dismiss_hint">Tap to dismiss notification</string>
+  <string name="cast_charging_title">Charging</string>
+  <string name="cast_charging_full">Fully charged</string>
+  <string name="cast_charging_percentage">Battery %1$d%%</string>
+</resources>

@@ -5,4 +5,5 @@ oneway interface IRearGestureListener {
     void onBackGesture(String sessionId, float inward, float y, boolean active, boolean ready, boolean menuArmed);
     void onCastMenu(String sessionId, boolean open);
     void onCastMenuTouch(String sessionId, int action, float x, float y, long downTime, long eventTime);
+    void onNotificationDismiss(String sessionId, long token);
 }

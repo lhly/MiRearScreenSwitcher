@@ -45,6 +45,7 @@ public class ChargingAnimationTest {
     private static int rearDisplayId;
     private static ImageReader reader;
     private static VirtualDisplay virtualDisplay;
+    private static RearDisplayTestIdentity fixtureIdentity;
     private SharedPreferences prefs;
     private Map<String, ?> originalPrefs;
     private RearScreenChargingActivity activity;
@@ -57,8 +58,9 @@ public class ChargingAnimationTest {
     private volatile String launchCommand;
     private volatile boolean shellOnMain;
 
-    @BeforeClass public static void prepareShell() {
+    @BeforeClass public static void prepareShell() throws Exception {
         instrumentation.getUiAutomation().adoptShellPermissionIdentity();
+        if (RearDisplay.id() < 1) fixtureIdentity = new RearDisplayTestIdentity(1);
         DisplayManager displays = context.getSystemService(DisplayManager.class);
         if (displays.getDisplay(1) != null) {
             rearDisplayId = 1;
@@ -76,9 +78,10 @@ public class ChargingAnimationTest {
         }
     }
 
-    @AfterClass public static void releaseShell() {
+    @AfterClass public static void releaseShell() throws Exception {
         if (virtualDisplay != null) virtualDisplay.release();
         if (reader != null) reader.close();
+        if (fixtureIdentity != null) fixtureIdentity.close();
         instrumentation.getUiAutomation().dropShellPermissionIdentity();
     }
 
@@ -361,9 +364,9 @@ public class ChargingAnimationTest {
         String key = android.provider.Settings.Global.ANIMATOR_DURATION_SCALE;
         String original = android.provider.Settings.Global.getString(context.getContentResolver(), key);
         try {
+            activity = launch(1, 42);
             shell("settings put global animator_duration_scale 0");
             await(() -> !android.animation.ValueAnimator.areAnimatorsEnabled(), 3000);
-            activity = launch(1, 42);
             instrumentation.runOnMainSync(() -> {
                 activity.finish();
                 assertTrue("Reduced motion must not retain a transparent window", activity.isFinishing());
@@ -372,9 +375,9 @@ public class ChargingAnimationTest {
         } finally {
             shell(original == null ? "settings delete global animator_duration_scale"
                     : "settings put global animator_duration_scale " + original);
-            if (original == null || Float.parseFloat(original) > 0f) {
-                await(android.animation.ValueAnimator::areAnimatorsEnabled, 3000);
-            }
+            // After the last window closes, ValueAnimator's process cache need not refresh until
+            // another window opens. Verify the restored system setting instead of that stale cache.
+            assertEquals(original, android.provider.Settings.Global.getString(context.getContentResolver(), key));
         }
     }
 

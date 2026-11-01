@@ -46,6 +46,7 @@ public class ChargingService extends Service {
     private volatile ITaskService taskService;
     private volatile boolean destroyed;
     private boolean powerConnected;
+    private boolean capsuleConnectionHandled;
     private volatile ChargingRequest activeRequest;
     private PowerManager.WakeLock wakeLock;
     private boolean wakeupRunning;
@@ -109,6 +110,7 @@ public class ChargingService extends Service {
     private final BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (!prefs.getBoolean("charging_animation_enabled", true)) {
+                RearCastNotification.clearCharging();
                 cancelRequest();
                 finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);
             } else if (activeRequest != null && isCurrent(activeRequest)) {
@@ -135,11 +137,13 @@ public class ChargingService extends Service {
         @Override public void onReceive(Context context, Intent intent) {
             if (Intent.ACTION_POWER_CONNECTED.equals(intent.getAction())) {
                 // 忽略同一次连接的重复广播，真正拔线后立即允许重新插入。
-                if (powerConnected && activeRequest != null && isCurrent(activeRequest)) return;
+                if (powerConnected && (capsuleConnectionHandled || (activeRequest != null && isCurrent(activeRequest)))) return;
                 powerConnected = true;
                 requestChargingAnimation();
             } else if (Intent.ACTION_POWER_DISCONNECTED.equals(intent.getAction())) {
                 powerConnected = false;
+                capsuleConnectionHandled = false;
+                RearCastNotification.clearCharging();
                 cancelRequest();
                 RearAnimationManager.clearChargingAlwaysOnFlag();
                 finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);
@@ -178,6 +182,7 @@ public class ChargingService extends Service {
 
     private void requestChargingAnimation() {
         if (destroyed || !prefs.getBoolean("charging_animation_enabled", true)) return;
+        if (tryCastCapsule()) return;
         cancelRequest();
         BatteryManager battery = (BatteryManager) getSystemService(BATTERY_SERVICE);
         RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.CHARGING);
@@ -188,6 +193,24 @@ public class ChargingService extends Service {
             RearAnimationManager.sendInterruptBroadcast(this, previous);
         }
         executePending();
+    }
+
+    private boolean tryCastCapsule() {
+        if (destroyed || !prefs.getBoolean("charging_animation_enabled", true) || !RearCastNotification.hasTarget()) return false;
+        BatteryManager battery = (BatteryManager) getSystemService(BATTERY_SERVICE);
+        int level = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        String title = getString(level >= 100 ? R.string.cast_charging_full : R.string.cast_charging_title);
+        String text = level >= 0 && level <= 100 ? getString(R.string.cast_charging_percentage, level) : "";
+        if (!RearCastNotification.offerCharging(getPackageName(), title, text, SystemClock.elapsedRealtime(),
+                prefs.getBoolean("notification_dark_mode", false))) return false;
+        capsuleConnectionHandled = true;
+        ChargingRequest previous = activeRequest;
+        cancelRequest();
+        if (previous != null && RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, previous.id)) {
+            finishChargingAnimation(previous.id);
+            RearScreenKeeperService.resumeMonitoring();
+        }
+        return true;
     }
 
     private void cancelRequest() {
@@ -203,6 +226,8 @@ public class ChargingService extends Service {
     private void executePending() {
         ChargingRequest request = activeRequest;
         if (request == null || !isCurrent(request) || request.executing) return;
+        // A cast host may have appeared while waiting for the control service.
+        if (tryCastCapsule()) return;
         ITaskService service = taskService;
         if (service == null) {
             if (SystemClock.elapsedRealtime() - request.createdAt >= READY_TIMEOUT_MS) {
@@ -349,6 +374,7 @@ public class ChargingService extends Service {
 
     @Override public void onDestroy() {
         destroyed = true;
+        RearCastNotification.clearCharging();
         cancelRequest();
         RearAnimationManager.clearChargingAlwaysOnFlag();
         finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);

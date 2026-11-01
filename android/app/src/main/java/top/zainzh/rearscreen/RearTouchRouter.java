@@ -7,6 +7,7 @@ public final class RearTouchRouter {
     public static final long MENU_HOLD_MS = 250;
     public interface Back { void send(long time) throws Exception; }
     public interface Feedback { void update(float inward, float y, boolean active, boolean ready, boolean menuArmed); }
+    public interface NotificationDismiss { void dismiss(long token); }
     public interface Menu {
         void visible(boolean open) throws Exception;
         void touch(int action, float x, float y, long down, long time) throws Exception;
@@ -24,6 +25,45 @@ public final class RearTouchRouter {
     private float startX, startY, inward, vertical;
     private long started;
     private boolean sequence, candidate, claimed, cancelled, feedbackActive, available = true, awaitingAllUp;
+    private NotificationDismiss notificationDismiss;
+    private long notificationToken, notificationDownToken;
+    private float notificationLeft, notificationTop, notificationRight, notificationBottom, notificationX, notificationY;
+    private int notificationSlot, notificationTracking;
+    private boolean notificationClaimed, notificationTap;
+
+    public void notification(long token, float left, float top, float right, float bottom, NotificationDismiss dismiss) {
+        if (token != 0 && (token < 0 || left < 0 || top < 0 || right > width || bottom > height
+                || !(left < right) || !(top < bottom))) throw new IllegalArgumentException("Invalid notification bounds");
+        notificationToken = token; notificationLeft = left; notificationTop = top;
+        notificationRight = right; notificationBottom = bottom; notificationDismiss = dismiss;
+        if (notificationClaimed && notificationDownToken != token) notificationTap = false;
+    }
+    private boolean inNotification(float x, float y) {
+        return x >= notificationLeft && x < notificationRight && y >= notificationTop && y < notificationBottom;
+    }
+    private boolean notificationFrame(List<RearTouchState.Contact> next, int previousContacts) {
+        if (!notificationClaimed && available && !awaitingAllUp && previousContacts == 0 && !next.isEmpty() && notificationToken > 0) {
+            for (RearTouchState.Contact c : next) if (inNotification(c.x, c.y)) {
+                notificationClaimed = true; notificationTap = next.size() == 1;
+                notificationDownToken = notificationToken; notificationSlot = c.slot; notificationTracking = c.tracking;
+                notificationX = c.x; notificationY = c.y; break;
+            }
+        }
+        if (!notificationClaimed) return false;
+        if (next.isEmpty()) {
+            boolean dismiss = notificationTap && notificationDownToken == notificationToken;
+            long token = notificationDownToken;
+            notificationClaimed = notificationTap = false;
+            awaitingAllUp = false;
+            if (dismiss && notificationDismiss != null) notificationDismiss.dismiss(token);
+        } else {
+            RearTouchState.Contact c = next.get(0);
+            if (next.size() != 1 || c.slot != notificationSlot || c.tracking != notificationTracking
+                    || !inNotification(c.x, c.y) || Math.abs(c.x - notificationX) > slop || Math.abs(c.y - notificationY) > slop)
+                notificationTap = false;
+        }
+        return true; // Keep consuming through the last UP, including expiry/replacement during a hold.
+    }
 
     public RearTouchRouter(RearTouchState touch, int width, int height, int density,
                            boolean navigation, Back back) {
@@ -100,14 +140,18 @@ public final class RearTouchRouter {
         dismissMenu(time);
         touch.outputAvailable(value, time);
         available = value; awaitingAllUp = contacts > 0; reset();
+        if (!value) notificationTap = false;
     }
 
-    public void cancel(long time) throws Exception { dismissMenu(time); awaitingAllUp = contacts > 0; reset(); touch.cancel(time); }
+    public void cancel(long time) throws Exception { dismissMenu(time); awaitingAllUp = contacts > 0; notificationTap = false; reset(); touch.cancel(time); }
 
     public void frame(List<RearTouchState.Contact> next, long time) throws Exception {
         RearTouchState.validateContacts(next);
+        int previousContacts = contacts;
         contacts = next.size();
+        if (notificationClaimed && notificationFrame(next, previousContacts)) return;
         if (menuOpen) { menuFrame(next, time); return; }
+        if (notificationFrame(next, previousContacts)) return;
         if (available && awaitingAllUp) {
             if (next.isEmpty()) { touch.frame(next, time); awaitingAllUp = false; }
             return; // A dismissed menu must not create a late App DOWN from a still-held finger.

@@ -41,6 +41,8 @@ public final class ReleaseContractRunner {
         api.getMethod("setDisplayRotation", int.class, int.class);
         api.getMethod("captureRearScreenshot", int[].class);
         api.getMethod("saveRearScreenshotLegacy", ParcelFileDescriptor.class);
+        api.getMethod("setRearCastNotificationBounds", String.class, long.class,
+                int.class, int.class, int.class, int.class);
         if (transaction("executeShellCommand") != IBinder.FIRST_CALL_TRANSACTION + 20
                 || transaction("executeShellCommandWithResult") != IBinder.FIRST_CALL_TRANSACTION + 21)
             throw new AssertionError("Published AIDL transaction IDs changed");
@@ -82,6 +84,19 @@ public final class ReleaseContractRunner {
                 throw new AssertionError("Invalid compatibility diagnostic report: " + report);
             System.out.println("Release compatibility diagnostics OK; display=" + report.getJSONObject("display")
                     + "; transaction=" + report.opt("moveRootTaskTransaction"));
+        } finally { data.recycle(); reply.recycle(); }
+        data = Parcel.obtain(); reply = Parcel.obtain();
+        try {
+            if (transaction("setRearCastNotificationBounds") != IBinder.FIRST_CALL_TRANSACTION + 44)
+                throw new AssertionError("Capsule touch transaction ID changed");
+            data.writeInterfaceToken(CONTRACT);
+            data.writeString("release-contract-no-session"); data.writeLong(1);
+            data.writeInt(0); data.writeInt(0); data.writeInt(100); data.writeInt(100);
+            if (!binder.transact(transaction("setRearCastNotificationBounds"), data, reply, 0))
+                throw new AssertionError("Capsule touch transaction rejected");
+            reply.readException();
+            if (reply.readInt() != 0) throw new AssertionError("Missing cast accepted a touch region");
+            System.out.println("Release capsule touch Binder contract OK");
         } finally { data.recycle(); reply.recycle(); }
         if (args.length > 0 && "rear-screenshot".equals(args[0])) {
             data = Parcel.obtain(); reply = Parcel.obtain();
