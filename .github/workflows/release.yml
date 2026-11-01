@@ -65,6 +65,10 @@ jobs:
           python3 tools/test_rear_touch_router.py
           python3 tools/test_rear_touch_state.py
           python3 tools/test_virtual_cast_request.py
+          python3 tools/test_camera_gap_geometry.py
+          python3 tools/test_camera_status.py
+          python3 tools/test_cast_notification.py
+          python3 tools/test_cast_notification_touch.py
 
       - name: Prepare Android toolchain
         run: |
@@ -129,15 +133,14 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
           ReMRSS 基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
 
-          - 修复部分系统中从快捷磁贴启动虚拟投放时出现“虚拟背屏启动超时”的问题，磁贴改用系统提供的 Activity 启动入口。
-          - 改为动态识别背屏、触摸设备、任务迁移接口与背屏桌面，减少固定显示编号和驱动名称造成的兼容性问题；保留小米 17 系列既有投放设置。
-          - 修复虚拟投放退出清理与立即重试之间的冲突，避免旧会话恢复桌面打断新投放。
-          - 诊断信息新增背屏与输入识别、系统接口、Shizuku 连接和近期错误，可复制或分享报告，方便无设备排查。
-          - 更新液态玻璃导航、充电动画与单层通知样式，通知纯黑模式继续可选。
+          - 虚拟投放期间，消息通知和充电提示改为摄像头安全区顶部的紧凑胶囊，保留原 App 画面和投放任务，避免提示结束后退出投放。
+          - 点按胶囊即可关闭，整次手势不穿透下方 App；消息继续遵循已有隐私、勿扰、来源与显示时长设置，新消息替换旧内容。
+          - 充电胶囊显示充电/满电状态和电量，约 8 秒后消失；重复插电广播不会反复弹出，拔线仅清理充电提示。
+          - 新增“镜头区域信息”独立板块，可选显示摄像头间的电量条，以及沿镜头圆弧排列的时间、日期、星期和系统天气；两个开关默认关闭。
 
-          已完成实际磁贴及普通/虚拟投放回归，并通过正式签名覆盖包验证。
+          已在小米 17 Pro Max 正式签名预览包验证通知点按关闭、充电到期/拔线保留投放；独立源码通过构建、36 项运行回归及混淆正式包 Binder 契约检查。其他机型仍以实际兼容性为准。
 
-          王者荣耀等应用若因切屏时密度变化而重建或退出，请开启“虚拟背屏投放”及该应用的“密度兼容”；此项设置与本次磁贴启动超时修复分别生效。
+          胶囊仅用于虚拟投放，非投放和物理直投保留原全屏通知/充电动画。镜头区域信息当前仅对已验证的小米 17 Pro Max 摄像头避让布局开放，详见[镜头区域说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/camera-gap-battery.md)与[胶囊说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/cast-notifications.md)。
 
           虚拟投放首次默认关闭，在“背屏 → 虚拟背屏投放”开启；需要 Android 13 及以上和受支持的背屏硬件，详见[虚拟投放说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/virtual-rear-casting.md)与[兼容性说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/rear-compatibility.md)。手机壳截图资源仍限小米 17 Pro / 17 Pro Max，其余机型可保存原图。
 

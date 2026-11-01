@@ -36,17 +36,17 @@ done
 
 ## 发版操作
 
-本轮发布目标为 ReMRSS `3.6.1 / 2020`，包含动态背屏与触摸识别、诊断导出、磁贴虚拟投放启动和退出重试修复，以及液态玻璃导航、充电和通知样式。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
+本轮发布目标为 ReMRSS `3.6.2 / 2021`，包含虚拟投放期间可点按关闭的通知/充电胶囊，以及镜头区域电量和圆弧基础信息。先提交完整源码、配置与文档，再推送新 tag；不能重复使用已有 tag。以下命令对应本轮发布，完成后请勿重复执行。
 
 ```sh
 git push origin main
-git tag -a v3.6.1 -m "ReMRSS 3.6.1"
-git push origin v3.6.1
+git tag -a v3.6.2 -m "ReMRSS 3.6.2"
+git push origin v3.6.2
 ```
 
-预览版可使用下一版本的`v3.6.2-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
+预览版可使用下一版本的`v3.6.3-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.1)提供`ReMRSS-v3.6.1.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.1`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.2)提供`ReMRSS-v3.6.2.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.2`构建产物14天。
 
 ## 构建与签名检查
 
@@ -182,3 +182,9 @@ v3.6.1 / 2020 合并动态背屏与触摸识别、诊断导出、虚拟投放退
 已重新下载公开 APK、SHA256SUMS、LICENSE、NOTICE，并核对实际字节、附件 digest 与 Raw 清单一致。APK 为 **1,753,992 字节**，SHA256 为 `9a89b658f85765417a95b3ab7813d0e54212b775f6398a480595d2bb2d99fc97`，版本为 `3.6.1 / 2020`；正式包名、既有签名、非调试标记、法律资产、四 ABI 原生库的 16 KiB LOAD 对齐均验证通过。发布前本地正式候选包已通过真机混淆 Binder 契约检查，公开成品完成上述下载与静态核验。
 
 稳定清单更新提交为 `e5cbe00`，本地已同步；旧 MRSS 清单保持原内容。发布说明按通用兼容性修复描述。本次未再次覆盖手机上的本地验证包，升级可使用公开正式 APK 并保留数据。
+
+## v3.6.2 发布前验证
+
+胶囊功能已从本地其他实验中独立提交。隔离源码的 Release、Debug、AndroidTest 和 release lint 通过，22组主机检查、36项Android运行回归和新增触摸区域的混淆Binder事务验证通过。小米17 Pro Max正式签名预览已确认通知点按只关闭胶囊、计算器继续显示；插电胶囊到期及拔线后投放任务保持不变。测试电源状态和原设置已恢复。
+
+新版本同时包含已提交的镜头区域电量和圆弧时间/日期/天气。公开成品与更新清单的核验结论在发布完成后补充，测试预览包不等同云端公开APK。
