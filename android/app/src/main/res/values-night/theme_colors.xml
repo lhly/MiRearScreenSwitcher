@@ -11,4 +11,6 @@
     <color name="remrss_on_control">#F4F4F5</color>
     <color name="remrss_ripple">#3382B2FF</color>
     <color name="remrss_navigation_surface">#25252B</color>
+    <!-- Camera strip stays black independently of the foreground App theme. -->
+    <color name="remrss_camera_status_text">#E7E7EC</color>
 </resources>

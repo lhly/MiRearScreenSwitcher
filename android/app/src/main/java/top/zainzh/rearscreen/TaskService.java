@@ -37,6 +37,9 @@ public class TaskService extends ITaskService.Stub {
         try { return RearDisplay.physicalId(); }
         catch (Exception e) { throw new IllegalStateException("Rear physical display: " + e, e); }
     }
+    @Override public String readSystemWeather() {
+        return android.os.Build.VERSION.SDK_INT >= 26 ? SystemWeatherReader.read() : "{}";
+    }
     private final RearInputProxy inputProxy = new RearInputProxy(this::isTaskOnDisplay);
     private final RearVirtualCast virtualCast = new RearVirtualCast(this, inputProxy);
 

@@ -158,5 +158,7 @@ interface ITaskService {
     String getRearDisplayState() = 40;
     String getCompatibilityDiagnostics() = 41;
     String getRearPhysicalDisplayId() = 42;
+    // Only temperature, condition and update time; no location or arbitrary query access.
+    String readSystemWeather() = 43;
 }
 

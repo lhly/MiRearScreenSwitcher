@@ -38,12 +38,15 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private volatile int gesturePreviewGeneration;
     private RearBackGestureView backIndicator;
     private RearCastMenuUi castMenu;
+    private RearCameraGapBatteryController cameraGapBattery;
+    private RearCameraStatusController cameraStatus;
     private boolean menuVisible, menuBusy;
     private final Runnable viewportTimeout = () -> { if (resizing) fail(new IllegalStateException("Rear viewport change timed out")); };
     private void toggleViewport() {
         if (ending || menuBusy || session == null || reconnecting || resizing) return;
         menuBusy = true; castMenu.setBusy(true); menuVisible = false; castMenu.show(false); clearFeedback();
         resizing = true; resizeSubmitted = false; outputGeneration++;
+        updateCameraGapBattery();
         main.postDelayed(viewportTimeout, 4500);
         String id = session; boolean full = !viewport.isFull();
         worker.execute(() -> {
@@ -71,6 +74,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 main.post(() -> {
                     if (ending || !id.equals(session)) return;
                     resizing = false; resizeSubmitted = false; menuBusy = false;
+                    updateCameraGapBattery();
                     castMenu.updateViewportMode(viewport.isFull()); castMenu.setBusy(false);
                     main.removeCallbacks(viewportTimeout);
                     android.util.Log.i("VirtualRearHost", status);
@@ -295,6 +299,12 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         root = new RearCastFrameLayout(this);
         root.setBackgroundColor(android.graphics.Color.BLACK);
         root.addView(output, new FrameLayout.LayoutParams(-1, -1));
+        RearCameraGapBatteryView batteryLayer = new RearCameraGapBatteryView(this);
+        root.addView(batteryLayer, new FrameLayout.LayoutParams(-1, -1));
+        cameraGapBattery = new RearCameraGapBatteryController(this, batteryLayer);
+        RearCameraStatusView statusLayer = new RearCameraStatusView(this);
+        root.addView(statusLayer, new FrameLayout.LayoutParams(-1, -1));
+        cameraStatus = new RearCameraStatusController(this, statusLayer);
         backIndicator = new RearBackGestureView(this);
         root.addView(backIndicator, new FrameLayout.LayoutParams(backIndicator.dp(32), backIndicator.dp(40), Gravity.RIGHT | Gravity.TOP));
         castMenu = new RearCastMenuUi(this, this::finish, () -> rotateContent(-1), () -> rotateContent(1), this::toggleViewport, this::dismissMenu);
@@ -343,6 +353,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 || output.getWidth() != viewport.width() || output.getHeight() != viewport.height()) return;
         if (!viewportPlaced) android.util.Log.i("VirtualRearHost", "Safe viewport=" + viewport.key() + " surface=" + xy[0] + "," + xy[1]);
         viewportPlaced = true;
+        updateCameraGapBattery();
         if (resizing) maybeFinishViewport(); else maybeStart();
     }
     public void surfaceCreated(SurfaceHolder value) { holder = value; }
@@ -361,6 +372,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                     main.post(() -> {
                         if (generation == outputGeneration && !ending) {
                             reconnecting = false; main.removeCallbacks(outputTimeout);
+                            updateCameraGapBattery();
                         }
                     });
                 } catch (Exception e) { fail(e); }
@@ -369,6 +381,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     public void surfaceDestroyed(SurfaceHolder value) {
         holder = null; outputGeneration++; main.removeCallbacks(startAfterLayout);
+        updateCameraGapBattery();
         clearFeedback();
         menuVisible = false; if (castMenu != null) castMenu.show(false);
         if (!starting || ending) return;
@@ -407,6 +420,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 JSONObject state = new JSONObject(status);
                 session = state.getString("id");
                 sessionPackage = state.getString("package");
+                main.post(this::updateCameraGapBattery);
                 if (densityCompatibility && !"unrestricted".equals(state.optString("sizePolicy")))
                     main.post(() -> { if (!ending) android.widget.Toast.makeText(this, R.string.rear_density_partial_support,
                             android.widget.Toast.LENGTH_LONG).show(); });
@@ -428,6 +442,24 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         main.post(this::finish);
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) { return true; /* hardware is exclusively read by evdev */ }
+    private void updateCameraGapBattery() {
+        if (cameraGapBattery == null || root == null) return;
+        int[] origin = new int[2]; root.getLocationOnScreen(origin);
+        cameraGapBattery.session(safeViewport, !ending && session != null && viewportPlaced && holder != null
+                && !resizing && !reconnecting, viewport == null || viewport.isFull(), origin[0], origin[1]);
+        if (cameraStatus != null) cameraStatus.session(safeViewport, !ending && session != null && viewportPlaced && holder != null
+                && !resizing && !reconnecting, viewport == null || viewport.isFull(), origin[0], origin[1]);
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (cameraGapBattery != null) { cameraGapBattery.visible(true); updateCameraGapBattery(); }
+        if (cameraStatus != null) cameraStatus.visible(true);
+    }
+    @Override protected void onPause() {
+        if (cameraGapBattery != null) cameraGapBattery.visible(false);
+        if (cameraStatus != null) cameraStatus.visible(false);
+        super.onPause();
+    }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (intent.getBooleanExtra("stop", false)) finish();
@@ -463,6 +495,8 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     @Override public void onConfigurationChanged(android.content.res.Configuration config) {
         super.onConfigurationChanged(config);
         if (backIndicator != null) backIndicator.applyTheme();
+        if (cameraGapBattery != null) cameraGapBattery.themeChanged();
+        if (cameraStatus != null) cameraStatus.themeChanged();
         if (safeViewport != null) worker.execute(() -> {
             try {
                 if (!safeViewport.key().equals(RearCastGeometry.decode(service.getRearCastViewport()).key()))
@@ -472,6 +506,8 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     @Override protected void onDestroy() {
         ending = true; main.removeCallbacksAndMessages(null);
+        if (cameraGapBattery != null) cameraGapBattery.close();
+        if (cameraStatus != null) cameraStatus.close();
         clearFeedback();
         menuVisible = false; if (castMenu != null) castMenu.show(false);
         if (screenReceiverRegistered) { unregisterReceiver(screenReceiver); screenReceiverRegistered = false; }

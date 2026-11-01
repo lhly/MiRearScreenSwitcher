@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <activity android:name=".RearCameraGapCalibrationActivity" android:exported="true" android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true" android:launchMode="singleInstance" android:showWhenLocked="true"
+            android:taskAffinity="${applicationId}.camera.gap.calibration" android:theme="@style/MiuixHostTheme">
+            <meta-data android:name="miui.rear.policy" android:value="miui" />
+        </activity>
         <activity android:name=".FixtureRestrictedLayoutActivity" android:exported="true"
             android:permission="android.permission.DUMP" android:screenOrientation="portrait" android:resizeableActivity="false"
             android:excludeFromRecents="true" android:taskAffinity="${applicationId}.restricted.fixture"
@@ -37,4 +42,6 @@
     <instrumentation android:name="top.zainzh.rearscreen.LayoutCompatibilityProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.LandscapeCastProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.CompatibilityCleanupInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.RearCameraGapProbeInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.RearWeatherProbeInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

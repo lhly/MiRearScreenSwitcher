@@ -15,4 +15,6 @@
     <color name="remrss_on_oled_secondary">#ACACB4</color>
     <color name="remrss_charging_liquid">#34C759</color>
     <color name="remrss_navigation_surface">#F8FAFF</color>
+    <!-- Camera strip stays black independently of the foreground App theme. -->
+    <color name="remrss_camera_status_text">#E7E7EC</color>
 </resources>

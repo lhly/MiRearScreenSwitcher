@@ -1,0 +1,9 @@
+<resources>
+    <string name="camera_area_section_title">镜头区域信息</string>
+    <string name="camera_gap_battery_title">摄像头间电量</string>
+    <string name="camera_gap_battery_summary">避开摄像头投放时，在双摄间显示电量条和百分比。</string>
+    <string name="camera_gap_battery_unavailable">当前机型暂未适配摄像头间电量显示。</string>
+    <string name="camera_status_title">镜头区基础信息</string>
+    <string name="camera_status_summary">避开摄像头投放时显示时间、日期和系统天气；天气过期或不可用时隐藏。</string>
+    <string name="camera_status_unavailable">当前机型暂未适配镜头区基础信息。</string>
+</resources>

@@ -44,11 +44,12 @@ public class ChargingGlassTest {
     private static VirtualDisplay display;
     private static int displayId;
     private static boolean physicalRear;
+    private static RearDisplayTestIdentity fixtureIdentity;
     private RearScreenChargingActivity activity;
     private SharedPreferences prefs;
     private Boolean savedAlways;
 
-    @BeforeClass public static void createDisplay() {
+    @BeforeClass public static void createDisplay() throws Exception {
         if (android.os.Build.VERSION.SDK_INT >= 29) inst.getUiAutomation().adoptShellPermissionIdentity();
         DisplayManager manager = context.getSystemService(DisplayManager.class);
         physicalRear = "true".equals(InstrumentationRegistry.getArguments().getString("chargingUsePhysicalRear"));
@@ -69,10 +70,14 @@ public class ChargingGlassTest {
             assertNotNull(display);
             displayId = display.getDisplay().getDisplayId();
         }
+        // The debug Activity maps an owned virtual/main display to logical rear ID 1.
+        // Dynamic physical-panel discovery must not mistake that test display for hardware.
+        if (!physicalRear) fixtureIdentity = new RearDisplayTestIdentity(1);
     }
-    @AfterClass public static void releaseDisplay() {
+    @AfterClass public static void releaseDisplay() throws Exception {
         if (display != null) display.release();
         if (reader != null) reader.close();
+        if (fixtureIdentity != null) fixtureIdentity.close();
         if (android.os.Build.VERSION.SDK_INT >= 29) inst.getUiAutomation().dropShellPermissionIdentity();
     }
     @Before public void prepare() {

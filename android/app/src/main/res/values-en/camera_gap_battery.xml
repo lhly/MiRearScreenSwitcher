@@ -1,0 +1,9 @@
+<resources>
+    <string name="camera_area_section_title">Camera area</string>
+    <string name="camera_gap_battery_title">Battery between cameras</string>
+    <string name="camera_gap_battery_summary">Show battery bars and percentage between the cameras when casting with camera avoidance.</string>
+    <string name="camera_gap_battery_unavailable">Battery display between the cameras is not yet supported on this device.</string>
+    <string name="camera_status_title">Camera area information</string>
+    <string name="camera_status_summary">Show time, date and system weather when casting around the cameras. Hide weather if outdated or unavailable.</string>
+    <string name="camera_status_unavailable">Camera area information is not yet supported on this device.</string>
+</resources>
