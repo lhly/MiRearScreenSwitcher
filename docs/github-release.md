@@ -174,3 +174,11 @@ Raw与gh-proxy.com镜像清单均对应同一公开APK；镜像APK再次匿名�
 v3.6.1 / 2020 合并动态背屏与触摸识别、诊断导出、虚拟投放退出重试及系统磁贴启动修复，同时发布液态玻璃导航、充电与单层通知样式。小米 17 Pro Max 的实际磁贴、普通/虚拟投放与主屏非交互保持已完成回归；用户已确认本地正式签名覆盖包可用，其他机型与第三方 ROM 的边界见[兼容性说明](rear-compatibility.md)。
 
 发布源码快照通过 18 组主机回归、Release 和 AndroidTest 编译、release lint（0 错误、62 项警告）；正式 APK 的包名、3.6.1/2020、既有证书、非调试标记和法律资产已复核。真实设备上的混淆 Binder 契约通过，四 ABI 原生库的 LOAD 对齐均至少 16 KiB。以上为发布前核验，公开附件与稳定版更新清单以成功发布后的检查为准。
+
+## v3.6.1 公开发布验收
+
+2026-11-01，[ReMRSS v3.6.1](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.1) 已由[云端流程](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/41282577979)完成构建、公开发布及稳定版更新清单更新，标记为 Latest。发布标签指向 `f485e21e05cd42ced74af33ffed46add04e82058`。
+
+已重新下载公开 APK、SHA256SUMS、LICENSE、NOTICE，并核对实际字节、附件 digest 与 Raw 清单一致。APK 为 **1,753,992 字节**，SHA256 为 `9a89b658f85765417a95b3ab7813d0e54212b775f6398a480595d2bb2d99fc97`，版本为 `3.6.1 / 2020`；正式包名、既有签名、非调试标记、法律资产、四 ABI 原生库的 16 KiB LOAD 对齐均验证通过。发布前本地正式候选包已通过真机混淆 Binder 契约检查，公开成品完成上述下载与静态核验。
+
+稳定清单更新提交为 `e5cbe00`，本地已同步；旧 MRSS 清单保持原内容。发布说明按通用兼容性修复描述。本次未再次覆盖手机上的本地验证包，升级可使用公开正式 APK 并保留数据。
