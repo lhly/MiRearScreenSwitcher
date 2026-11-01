@@ -188,3 +188,11 @@ v3.6.1 / 2020 合并动态背屏与触摸识别、诊断导出、虚拟投放退
 胶囊功能已从本地其他实验中独立提交。隔离源码的 Release、Debug、AndroidTest 和 release lint 通过，22组主机检查、36项Android运行回归和新增触摸区域的混淆Binder事务验证通过。小米17 Pro Max正式签名预览已确认通知点按只关闭胶囊、计算器继续显示；插电胶囊到期及拔线后投放任务保持不变。测试电源状态和原设置已恢复。
 
 新版本同时包含已提交的镜头区域电量和圆弧时间/日期/天气。公开成品与更新清单的核验结论在发布完成后补充，测试预览包不等同云端公开APK。
+
+## v3.6.2 公开发布验收
+
+2026-11-02，[ReMRSS v3.6.2](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.2)已公开并标记为Latest，[Actions 41324978689](https://github.com/lhly/MiRearScreenSwitcher/actions/runs/41324978689)的构建、发布和稳定清单三个job均成功。标签源码为`846f0afc5f2f21afecc9af108746baa725e4c107`，功能提交为`37c55f4`，稳定清单更新提交为`fc8f07e`。
+
+已匿名下载公开APK、SHA256SUMS、LICENSE和NOTICE，核对实际字节与GitHub附件digest、校验文件和Raw稳定清单一致。APK为**1,778,104字节**，SHA256为`7285648afa6576de6d018a0cb4e33392e9243d13130c1dbdf12fffd166321c9a`，版本`3.6.2 / 2021`；正式包名、既有正式证书、非调试标记及完整法律资产通过复核，四ABI的原生程序LOAD对齐均至少16KiB。公开压缩包另在独立API36模拟器通过真实Binder契约，包含胶囊触摸区域事务44与无会话拒绝行为。
+
+功能隔离源码的22组主机检查和36项Android运行回归均通过；真机视觉与插拔电源链路沿用[胶囊验收](cast-notifications.md)及[镜头区域验收](camera-gap-battery.md)。公开成品核验不等同所有背屏机型的硬件手势验收。旧MRSS根清单保持原字节，本地已同步云端稳定清单提交。
