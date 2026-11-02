@@ -67,11 +67,24 @@ public class UriCommandService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
+        try { PrivilegeOperations.begin(); }
+        catch (IllegalStateException switching) { return; }
+        try { handlePrivilegedIntent(intent); } finally { PrivilegeOperations.end(); }
+    }
+
+    private void handlePrivilegedIntent(Intent intent) {
         if (intent == null)
             return;
 
         Uri uri = intent.getData();
-        if (uri == null || !BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
+        if (uri == null || !uri.isHierarchical() || !BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
+            return;
+        }
+
+        try {
+            PrivilegedShellArguments.validateTargets(uri.getQueryParameter("packageName"), uri.getQueryParameter("activity"));
+        } catch (IllegalArgumentException invalid) {
+            Log.w(TAG, "Rejected invalid automation target", invalid);
             return;
         }
 

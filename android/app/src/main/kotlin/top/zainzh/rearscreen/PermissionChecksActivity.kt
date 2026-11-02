@@ -22,6 +22,10 @@ class PermissionChecksActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var states by mutableStateOf(emptyMap<PermissionChecks.Item, PermissionChecks.State>())
     private lateinit var list: androidx.compose.foundation.lazy.LazyListState
+    private val controlConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName, binder: android.os.IBinder) { refresh() }
+        override fun onServiceDisconnected(name: android.content.ComponentName) { refresh() }
+    }
     private var resumed = false
     private val tick = object : Runnable {
         override fun run() { if (resumed) { refresh(); handler.postDelayed(this, 2500) } }
@@ -42,13 +46,13 @@ class PermissionChecksActivity : ComponentActivity() {
                             val state = states[item] ?: PermissionChecks.State.UNKNOWN
                             AppCard {
                                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(getString(item.title), fontSize = 16.sp, color = AppPalette.text(), fontWeight = FontWeight.Medium,
+                                    Text(getString(PermissionChecks.title(this@PermissionChecksActivity, item)), fontSize = 16.sp, color = AppPalette.text(), fontWeight = FontWeight.Medium,
                                         modifier = Modifier.semantics { heading() })
-                                    Text(getString(item.help), fontSize = 13.sp, color = AppPalette.secondary())
-                                    Text(getString(PermissionChecks.statusLabel(item, state)), fontSize = 13.sp, color = AppPalette.secondary(),
+                                    Text(getString(PermissionChecks.help(this@PermissionChecksActivity, item)), fontSize = 13.sp, color = AppPalette.secondary())
+                                    Text(getString(PermissionChecks.statusLabel(this@PermissionChecksActivity, item, state)), fontSize = 13.sp, color = AppPalette.secondary(),
                                         modifier = Modifier.testTag("permission_status_" + item.name).semantics { liveRegion = LiveRegionMode.Polite })
                                     if (state != PermissionChecks.State.GRANTED && state != PermissionChecks.State.NOT_REQUIRED) {
-                                        TextButton(getString(PermissionChecks.actionLabel(item, state)), { openPermission(item) }, minHeight = 48.dp,
+                                        TextButton(getString(PermissionChecks.actionLabel(this@PermissionChecksActivity, item, state)), { openPermission(item) }, minHeight = 48.dp,
                                             modifier = Modifier.testTag("permission_action_" + item.name))
                                     }
                                 }
@@ -63,6 +67,12 @@ class PermissionChecksActivity : ComponentActivity() {
     }
     private fun refresh() { states = PermissionChecks.Item.entries.associateWith { PermissionChecks.read(this, it) } }
     private fun openPermission(item: PermissionChecks.Item) {
+        if (item == PermissionChecks.Item.SHIZUKU && TaskServiceManager.isRoot(this)) {
+            TaskServiceManager.acquire(this, controlConnection)
+            TaskServiceManager.requestConnection(this)
+            refresh()
+            return
+        }
         if (item == PermissionChecks.Item.SHIZUKU) try {
             if (PermissionChecks.read(this, item) == PermissionChecks.State.DENIED && !Shizuku.shouldShowRequestPermissionRationale()) {
                 Shizuku.requestPermission(701); return
@@ -73,5 +83,5 @@ class PermissionChecksActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); resumed = true; handler.removeCallbacks(tick); handler.post(tick) }
     override fun onPause() { resumed = false; handler.removeCallbacks(tick); super.onPause() }
     override fun onSaveInstanceState(outState: Bundle) { outState.saveList("permissions_scroll", list); super.onSaveInstanceState(outState) }
-    override fun onDestroy() { Shizuku.removeRequestPermissionResultListener(permissionResult); handler.removeCallbacksAndMessages(null); super.onDestroy() }
+    override fun onDestroy() { TaskServiceManager.release(controlConnection); Shizuku.removeRequestPermissionResultListener(permissionResult); handler.removeCallbacksAndMessages(null); super.onDestroy() }
 }

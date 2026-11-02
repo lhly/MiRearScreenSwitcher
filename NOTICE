@@ -54,3 +54,7 @@ Compose UI, AndroidX and Kotlin are used under Apache-2.0.
 MaterialKolor 5.0.1, Copyright Jordon de Hoog, is used under the MIT License;
 see MATERIALKOLOR-LICENSE.txt. https://github.com/jordond/materialkolor
 The application as a whole continues to be distributed under GPL-3.0.
+
+Root service transport uses libsu 6.0.0 by John "topjohnwu" Wu (Apache License 2.0).
+Source: https://github.com/topjohnwu/libsu
+License: third_party/LIBSU-LICENSE.txt (also bundled in app assets).

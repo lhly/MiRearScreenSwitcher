@@ -18,19 +18,22 @@ final class RearAppFreezeGuard implements AutoCloseable {
         return Class.forName("android.os.ServiceManager").getMethod("checkService", String.class).invoke(null, "greezer") != null;
     }
     static void recoverStale() {
-        try { if (required()) RearFreezeGuardProcess.recover(); }
+        try {
+            if (!required()) return;
+            if (android.os.Process.myUid() == 0) {
+                RearFreezeDirectory.prepareShellOwner(RearFreezeGuardProcess.DIRECTORY);
+                java.lang.Process recovery = shellProcess("--recover").start();
+                if (!recovery.waitFor(5, TimeUnit.SECONDS)) { recovery.destroy(); throw new IOException("Recovery timed out"); }
+                if (recovery.exitValue() != 0) throw new IOException("Shell recovery failed");
+            } else RearFreezeGuardProcess.recover();
+        }
         catch (Exception e) { Log.w("RearAppFreezeGuard", "Recovery deferred to the active guard or next cast", e); }
     }
     static RearAppFreezeGuard start(String pkg) throws Exception {
         RearFreezeState.validatePackage(pkg);
         if (!required()) return new RearAppFreezeGuard(null, "not_needed");
-        String paths = RearFreezeGuardProcess.command("pm", "path", BuildConfig.APPLICATION_ID);
-        String apk = null;
-        for (String line : paths.split("\n")) if (line.startsWith("package:") && line.endsWith("/base.apk")) apk = line.substring(8);
-        if (apk == null || !new File(apk).isFile()) throw new IOException("Installed cast APK unavailable for freeze recovery");
-        ProcessBuilder builder = new ProcessBuilder("/system/bin/app_process", "/system/bin", "--nice-name=remrss-freeze-guard",
-                RearFreezeGuardProcess.class.getName(), pkg).redirectErrorStream(true);
-        builder.environment().put("CLASSPATH", apk);
+        RearFreezeDirectory.prepareShellOwner(RearFreezeGuardProcess.DIRECTORY);
+        ProcessBuilder builder = shellProcess(pkg);
         java.lang.Process process = builder.start();
         RearAppFreezeGuard guard = new RearAppFreezeGuard(process, "temporary_whitelist");
         CompletableFuture<Boolean> ready = new CompletableFuture<>();
@@ -50,6 +53,24 @@ final class RearAppFreezeGuard implements AutoCloseable {
             guard.renew(); return guard;
         } catch (Exception e) { guard.close(); throw new IOException("Lock-screen App protection unavailable", e); }
     }
+    private static String quote(String value) { return "'" + value.replace("'", "'\"'\"'") + "'"; }
+    private static ProcessBuilder shellProcess(String argument) throws Exception {
+        String paths = RearFreezeGuardProcess.command("pm", "path", BuildConfig.APPLICATION_ID);
+        String apk = null;
+        for (String line : paths.split("\n")) if (line.startsWith("package:") && line.endsWith("/base.apk")) apk = line.substring(8);
+        if (apk == null || !new File(apk).isFile()) throw new IOException("Installed cast APK unavailable for freeze recovery");
+        ProcessBuilder builder;
+        if (android.os.Process.myUid() == 0) {
+            String command = "CLASSPATH=" + quote(apk) + " /system/bin/app_process /system/bin --nice-name=remrss-freeze-guard "
+                    + RearFreezeGuardProcess.class.getName() + " " + quote(argument);
+            builder = new ProcessBuilder("/system/bin/su", "2000", "-c", command);
+        } else {
+            builder = new ProcessBuilder("/system/bin/app_process", "/system/bin", "--nice-name=remrss-freeze-guard",
+                    RearFreezeGuardProcess.class.getName(), argument);
+            builder.environment().put("CLASSPATH", apk);
+        }
+        return builder.redirectErrorStream(true);
+    }
     synchronized void renew() throws Exception {
         if (closed) throw new IOException("Freeze protection ended");
         if (watchdog == null) return;
@@ -65,7 +86,7 @@ final class RearAppFreezeGuard implements AutoCloseable {
         try {
             if (!watchdog.waitFor(8, TimeUnit.SECONDS))
                 Log.w("RearAppFreezeGuard", "Independent restoration is still running");
-            else if (watchdog.exitValue() != 0) RearFreezeGuardProcess.recover();
+            else if (watchdog.exitValue() != 0) recoverStale();
         } catch (Exception e) { Log.e("RearAppFreezeGuard", "Freeze restoration pending", e); }
     }
 }

@@ -40,6 +40,14 @@ final class PermissionChecks {
         try {
             switch (item) {
                 case SHIZUKU:
+                    if (TaskServiceManager.isRoot(context)) {
+                        PrivilegeBackend.State current = TaskServiceManager.state(context);
+                        if (current == PrivilegeBackend.State.READY) return State.GRANTED;
+                        if (current == PrivilegeBackend.State.DENIED || current == PrivilegeBackend.State.NEEDS_AUTHORIZATION
+                                || current == PrivilegeBackend.State.DISCONNECTED) return State.DENIED;
+                        if (current == PrivilegeBackend.State.UNAVAILABLE) return State.NOT_RUNNING;
+                        return State.UNKNOWN;
+                    }
                     if (!Shizuku.pingBinder()) return State.NOT_RUNNING;
                     return granted(Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED);
                 case LISTENER:
@@ -83,6 +91,22 @@ final class PermissionChecks {
 
     private static State granted(boolean granted) { return granted ? State.GRANTED : State.DENIED; }
 
+    static int title(Context context, Item item) {
+        return item == Item.SHIZUKU && TaskServiceManager.isRoot(context) ? R.string.privilege_root_permission : item.title;
+    }
+    static int help(Context context, Item item) {
+        return item == Item.SHIZUKU && TaskServiceManager.isRoot(context) ? R.string.privilege_permission_help : item.help;
+    }
+    static int statusLabel(Context context, Item item, State state) {
+        if (item == Item.SHIZUKU && TaskServiceManager.isRoot(context) && state == State.NOT_RUNNING)
+            return R.string.privilege_root_unavailable;
+        return statusLabel(item, state);
+    }
+    static int actionLabel(Context context, Item item, State state) {
+        if (item == Item.SHIZUKU && TaskServiceManager.isRoot(context)) return R.string.privilege_root_connect;
+        return actionLabel(item, state);
+    }
+
     static int statusLabel(Item item, State state) {
         switch (state) {
             case GRANTED: return item == Item.BATTERY ? R.string.ui_permission_exempt : R.string.ui_permission_granted;
@@ -107,6 +131,7 @@ final class PermissionChecks {
         List<Intent> intents = new ArrayList<>();
         switch (item) {
             case SHIZUKU:
+                if (TaskServiceManager.isRoot(context)) break;
                 Intent manager = context.getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
                 if (manager != null) intents.add(manager);
                 intents.add(new Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/")));

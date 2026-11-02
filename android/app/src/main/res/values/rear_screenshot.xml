@@ -27,6 +27,6 @@
     <string name="rear_screenshot_saved_both">Framed screenshot and original saved</string>
     <string name="rear_screenshot_saved_fallback">Frame processing failed. Original screenshot saved.</string>
     <string name="rear_screenshot_saved_shell_only">Framed screenshot saved. Could not save the original.</string>
-    <string name="rear_screenshot_failed">Screenshot failed. Check Shizuku and available storage.</string>
-    <string name="rear_screenshot_service_unavailable">Control service unavailable. Start Shizuku and authorize ReMRSS.</string>
+    <string name="rear_screenshot_failed">Screenshot failed. Check the control service and available storage.</string>
+    <string name="rear_screenshot_service_unavailable">The control service is not ready. Open ReMRSS to check the selected privilege source and connect.</string>
 </resources>

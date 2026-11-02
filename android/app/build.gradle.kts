@@ -70,11 +70,16 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            val rootValidation = providers.gradleProperty("mrssRootValidation").orNull == "true"
+            isMinifyEnabled = rootValidation && providers.gradleProperty("mrssRootValidationMinify").orNull == "true"
+            isDebuggable = !isMinifyEnabled
+            isShrinkResources = isMinifyEnabled
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            applicationIdSuffix = if (rootValidation) ".rootdebug" else ".debug"
             versionNameSuffix = "-debug"
-            manifestPlaceholders["appLabel"] = "ReMRSS 调试版"
-            manifestPlaceholders["mrssScheme"] = "mrss-debug"
-            buildConfigField("String", "URI_SCHEME", "\"mrss-debug\"")
+            manifestPlaceholders["appLabel"] = if (rootValidation) "ReMRSS Root 测试" else "ReMRSS 调试版"
+            manifestPlaceholders["mrssScheme"] = if (rootValidation) "mrss-root-debug" else "mrss-debug"
+            buildConfigField("String", "URI_SCHEME", if (rootValidation) "\"mrss-root-debug\"" else "\"mrss-debug\"")
             buildConfigField("boolean", "INPUT_PROXY_PROTOTYPE", inputProxyPrototype.get().toString())
         }
         release {
@@ -144,7 +149,7 @@ abstract class PrepareLegalAssets : DefaultTask() {
     }
 }
 val prepareLegalAssets = tasks.register<PrepareLegalAssets>("prepareLegalAssets") {
-    legalTexts.from(rootProject.file("../LICENSE"), rootProject.file("../NOTICE"), rootProject.file("../third_party/MIUIX-LICENSE.txt"), rootProject.file("../third_party/MATERIALKOLOR-LICENSE.txt"))
+    legalTexts.from(rootProject.file("../LICENSE"), rootProject.file("../NOTICE"), rootProject.file("../third_party/MIUIX-LICENSE.txt"), rootProject.file("../third_party/MATERIALKOLOR-LICENSE.txt"), rootProject.file("../third_party/LIBSU-LICENSE.txt"))
     outputDirectory.set(layout.buildDirectory.dir("generated/legalAssets"))
 }
 androidComponents.onVariants { variant ->
@@ -182,6 +187,8 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    implementation("com.github.topjohnwu.libsu:core:6.0.0")
+    implementation("com.github.topjohnwu.libsu:service:6.0.0")
     // Shizuku API
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")

@@ -53,7 +53,8 @@ class TutorialActivity : ComponentActivity() {
                                         Text(step, fontSize = 14.sp, color = AppPalette.secondary(), modifier = Modifier.weight(1f))
                                     }
                                 }
-                                if (index == 0) TextButton(NativeStrings.get(this@TutorialActivity, "open_shizuku"), {
+                                if (index == 0) Text(getString(R.string.privilege_tutorial_root), fontSize = 14.sp, color = AppPalette.secondary())
+                                if (index == 0 && !TaskServiceManager.isRoot(this@TutorialActivity)) TextButton(NativeStrings.get(this@TutorialActivity, "open_shizuku"), {
                                     if (!PermissionChecks.openSettings(this@TutorialActivity, PermissionChecks.Item.SHIZUKU)) openError()
                                 }, Modifier.testTag("tutorial_shizuku"), minHeight = 48.dp, enabled = expandedSection == section)
                                 if (index == 1) TextButton(getString(R.string.tutorial_open_permissions), {
@@ -104,7 +105,7 @@ class TutorialActivity : ComponentActivity() {
     private fun addTile(tile: TileShortcut, scope: CoroutineScope) {
         if (addingTile) return
         if (PermissionChecks.read(this, PermissionChecks.Item.SHIZUKU) != PermissionChecks.State.GRANTED) {
-            Toast.makeText(this, R.string.tutorial_tile_needs_shizuku, Toast.LENGTH_LONG).show()
+            Toast.makeText(this, R.string.privilege_service_unavailable, Toast.LENGTH_LONG).show()
             return
         }
         addingTile = true

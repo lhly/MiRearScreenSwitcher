@@ -123,6 +123,25 @@ final class NativeStrings {
             case "nav_screen": id = R.string.ui_nav_screen; break;
             case "nav_notifications": id = R.string.ui_nav_notifications; break;
             case "apps_summary": id = R.string.ui_apps_summary; break;
+            case "privilege_source": id = R.string.privilege_source; break;
+            case "privilege_source_value": id = R.string.privilege_source_value; break;
+            case "privilege_source_help": id = R.string.privilege_source_help; break;
+            case "privilege_root_ready": id = R.string.privilege_root_ready; break;
+            case "privilege_root_waiting": id = R.string.privilege_root_waiting; break;
+            case "privilege_root_authorizing": id = R.string.privilege_root_authorizing; break;
+            case "privilege_root_denied": id = R.string.privilege_root_denied; break;
+            case "privilege_root_unavailable": id = R.string.privilege_root_unavailable; break;
+            case "privilege_root_failed": id = R.string.privilege_root_failed; break;
+            case "privilege_root_connect": id = R.string.privilege_root_connect; break;
+            case "privilege_root_help": id = R.string.privilege_root_help; break;
+            case "privilege_root_ok_help": id = R.string.privilege_root_ok_help; break;
+            case "privilege_switching": id = R.string.privilege_switching; break;
+            case "privilege_switch_busy": id = R.string.privilege_switch_busy; break;
+            case "privilege_switch_failed": id = R.string.privilege_switch_failed; break;
+            case "privilege_service_unavailable": id = R.string.privilege_service_unavailable; break;
+            case "privilege_not_connected": id = R.string.privilege_not_connected; break;
+            case "privilege_permission_help": id = R.string.privilege_permission_help; break;
+            case "privilege_tutorial_root": id = R.string.privilege_tutorial_root; break;
             default: return key;
         }
         return context.getString(id);

@@ -466,7 +466,7 @@ public class ScreenRecordService extends Service {
             
             try {
                 // 生成文件名
-                String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
+                String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT)
                     .format(new java.util.Date());
                 currentVideoPath = "/storage/emulated/0/Movies/ReMRSS_" + timestamp + ".mp4";
                 
@@ -492,8 +492,9 @@ public class ScreenRecordService extends Service {
                 
                 // 使用完整路径启动录屏
                 String screenrecordPath = testResult.trim();
-                String pidFile = "/data/local/tmp/" + getPackageName() + "_record.pid";
-                String logFile = "/data/local/tmp/" + getPackageName() + "_record.log";
+                String recordToken = java.util.UUID.randomUUID().toString();
+                String pidFile = "/data/local/tmp/" + getPackageName() + "-record-" + recordToken + ".pid";
+                String logFile = "/data/local/tmp/" + getPackageName() + "-record-" + recordToken + ".log";
                 
                 // 后台启动录屏并保存输出到日志
                 String recordCmd = String.format(
@@ -539,6 +540,7 @@ public class ScreenRecordService extends Service {
                     Log.d(TAG, "录屏进程日志: " + logContent);
                 }
                 
+                taskService.executeShellCommand("rm -f " + PrivilegedShellArguments.quote(pidFile) + " " + PrivilegedShellArguments.quote(logFile));
                 // 验证进程是否真的在运行（多种方式）
                 Log.d(TAG, "→ 验证录屏进程...");
                 
@@ -630,14 +632,14 @@ public class ScreenRecordService extends Service {
                     Log.d(TAG, "→ 停止录屏进程 (PID=" + recordPid + ")");
                     
                     // 发送SIGINT信号停止录制（优雅停止）
-                    String killCmd = "kill -2 " + recordPid;
+                    String killCmd = PrivilegedShellArguments.stopRecording(recordPid, currentVideoPath, 2);
                     boolean killed = taskService.executeShellCommand(killCmd);
                     
                     if (killed) {
                         Log.d(TAG, "✓ SIGINT信号已发送");
                     } else {
                         Log.w(TAG, "⚠ SIGINT失败，尝试SIGTERM");
-                        taskService.executeShellCommand("kill " + recordPid);
+                        taskService.executeShellCommand(PrivilegedShellArguments.stopRecording(recordPid, currentVideoPath, 15));
                     }
                     
                     Thread.sleep(1000); // 等待进程优雅退出并保存文件

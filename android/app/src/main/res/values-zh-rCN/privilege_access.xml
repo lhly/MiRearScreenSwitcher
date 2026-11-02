@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privilege_source">权限来源</string>
+    <string name="privilege_source_value">权限来源：%1$s</string>
+    <string name="privilege_source_help">选择背屏控制使用的权限。切换前请结束投屏、关闭录屏控制，并等待截图等操作完成。</string>
+    <string name="privilege_root_ready">Root 已就绪</string>
+    <string name="privilege_root_waiting">等待 Root 连接</string>
+    <string name="privilege_root_authorizing">正在申请 Root 权限…</string>
+    <string name="privilege_root_denied">未获得 Root 权限</string>
+    <string name="privilege_root_unavailable">Root 暂不可用</string>
+    <string name="privilege_root_failed">Root 连接失败</string>
+    <string name="privilege_root_connect">授权并连接</string>
+    <string name="privilege_root_help">需要手机已获取 root，并在 root 管理器中允许此应用。授权后可直接控制背屏。</string>
+    <string name="privilege_root_ok_help">独立 Root 控制服务已连接。</string>
+    <string name="privilege_switching">正在切换权限来源…</string>
+    <string name="privilege_switch_busy">请先结束背屏投屏、关闭录屏控制，并等待当前操作完成，再切换权限来源。</string>
+    <string name="privilege_switch_failed">旧控制服务尚未完成清理，暂时无法切换。请稍后重试。</string>
+    <string name="privilege_service_unavailable">控制服务尚未就绪，请打开 ReMRSS 检查当前权限来源并连接。</string>
+    <string name="privilege_not_connected">控制服务未连接</string>
+    <string name="privilege_permission_help">背屏控制使用当前选择的权限来源；Root 模式需要在 root 管理器中授权此应用。</string>
+    <string name="privilege_tutorial_root">也可以使用 Root 模式：在首页连接状态卡选择“权限来源 → Root”，点击“授权并连接”，并在 root 管理器中允许当前安装的 ReMRSS。正式版与调试版需要分别授权。Root 不可用时可手动切回 Shizuku；进行中的投屏、录屏或截图结束后才能切换。</string>
+    <string name="privilege_root_permission">Root 权限</string>
+</resources>

@@ -23,6 +23,12 @@ final class RearScreenshotPipeline {
     }
     static Result capture(Context context, ITaskService service, RearScreenshotPreferences.Options options,
             Progress progress, ShellLoader loader) throws Exception {
+        PrivilegeOperations.begin();
+        try { return captureLocked(context, service, options, progress, loader); }
+        finally { PrivilegeOperations.end(); }
+    }
+    private static Result captureLocked(Context context, ITaskService service, RearScreenshotPreferences.Options options,
+            Progress progress, ShellLoader loader) throws Exception {
         int[] metadata = new int[3];
         Bitmap raw;
         try (ParcelFileDescriptor descriptor = service.captureRearScreenshot(metadata);

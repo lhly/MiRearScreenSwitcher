@@ -15,3 +15,6 @@
 
 # Manifest components and XML views/constructors are retained by AAPT-generated rules.
 # Do not keep every private field/method of every Activity/Service/Receiver.
+
+# libsu instantiates the root host; preserve its constructor and lifecycle entry points.
+-keep,allowoptimization class top.zainzh.rearscreen.RootTaskService { public <init>(); public android.os.IBinder onBind(android.content.Intent); public void onDestroy(); }

@@ -53,7 +53,7 @@ public class SwitchToRearTileService extends TileService {
             Log.w(TAG, "request=" + pending.id + " stage=ready_timeout elapsed_ms="
                     + (SystemClock.elapsedRealtime() - pending.startedAt));
             pending = null;
-            showTemporaryFeedback("连接超时，请检查 Shizuku");
+            showTemporaryFeedback(getString(R.string.privilege_not_connected));
         }
     };
 
@@ -136,14 +136,8 @@ public class SwitchToRearTileService extends TileService {
             return;
         }
         try {
-            if (!Shizuku.pingBinder()) {
-                Log.w(TAG, "stage=click_rejected reason=shizuku_unavailable");
-                showTemporaryFeedback("请先启动 Shizuku");
-                return;
-            }
-            if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Log.w(TAG, "stage=click_rejected reason=permission_denied");
-                showTemporaryFeedback("请先打开应用授权");
+            if (!TaskServiceManager.canConnect(this)) {
+                showTemporaryFeedback(getString(R.string.privilege_service_unavailable));
                 return;
             }
             if (BuildConfig.VIRTUAL_CAST_ENABLED) {

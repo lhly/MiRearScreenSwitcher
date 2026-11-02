@@ -53,6 +53,7 @@ class MiuixSettingsUi(
     interface Actions {
         fun navigate(target: Int)
         fun settled(target: Int)
+        fun privilege()
         fun connect()
         fun details()
         fun dpi()
@@ -179,6 +180,65 @@ class MiuixSettingsUi(
 
     private val pageEasing = CubicBezierEasing(.77f, 0f, .175f, 1f)
 
+    @Composable private fun ConnectionTitle(dark: Boolean, status: String) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp))
+                .background(AppPalette.accent().copy(alpha = if (dark) .18f else .09f)).clearAndSetSemantics { },
+                contentAlignment = Alignment.Center) {
+                Icon("screen", AppPalette.accent(), Modifier.size(24.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(if (state.values["privilege_root"] == true) "ROOT" else "SHIZUKU",
+                    fontSize = 10.sp, color = AppPalette.secondary(), fontWeight = FontWeight.SemiBold)
+                Text(s(status), fontSize = 19.sp, color = AppPalette.text(), fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
+            }
+        }
+    }
+    @Composable private fun PrivilegeSourceButton() {
+        TextButton(activity.getString(R.string.privilege_source_value, if (state.values["privilege_root"] == true) "Root" else "Shizuku"),
+            actions::privilege, minHeight = 48.dp,
+            enabled = !state.busy && state.status != "privilege_switching",
+            modifier = Modifier.fillMaxWidth().testTag("privilege_source"))
+    }
+    @Composable private fun ConnectionStatusCard(dark: Boolean, status: String, summary: String, action: String) {
+        AppCard(Modifier.testTag("connection_status_card")) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(20.dp)) {
+                val contentWidth = maxWidth
+                if (contentWidth >= 520.dp) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ConnectionTitle(dark, status)
+                            Text(s(summary), fontSize = 13.sp, color = AppPalette.secondary())
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrivilegeSourceButton()
+                            ConnectButton(Modifier.fillMaxWidth(), action)
+                            DetailsButton(Modifier.fillMaxWidth())
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ConnectionTitle(dark, status)
+                        Text(s(summary), fontSize = 13.sp, color = AppPalette.secondary())
+                        PrivilegeSourceButton()
+                        if (contentWidth < 260.dp || LocalDensity.current.fontScale > 1.3f) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ConnectButton(Modifier.fillMaxWidth(), action)
+                                DetailsButton(Modifier.fillMaxWidth())
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ConnectButton(Modifier.weight(1f), action)
+                                DetailsButton(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @Composable private fun Home(dark: Boolean, modifier: Modifier) {
         val virtualRearCast = rememberVirtualRearCastMode()
         LazyColumn(modifier.testTag("home_list"), state = listState, contentPadding = PaddingValues(20.dp, 22.dp, 20.dp, maxOf(126.dp, with(LocalDensity.current) { navigationHeight.toDp() } + 32.dp)), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -200,31 +260,7 @@ class MiuixSettingsUi(
                     TextButton(s("uri_title"), actions::automation, minHeight = 48.dp)
                 }
             }
-            item("connection") {
-                Group {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(AppPalette.accent().copy(alpha = if (dark) .18f else .09f)), contentAlignment = Alignment.Center) { Icon("screen", AppPalette.accent(), Modifier.size(24.dp)) }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("SHIZUKU", fontSize = 10.sp, color = AppPalette.secondary(), fontWeight = FontWeight.SemiBold)
-                                Text(s(state.status), fontSize = 19.sp, color = AppPalette.text(), fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                            }
-                        }
-                        Text(s(state.summary), fontSize = 13.sp, color = AppPalette.secondary())
-                        BoxWithConstraints {
-                            if (maxWidth < 260.dp || LocalDensity.current.fontScale > 1.3f) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    ConnectButton(Modifier.fillMaxWidth())
-                                    DetailsButton(Modifier.fillMaxWidth())
-                                }
-                            } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ConnectButton(Modifier.weight(1f))
-                                DetailsButton(Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
+            item("connection") { ConnectionStatusCard(dark, state.status, state.summary, state.action) }
             if (BuildConfig.VIRTUAL_CAST_ENABLED) item("rear_cast_mode") {
                 Column(Modifier.fillMaxWidth()) {
                     AppCard {
@@ -433,8 +469,8 @@ class MiuixSettingsUi(
     @Composable private fun Group(content: @Composable ColumnScope.() -> Unit) {
         AppCard(content = content)
     }
-    @Composable private fun ConnectButton(modifier: Modifier) {
-        TextButton(s(state.action), actions::connect, modifier, minHeight = 48.dp, cornerRadius = 16.dp, insideMargin = PaddingValues(10.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+    @Composable private fun ConnectButton(modifier: Modifier, action: String = state.action) {
+        TextButton(s(action), actions::connect, modifier, enabled = !state.busy && state.status !in setOf("privilege_root_authorizing", "connection_binding", "privilege_switching"), minHeight = 48.dp, cornerRadius = 16.dp, insideMargin = PaddingValues(10.dp), colors = ButtonDefaults.textButtonColorsPrimary())
     }
     @Composable private fun DetailsButton(modifier: Modifier) {
         TextButton(s("connection_details"), actions::details, modifier, minHeight = 48.dp, cornerRadius = 16.dp, insideMargin = PaddingValues(10.dp))

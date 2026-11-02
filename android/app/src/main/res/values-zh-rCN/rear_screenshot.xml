@@ -27,6 +27,6 @@
     <string name="rear_screenshot_saved_both">带壳截图与原图已保存</string>
     <string name="rear_screenshot_saved_fallback">外壳处理失败，已保存原始截图</string>
     <string name="rear_screenshot_saved_shell_only">带壳截图已保存，原图未能保存</string>
-    <string name="rear_screenshot_failed">截图失败，请检查 Shizuku 和可用存储空间</string>
-    <string name="rear_screenshot_service_unavailable">控制服务未就绪，请启动 Shizuku 并授权 ReMRSS</string>
+    <string name="rear_screenshot_failed">截图失败，请检查控制服务和可用存储空间</string>
+    <string name="rear_screenshot_service_unavailable">控制服务未就绪，请打开 ReMRSS 检查当前权限来源并连接</string>
 </resources>

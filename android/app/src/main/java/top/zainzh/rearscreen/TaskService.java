@@ -94,18 +94,27 @@ public class TaskService extends ITaskService.Stub {
     private final DisplayRotationController rotationController = new DisplayRotationController(
             DisplayRotationController::runCommand, Thread::sleep, message -> { Log.i(TAG, message); CompatibilityDiagnostics.record("rotation", message); });
 
+    private final int ownerUid;
     @Keep
-    public TaskService() {
+    public TaskService() { this(-1); }
+    TaskService(int ownerUid) {
+        this.ownerUid = ownerUid;
         RearDisplay.initializeShell();
-        RearAppFreezeGuard.recoverStale();
+        if (ownerUid < 0) RearAppFreezeGuard.recoverStale();
     }
 
-    @Override
-    public void destroy() {
-        virtualCast.stop(null);
-        inputProxy.stop(null);
-        System.exit(0);
+    @Override public boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) throws RemoteException {
+        int caller = android.os.Binder.getCallingUid();
+        if (ownerUid >= 0 && caller != ownerUid && caller != android.os.Process.myUid())
+            throw new SecurityException("Caller is not the Root service owner");
+        return super.onTransact(code, data, reply, flags);
     }
+
+    void closeSessions() {
+        try { virtualCast.stop(null); } finally { inputProxy.stop(null); }
+    }
+    @Override
+    public void destroy() { closeSessions(); System.exit(0); }
 
     @Override
     public String getCurrentForegroundApp() throws RemoteException {

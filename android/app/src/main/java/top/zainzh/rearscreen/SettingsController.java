@@ -81,6 +81,7 @@ final class SettingsController {
         composeUi = new MiuixSettingsUi(activity, state, new MiuixSettingsUi.Actions() {
             @Override public void navigate(int target) { SettingsController.this.navigate(target); }
             @Override public void settled(int target) { onPageSettled(target); }
+            @Override public void privilege() { choosePrivilege(); }
             @Override public void connect() { SettingsController.this.connect(); }
             @Override public void details() { showDetails(); }
             @Override public void dpi() { if (!remoteBusy) showDpi(); }
@@ -232,6 +233,7 @@ final class SettingsController {
                 "charging_animation_enabled", "charging_always_on_enabled", "notification_service_enabled",
                 "notification_privacy_hide_title", "notification_privacy_hide_content", "notification_dark_mode",
                 "notification_follow_dnd_mode", "notification_only_when_locked"}) values.put(key, preferences.getBoolean(key));
+        values.put("privilege_root", TaskServiceManager.isRoot(activity));
         composeUi.updateHome(lastStatus.isEmpty() ? "check_shizuku" : lastStatus, connectionSummary, connectionAction,
                 currentDpi, rotation, remoteBusy || checkingDisplay, values);
         int selected = activity.getSharedPreferences("mrss_settings", Context.MODE_PRIVATE)
@@ -278,16 +280,29 @@ final class SettingsController {
 
     void refreshStatus() {
         if (destroyed) return;
-        boolean running = false, authorized = false;
-        try {
-            running = Shizuku.pingBinder();
-            authorized = running && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED;
-        } catch (Exception ignored) { }
-        boolean ready = authorized && activity.isTaskServiceReady();
-        String status = ready ? "connection_ready" : authorized ? "connection_binding"
-                : running ? "shizuku_permission_denied" : "shizuku_not_running";
-        connectionSummary = ready ? "connection_ok_help" : "connection_help";
-        connectionAction = ready ? "refresh" : running ? "grant_permission" : "open_shizuku";
+        boolean rootMode = TaskServiceManager.isRoot(activity);
+        PrivilegeBackend.State privilege = TaskServiceManager.state(activity);
+        boolean authorized = privilege == PrivilegeBackend.State.READY || privilege == PrivilegeBackend.State.BINDING;
+        boolean ready = privilege == PrivilegeBackend.State.READY && activity.isTaskServiceReady();
+        String status;
+        if (privilege == PrivilegeBackend.State.SWITCHING) status = "privilege_switching";
+        else if (rootMode) {
+            switch (privilege) {
+                case READY: status = ready ? "privilege_root_ready" : "connection_binding"; break;
+                case BINDING: status = "connection_binding"; break;
+                case AUTHORIZING: status = "privilege_root_authorizing"; break;
+                case DENIED: status = "privilege_root_denied"; break;
+                case UNAVAILABLE: status = "privilege_root_unavailable"; break;
+                case ERROR: status = "privilege_root_failed"; break;
+                default: status = "privilege_root_waiting";
+            }
+        } else status = ready ? "connection_ready" : authorized ? "connection_binding"
+                : privilege == PrivilegeBackend.State.NEEDS_AUTHORIZATION ? "shizuku_permission_denied" : "shizuku_not_running";
+        connectionSummary = rootMode ? ready ? "privilege_root_ok_help" : "privilege_root_help"
+                : ready ? "connection_ok_help" : "connection_help";
+        connectionAction = rootMode ? ready ? "refresh" : "privilege_root_connect"
+                : ready || authorized ? "refresh" : privilege == PrivilegeBackend.State.NEEDS_AUTHORIZATION ? "grant_permission" : "open_shizuku";
+        if (!ready) restoringServices = false;
         if (!status.equals(lastStatus)) {
             lastStatus = status;
             if (!ready) { displayRead = false; rotation = -1; }
@@ -328,7 +343,28 @@ final class SettingsController {
         });
     }
 
+    private void choosePrivilege() {
+        modal.show(activity.getString(R.string.privilege_source), activity.getString(R.string.privilege_source_help),
+                new String[]{"Shizuku", "Root", s("cancel")},
+                new Runnable[]{() -> selectPrivilege(PrivilegeMode.SHIZUKU), () -> selectPrivilege(PrivilegeMode.ROOT), null});
+    }
+    private void selectPrivilege(PrivilegeMode mode) {
+        TaskServiceManager.switchMode(activity, mode, error -> {
+            if (destroyed) return;
+            if (error != null) toast(activity.getString("busy".equals(error) ? R.string.privilege_switch_busy : R.string.privilege_switch_failed));
+            else { displayRead = false; restoringServices = false; }
+            refreshStatus();
+        });
+        refreshStatus();
+    }
+
     private void connect() {
+        if (TaskServiceManager.isRoot(activity)) {
+            PrivilegeBackend.State current = TaskServiceManager.state(activity);
+            if (current != PrivilegeBackend.State.AUTHORIZING && current != PrivilegeBackend.State.BINDING
+                    && current != PrivilegeBackend.State.SWITCHING) TaskServiceManager.requestConnection(activity);
+            displayRead = false; refreshStatus(); return;
+        }
         try {
             if (Shizuku.pingBinder()) {
                 if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) action("requestShizukuPermission");

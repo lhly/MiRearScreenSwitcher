@@ -36,5 +36,5 @@ final class RearAnimationDisplay {
         return false;
     }
 
-    static String quote(String value) { return "'" + value.replace("'", "'\"'\"'") + "'"; }
+    static String quote(String value) { return PrivilegedShellArguments.quote(value); }
 }

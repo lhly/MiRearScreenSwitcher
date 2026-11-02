@@ -5,6 +5,7 @@
 | 内容 | 文档 |
 | --- | --- |
 | 日常操作、权限、后台与自动化 | [使用指南](usage.md) |
+| Root 模式、双后端边界与验收范围 | [Root 权限来源](root-backend.md) |
 | 虚拟投放、侧滑菜单与按 App 兼容 | [虚拟背屏投放](virtual-rear-casting.md) |
 | 镜头区域电量、基础信息与机型适配范围 | [摄像头间电量与基础信息](camera-gap-battery.md) |
 | 旧 MRSS 迁移、包名与协议冲突 | [迁移说明](remrss-identity-validation.md) |

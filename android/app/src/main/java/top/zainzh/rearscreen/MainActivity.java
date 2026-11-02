@@ -152,13 +152,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                 
                 // 步骤3: 在主屏启动Activity
                 String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-                String mainCmd = String.format(
-                    "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d",
-                    componentName, packageName,
-                    title != null ? title.replace("\"", "'") : "",
-                    text != null ? text.replace("\"", "'") : "",
-                    when
-                );
+                String mainCmd = PrivilegedShellArguments.notification(componentName, packageName, title, text, when);
                 taskService.executeShellCommand(mainCmd);
                 
                 // 步骤4: 轮询获取taskId
@@ -205,6 +199,9 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     }
     
     private void checkAndRequestShizukuPermission() {
+        if (TaskServiceManager.isRoot(this)) {
+            bindTaskService(); TaskServiceManager.startSelected(this); return;
+        }
         try {
             if (Shizuku.pingBinder()) {
                 if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
@@ -272,13 +269,15 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                 || method.equals("setDisplayRotation") || method.equals("returnRearAppAndRestart")
                 || method.equals("getCompatibilityDiagnostics");
         Runnable action = () -> {
+            boolean entered = false;
             try {
                 if (remote) {
+                    PrivilegeOperations.begin(); entered = true;
                     bindTaskService();
                     long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
                     while (!isTaskServiceReady() && !taskServiceReleased
                             && android.os.SystemClock.elapsedRealtime() < deadline) {
-                        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) break;
+                        if (!TaskServiceManager.canConnect(this)) break;
                         Thread.sleep(50);
                     }
                     if (taskServiceReleased) return;
@@ -287,7 +286,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
             } catch (Exception error) {
                 Log.e(TAG, "Native action failed: " + method, error);
                 result.error("ERROR", error.getMessage(), null);
-            }
+            } finally { if (entered) PrivilegeOperations.end(); }
         };
         if (remote) commandExecutor.execute(action);
         else action.run();
@@ -314,13 +313,14 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                                 .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
                                 .put("incremental", Build.VERSION.INCREMENTAL)
                                 .put("virtualCasting", RearCastMode.useVirtual(this))
+                                .put("privilegeMode", PrivilegeMode.read(this).name()).put("privilegeState", TaskServiceManager.state(this).name())
                                 .put("shizukuRunning", running).put("shizukuPermission", running && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
                                 .put("shizukuUid", running ? Shizuku.getUid() : -1).put("shizukuVersion", running ? Shizuku.getVersion() : -1)
                                 .put("connection", TaskServiceManager.diagnostics()).put("taskServiceReady", isTaskServiceReady());
                         if (taskService != null) {
                             try { report.put("capabilities", new org.json.JSONObject(taskService.getCompatibilityDiagnostics())); }
                             catch (Exception e) { report.put("serviceError", e.toString()); }
-                        } else report.put("serviceError", "Shizuku service not connected");
+                        } else report.put("serviceError", "Control service not connected");
                         result.success(report.toString(2));
                         } catch (Exception e) { result.error("DIAGNOSTICS", e.toString(), null); }
                         break;

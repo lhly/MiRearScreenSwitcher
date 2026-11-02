@@ -15,17 +15,32 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'top/zainzh/rearscreen'
 STUBS = {
 'android/annotation/SuppressLint.java': 'package android.annotation; public @interface SuppressLint { String[] value(); }',
- f'{PACKAGE}/RearDisplay.java': 'package top.zainzh.rearscreen; public class RearDisplay {static void attach(ITaskService s){} static int requireId(){return 1;} }',
+ f'{PACKAGE}/RearDisplay.java': 'package top.zainzh.rearscreen; public class RearDisplay {static void attach(ITaskService s){} static int requireId(){return 1;} static int id(){return 1;} }',
 'android/content/ComponentName.java': '''package android.content; public class ComponentName { public ComponentName(String p,String c){} }''',
 'android/content/Context.java': '''package android.content; public class Context {
  public static final java.util.List<Intent> started=new java.util.ArrayList<>();
  public static final int MODE_PRIVATE=0; public String getPackageName(){return "test.mrss";}
- public SharedPreferences getSharedPreferences(String n,int m){return new SharedPreferences();}
+ public Context getApplicationContext(){return this;} private static final java.util.Map<String,SharedPreferences> prefs=new java.util.HashMap<>(); public SharedPreferences getSharedPreferences(String n,int m){return prefs.computeIfAbsent(n,k->new SharedPreferences());}
  public ComponentName startForegroundService(Intent i){started.add(i);return null;} public ComponentName startService(Intent i){started.add(i);return null;}
  public android.content.pm.PackageManager getPackageManager(){return new android.content.pm.PackageManager();}
- public String getString(int id,Object... args){return "message";}
+ public String getString(int id,Object... args){return "连接超时";}
 }''',
-'android/content/SharedPreferences.java': '''package android.content; public class SharedPreferences { public boolean getBoolean(String k,boolean d){return d;} }''',
+'android/content/SharedPreferences.java': '''package android.content; public class SharedPreferences {
+ private final java.util.Map<String,Object> values=new java.util.HashMap<>();
+ public boolean getBoolean(String k,boolean d){return values.containsKey(k)?(Boolean)values.get(k):d;}
+ public String getString(String k,String d){return values.containsKey(k)?(String)values.get(k):d;}
+ public Editor edit(){return new Editor();} public class Editor { public Editor putString(String k,String v){values.put(k,v);return this;} public Editor putBoolean(String k,boolean v){values.put(k,v);return this;} public void apply(){} }
+}''',
+'org/json/JSONObject.java': '''package org.json; public class JSONObject { private String text; public JSONObject(String s){text=s;} public String optString(String k,String fallback){return text.contains("running")?"running":fallback;} }''',
+f'{PACKAGE}/ScreenRecordService.java': '''package top.zainzh.rearscreen; class ScreenRecordService {static boolean running; static boolean isRunning(){return running;}}''',
+f'{PACKAGE}/RootBackend.java': '''package top.zainzh.rearscreen; import android.content.*; public class RootBackend implements PrivilegeBackend {
+ static int requests,unbinds; static boolean allowed=true,cached=false,delay=false; static Prepared pending;
+ static final java.util.List<ServiceConnection> binds=new java.util.ArrayList<>(); RootBackend(Context c){}
+ public State availability(){return cached?State.READY:State.NEEDS_AUTHORIZATION;}
+ public void prepare(boolean request,Prepared cb){if(!request){cb.complete(availability());return;} requests++;if(delay){pending=cb;return;}cached=allowed;cb.complete(allowed?State.READY:State.DENIED);}
+ public void bind(ServiceConnection c){binds.add(c);}public void unbind(ServiceConnection c){unbinds++;}
+ static void ready(int index,android.os.IBinder b){binds.get(index).onServiceConnected(new ComponentName("test","root"),b);}
+}''',
 'android/content/Intent.java': '''package android.content; public class Intent { public static final String ACTION_VIEW="android.intent.action.VIEW"; public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000,FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS=0x00800000; public Class<?> target; public android.net.Uri data; public String action; public int activityFlags; private java.util.Map<String,Boolean> flags=new java.util.HashMap<>(); public Intent(Context c,Class<?> t){target=t;} public Intent setAction(String a){action=a;return this;} public Intent addFlags(int f){activityFlags|=f;return this;} public Intent setData(android.net.Uri u){data=u;return this;} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){flags.put(n,v);return this;} public boolean getBooleanExtra(String n,boolean d){return flags.getOrDefault(n,d);} }''',
 'android/app/PendingIntent.java': '''package android.app; public class PendingIntent { public static final int FLAG_UPDATE_CURRENT=1,FLAG_IMMUTABLE=2; public static int lastFlags; public android.content.Intent intent; public static PendingIntent getActivity(android.content.Context c,int request,android.content.Intent i,int flags){PendingIntent p=new PendingIntent();p.intent=i;lastFlags=flags;return p;} }''',
 'android/net/Uri.java': '''package android.net; public class Uri { private String value; public static Uri parse(String s){Uri u=new Uri();u.value=s;return u;} public String toString(){return value;} }''',
@@ -64,7 +79,7 @@ f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class R
  public static void ready(int index,IBinder b){binds.get(index).onServiceConnected(new ComponentName("test","TaskService"),b);}
 }''',
 f'{PACKAGE}/ITaskService.java': '''package top.zainzh.rearscreen; public interface ITaskService {
- android.os.IBinder asBinder(); String getForegroundAppOnDisplay(int d); String getCurrentForegroundApp(); boolean disableSubScreenLauncher(); boolean enableSubScreenLauncher(); boolean moveTaskToDisplay(int t,int d); boolean launchWakeActivity(int d); boolean collapseStatusBar();
+ android.os.IBinder asBinder(); String getForegroundAppOnDisplay(int d); String getCurrentForegroundApp(); default String getRearVirtualCastStatus(){return "{}";} default String getRearInputProxyStatus(){return "{}";} default void stopRearVirtualCast(String s){} default void stopRearInputProxy(String s){} boolean disableSubScreenLauncher(); boolean enableSubScreenLauncher(); boolean moveTaskToDisplay(int t,int d); boolean launchWakeActivity(int d); boolean collapseStatusBar();
  class Stub { public static ITaskService asInterface(android.os.IBinder b){return (ITaskService)b;} }
 }''',
 f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
@@ -74,8 +89,8 @@ f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.
  public IBinder asBinder(){return this;} public String getForegroundAppOnDisplay(int d){return null;} public String getCurrentForegroundApp(){if(beforeTarget!=null)beforeTarget.run();return "com.test:42";}
  public boolean disableSubScreenLauncher(){return true;} public boolean enableSubScreenLauncher(){restores++;return true;} public boolean moveTaskToDisplay(int t,int d){moves++;return moveSuccess;} public boolean launchWakeActivity(int d){return true;} public boolean collapseStatusBar(){return true;}
 }''',
-f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {}''',
-f'{PACKAGE}/R.java': '''package top.zainzh.rearscreen; public class R { public static class string { public static int toast_please_switch_back=1,toast_cast_to_rear=2; } }''',
+f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {static boolean isRunning(){return false;}}''',
+f'{PACKAGE}/R.java': '''package top.zainzh.rearscreen; public class R { public static class string { public static int toast_please_switch_back=1,toast_cast_to_rear=2,privilege_service_unavailable=3,privilege_not_connected=4; } }''',
 }
 HARNESS = '''package top.zainzh.rearscreen;
 import android.content.*; import android.os.*; import rikka.shizuku.Shizuku;
@@ -91,9 +106,61 @@ public class ConnectionRegressionTest {
   while(System.nanoTime()<end){Handler.drain();if(f.get(tile)==null)return;Thread.sleep(2);}
   throw new AssertionError("worker did not finish");
  }
+ static void await(java.util.function.BooleanSupplier done) throws Exception {
+  long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+  while(System.nanoTime()<end){Handler.drain();if(done.getAsBoolean())return;Thread.sleep(2);}
+  throw new AssertionError("async transition timed out");
+ }
  public static void main(String[] args) throws Exception {
   String scenario=args[0]; Owner a=new Owner(),b=new Owner(); TaskService service=new TaskService();
   switch(scenario){
+   case "switch_timeout_cancel":
+    CountDownLatch enteredSwitch=new CountDownLatch(1),resumeSwitch=new CountDownLatch(1),returnedSwitch=new CountDownLatch(1);
+    acquire(a);Shizuku.ready(0,new TaskService(){public String getForegroundAppOnDisplay(int d){enteredSwitch.countDown();try{resumeSwitch.await(3,TimeUnit.SECONDS);}catch(InterruptedException e){throw new RuntimeException(e);}returnedSwitch.countDown();return null;}});
+    java.util.concurrent.atomic.AtomicReference<String> timeoutResult=new java.util.concurrent.atomic.AtomicReference<>("pending");
+    TaskServiceManager.switchMode(context,PrivilegeMode.ROOT,timeoutResult::set);check(enteredSwitch.await(1,TimeUnit.SECONDS),"switch worker not entered");
+    Handler.advance(8000);check("failed".equals(timeoutResult.get())&&PrivilegeMode.read(context)==PrivilegeMode.SHIZUKU,"switch timeout did not recover");
+    PrivilegeOperations.begin();PrivilegeOperations.end();resumeSwitch.countDown();check(returnedSwitch.await(1,TimeUnit.SECONDS),"worker did not resume");Thread.sleep(20);
+    check(PrivilegeMode.read(context)==PrivilegeMode.SHIZUKU&&RootBackend.binds.isEmpty(),"late switch committed");TaskServiceManager.release(a);break;
+   case "switch_old_callbacks":
+    acquire(a);RootBackend.cached=true;
+    java.util.concurrent.atomic.AtomicReference<String> switched=new java.util.concurrent.atomic.AtomicReference<>("pending");
+    TaskServiceManager.switchMode(context,PrivilegeMode.ROOT,switched::set);await(()->!"pending".equals(switched.get()));
+    check(switched.get()==null&&RootBackend.binds.size()==1,"switch did not start root");
+    Shizuku.ready(0,service);check(a.ready==0,"old backend callback accepted");RootBackend.ready(0,new TaskService());
+    Shizuku.dead.onBinderDead();Shizuku.received.onBinderReceived();check(a.ready==1&&a.lost==0,"old backend event disconnected root");TaskServiceManager.release(a);break;
+   case "switch_active_command":
+    acquire(a);PrivilegeOperations.begin();java.util.concurrent.atomic.AtomicReference<String> commandResult=new java.util.concurrent.atomic.AtomicReference<>();
+    TaskServiceManager.switchMode(context,PrivilegeMode.ROOT,commandResult::set);PrivilegeOperations.end();
+    check("busy".equals(commandResult.get())&&PrivilegeMode.read(context)==PrivilegeMode.SHIZUKU,"switched during command");TaskServiceManager.release(a);break;
+   case "switch_active_session":
+    acquire(a);Shizuku.ready(0,new TaskService(){public String getRearVirtualCastStatus(){return "running";}});
+    java.util.concurrent.atomic.AtomicReference<String> sessionResult=new java.util.concurrent.atomic.AtomicReference<>("pending");
+    TaskServiceManager.switchMode(context,PrivilegeMode.ROOT,sessionResult::set);await(()->!"pending".equals(sessionResult.get()));
+    check("busy".equals(sessionResult.get())&&a.lost==0&&PrivilegeMode.read(context)==PrivilegeMode.SHIZUKU,"switched live session");TaskServiceManager.release(a);break;
+   case "root_retry_limit":
+    PrivilegeMode.ROOT.save(context);RootBackend.cached=true;acquire(a);
+    for(int i=0;i<3;i++){Handler.advance(5000);Handler.advance(3000);}
+    check(RootBackend.binds.size()==3&&TaskServiceManager.state(context)==PrivilegeBackend.State.ERROR,"unbounded root retry");
+    acquire(a);Handler.advance(100000);check(RootBackend.binds.size()==3,"acquire bypassed retry limit");TaskServiceManager.release(a);break;
+   case "root_denied_no_loop":
+    PrivilegeMode.ROOT.save(context);RootBackend.allowed=false;acquire(a);
+    check(RootBackend.requests==0,"acquire requested su");TaskServiceManager.requestConnection(context);
+    check(TaskServiceManager.state(context)==PrivilegeBackend.State.DENIED,"denial lost");
+    for(int i=0;i<10;i++){acquire(a);Handler.advance(10000);TaskServiceManager.state(context);}
+    check(RootBackend.requests==1&&RootBackend.binds.isEmpty(),"denial loop");TaskServiceManager.release(a);break;
+   case "root_authorization_wait":
+    PrivilegeMode.ROOT.save(context);RootBackend.delay=true;acquire(a);TaskServiceManager.requestConnection(context);
+    Handler.advance(10000);check(TaskServiceManager.state(context)==PrivilegeBackend.State.AUTHORIZING,"authorization used bind timeout");
+    RootBackend.cached=true;RootBackend.pending.complete(PrivilegeBackend.State.READY);RootBackend.ready(0,service);
+    check(a.ready==1&&Shizuku.binds.isEmpty(),"root depended on Shizuku");TaskServiceManager.release(a);break;
+   case "root_cancel_authorization":
+    PrivilegeMode.ROOT.save(context);RootBackend.delay=true;acquire(a);TaskServiceManager.requestConnection(context);TaskServiceManager.release(a);
+    RootBackend.pending.complete(PrivilegeBackend.State.READY);check(RootBackend.binds.isEmpty(),"cancelled grant bound root");break;
+   case "root_shared_release":
+    PrivilegeMode.ROOT.save(context);RootBackend.cached=true;acquire(a);acquire(b);RootBackend.ready(0,service);
+    TaskServiceManager.release(a);check(RootBackend.unbinds==0&&b.ready==1,"released other root owner");
+    TaskServiceManager.release(b);check(RootBackend.unbinds==1&&Shizuku.binds.isEmpty(),"wrong root unbind");break;
    case "shared_release":
     acquire(a);acquire(b);check(Shizuku.binds.size()==1,"duplicate remote bind");Shizuku.ready(0,service);
     check(a.ready==1&&b.ready==1,"missing owner callback");acquire(a);Shizuku.ready(0,service);check(a.ready==1&&service.links==1,"duplicate ready");
@@ -175,7 +242,7 @@ class ConnectionTests(unittest.TestCase):
         path.write_text(HARNESS)
         sources = list(folder.rglob('*.java'))
         sources += [ROOT / 'android/app/src/main/java' / PACKAGE / name for name in
-                    ['TaskServiceManager.java', 'SwitchToRearTileService.java']]
+                    ['TaskServiceManager.java', 'SwitchToRearTileService.java', 'PrivilegeMode.java', 'PrivilegeBackend.java', 'ShizukuBackend.java', 'PrivilegeOperations.java']]
         subprocess.run([cls.javac, '--release', '11', '-d', str(cls.classes), *map(str, sources)], check=True)
 
     @classmethod
@@ -189,7 +256,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('PASS ' + name, result.stdout)
 
-for scenario in ['shared_release', 'callback_release', 'release_pending', 'bind_timeout', 'server_restart',
+for scenario in ['switch_timeout_cancel', 'switch_old_callbacks', 'switch_active_command', 'switch_active_session', 'root_retry_limit', 'root_denied_no_loop', 'root_authorization_wait', 'root_cancel_authorization', 'root_shared_release', 'shared_release', 'callback_release', 'release_pending', 'bind_timeout', 'server_restart',
                  'permission_granted', 'release_after_death', 'dead_on_connect',
                  'tile_delayed_ready', 'tile_duplicate_click', 'tile_close_pending',
                  'tile_timeout', 'tile_other_owner', 'tile_destroy_pending',

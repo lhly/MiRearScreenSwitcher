@@ -68,3 +68,10 @@ ReMRSS 正式包名与源码 namespace 为 `top.zainzh.rearscreen`，调试包�
 ```sh
 git config --local core.hooksPath .githooks
 ```
+
+
+独立 Root 验证可为 debug 构建传入 `-PmrssRootValidation=true`：包名变为 `top.zainzh.rearscreen.rootdebug`，协议为 `mrss-root-debug://`，不会覆盖正式版或普通调试版。Root 授权需要按这个实际包名单独配置。该选项不改变 release 包名或版本。
+
+为验证 R8 后的 Root 跨进程调用，可同时传入 `-PmrssRootValidationMinify=true`，仅对上述独立 debug 验证包启用混淆和资源收缩。普通 debug 构建仍不混淆。
+
+混淆验证构建使用 `:app:assembleDebug`，通过包内自仪器入口验收；完整步骤与已验证边界见 [Root 权限来源](root-backend.md)。普通 AndroidX UI/设备测试使用未混淆的独立 debug 包。

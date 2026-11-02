@@ -61,7 +61,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         String id = session; boolean full = !viewport.isFull();
         worker.execute(() -> {
             try {
-                if (service == null) throw new IllegalStateException("Shizuku disconnected");
+                if (service == null) throw new IllegalStateException("Control service disconnected");
                 RearCastViewport next = RearCastGeometry.decode(service.beginRearCastViewport(id, full));
                 main.post(() -> {
                     if (ending || !id.equals(session)) return;
@@ -77,7 +77,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         String id = session; Surface surface = holder.getSurface();
         worker.execute(() -> {
             try {
-                if (service == null) throw new IllegalStateException("Shizuku disconnected");
+                if (service == null) throw new IllegalStateException("Control service disconnected");
                 String confirmed = service.finishRearCastViewport(id, surface);
                 status = confirmed;
                 rememberPresentation(confirmed, false);
@@ -104,7 +104,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         updateCastNotification();
         worker.execute(() -> {
             try {
-                if (service == null) throw new IllegalStateException("Shizuku disconnected");
+                if (service == null) throw new IllegalStateException("Control service disconnected");
                 String confirmed = service.rotateRearVirtualCast(id, direction);
                 status = confirmed;
                 rememberPresentation(confirmed, true);
@@ -292,7 +292,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 } catch (Exception e) { fail(e); }
             });
         }
-        public void onServiceDisconnected(ComponentName name) { service = null; fail(new IllegalStateException("Shizuku disconnected")); }
+        public void onServiceDisconnected(ComponentName name) { service = null; fail(new IllegalStateException("Control service disconnected")); }
     };
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);

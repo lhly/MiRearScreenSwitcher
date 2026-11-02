@@ -61,6 +61,7 @@ public final class RearFreezeGuardProcess {
         if (android.os.Build.VERSION.SDK_INT < 33) throw new UnsupportedOperationException("Virtual casting requires Android 13");
         if (Process.myUid() != 2000 && Process.myUid() != 0) throw new SecurityException("Shell freeze guard only");
         if (args.length != 1) throw new IllegalArgumentException("A cast package is required");
+        if ("--recover".equals(args[0])) { recover(); return; }
         RearFreezeState.validatePackage(args[0]);
         heartbeat = SystemClock.elapsedRealtime();
         Thread reader = new Thread(() -> {

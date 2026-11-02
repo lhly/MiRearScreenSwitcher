@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privilege_source">Privilege source</string>
+    <string name="privilege_source_value">Privilege source: %1$s</string>
+    <string name="privilege_source_help">Choose the privilege source for rear screen control. End casting, close recording controls, and wait for screenshots or other operations before switching.</string>
+    <string name="privilege_root_ready">Root is ready</string>
+    <string name="privilege_root_waiting">Waiting for Root connection</string>
+    <string name="privilege_root_authorizing">Requesting root access…</string>
+    <string name="privilege_root_denied">Root access not granted</string>
+    <string name="privilege_root_unavailable">Root is unavailable</string>
+    <string name="privilege_root_failed">Root connection failed</string>
+    <string name="privilege_root_connect">Authorize &amp; connect</string>
+    <string name="privilege_root_help">Your phone must be rooted. Allow this app in your root manager to control the rear screen directly.</string>
+    <string name="privilege_root_ok_help">The independent Root control service is connected.</string>
+    <string name="privilege_switching">Switching privilege source…</string>
+    <string name="privilege_switch_busy">End rear screen casting, close recording controls, and wait for the current operation to finish before switching.</string>
+    <string name="privilege_switch_failed">The previous control service could not finish cleanup. Try again later.</string>
+    <string name="privilege_service_unavailable">The control service is not ready. Open ReMRSS to check the selected privilege source and connect.</string>
+    <string name="privilege_not_connected">Control service disconnected</string>
+    <string name="privilege_permission_help">Rear screen control uses the selected privilege source. Root mode requires permission for this app in your root manager.</string>
+    <string name="privilege_tutorial_root">Alternatively, select Privilege source → Root on the home connection card, tap the authorization button, and allow the installed ReMRSS app in your root manager. Release and debug apps need separate authorization. You can switch back to Shizuku manually. End active casting, recording and screenshots before switching.</string>
+    <string name="privilege_root_permission">Root access</string>
+</resources>

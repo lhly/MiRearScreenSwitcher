@@ -45,7 +45,13 @@ public class UriReceiverActivity extends Activity {
     private void dispatch(Intent intent) {
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             Uri uri = intent.getData();
-            if (uri != null && BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
+            if (uri != null && uri.isHierarchical() && BuildConfig.URI_SCHEME.equals(uri.getScheme())) {
+                try {
+                    PrivilegedShellArguments.validateTargets(uri.getQueryParameter("packageName"), uri.getQueryParameter("activity"));
+                } catch (IllegalArgumentException invalid) {
+                    Log.w(TAG, "Rejected invalid automation target", invalid);
+                    finish(); return;
+                }
                 Log.d(TAG, "🔗 URI接收: " + uri.toString());
                 
                 // 转发到UriCommandService处理
