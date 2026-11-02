@@ -15,15 +15,20 @@ public final class RearCameraStatusGeometry {
         public float startAngle() { return angle + (clockwise ? -sweep / 2 : sweep / 2); }
     }
     public static boolean supported(RearCameraGapGeometry.Profile profile) {
-        return profile != null && profile.verified && "popsicle".equals(profile.device);
+        return profile != null;
     }
     public static Arc[] arcs(RearCameraGapGeometry.Profile profile) {
         if (!supported(profile)) return new Arc[0];
         // Top glyphs sit outside a clockwise baseline; bottom glyphs sit inside a
-        // reversed baseline so they remain upright. The left opening is narrower.
-        return new Arc[]{new Arc(150, 150, 148, 314, 26, 30, true),
-                new Arc(150, 450, 169, 45, 24, 28, false),
-                new Arc(150, 150, 146, 225, 22, 19, true),
-                new Arc(150, 450, 163, 137, 18, 23, false)};
+        // reversed baseline so they remain upright. Derive each baseline from that
+        // device's official lens centers/radius, with the same extra film clearance
+        // as the visually verified popsicle layout. Its upper-left opening needs
+        // one less pixel of nominal font size to clear the official outer corner.
+        float weekdaySize = "popsicle".equals(profile.device) ? 18 : 19;
+        float weekdaySweep = "popsicle".equals(profile.device) ? 20 : 22;
+        return new Arc[]{new Arc(profile.x, profile.upperY, profile.radius + 15, 314, 26, 30, true),
+                new Arc(profile.x, profile.lowerY, profile.radius + 36, 45, 24, 28, false),
+                new Arc(profile.x, profile.upperY, profile.radius + 13, 225, weekdaySweep, weekdaySize, true),
+                new Arc(profile.x, profile.lowerY, profile.radius + 30, 137, 18, 23, false)};
     }
 }

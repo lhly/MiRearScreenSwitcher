@@ -8,6 +8,7 @@ public final class RearCameraGapGeometry {
         public final String device;
         public final int width, height;
         public final float x, upperY, lowerY, radius, margin;
+        /** Physical-device validation only; template-based support does not imply this is true. */
         public final boolean verified;
 
         private Profile(String device, int width, int height, float x, float upperY,
@@ -18,8 +19,11 @@ public final class RearCameraGapGeometry {
         }
 
         public float centerY() { return (upperY + lowerY) / 2f; }
-        public float left() { return 24f; }
-        public float right() { return x + radius - 8f; }
+        // Keep the sampling grid centered on the lens axis. Unequal distances to
+        // its two ends produce unequal heights even with a symmetric circle.
+        private float halfWidth() { return Math.min(x - 24f, radius - 8f); }
+        public float left() { return x - halfWidth(); }
+        public float right() { return x + halfWidth(); }
 
         /** Conservative bounds across the entire bar width, not just its center. */
         public float[] interval(float left, float right) {
@@ -28,8 +32,9 @@ public final class RearCameraGapGeometry {
             float nearest = Math.max(left, Math.min(right, x));
             double r = radius + margin;
             float arc = (float) Math.sqrt(Math.max(0, r * r - (nearest - x) * (nearest - x)));
-            return new float[]{Math.max(upperY + arc, centerY() - 58f),
-                    Math.min(lowerY - arc, centerY() + 58f)};
+            // A fixed height cap creates flat shelves on wider gaps. Follow the
+            // complete circle envelope so every bar changes height with the lenses.
+            return new float[]{upperY + arc, lowerY - arc};
         }
 
         public boolean matches(RearCastViewport safe) {
@@ -41,7 +46,7 @@ public final class RearCameraGapGeometry {
 
     // Official per-device screenshot shells provide candidate coordinates. The popsicle
     // exclusion radius also covers the larger 266px circle in the official contest template.
-    // Candidate profiles must not become production support based on resolution alone.
+    // Select only by device identity. Equal resolutions do not imply equal lens geometry.
     public static Profile candidate(String device) {
         // Conservative template contour + 4px clearance, visually confirmed on a 17 Pro Max.
         if ("popsicle".equals(device)) return new Profile(device, 976, 596, 150, 150, 450, 133, true);
@@ -52,8 +57,8 @@ public final class RearCameraGapGeometry {
     }
 
     public static Profile supported(String device) {
-        Profile p = candidate(device);
-        return p != null && p.verified ? p : null;
+        // All four official templates are supported; verified is retained as UI metadata.
+        return candidate(device);
     }
 
     /** -1 is unknown; it must never turn into a false 0% reading. */

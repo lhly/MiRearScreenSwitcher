@@ -6,4 +6,5 @@
     <string name="camera_status_title">Camera area information</string>
     <string name="camera_status_summary">Show time, date and system weather when casting around the cameras. Hide weather if outdated or unavailable.</string>
     <string name="camera_status_unavailable">Camera area information is not yet supported on this device.</string>
+    <string name="camera_area_template_unverified">Adapted to the official template for this device; not yet verified on a physical device.</string>
 </resources>

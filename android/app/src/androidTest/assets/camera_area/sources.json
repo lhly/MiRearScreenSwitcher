@@ -1,0 +1,58 @@
+{
+  "pandora": {
+    "original_png_sha256": "99933ce2cdb27c1e04fd7854b29d7fecf1a40745284bc47f0abee9bf871989f2",
+    "mapping": {
+      "with": 904.0,
+      "height": 572.0,
+      "leftMargin": 114.0,
+      "topMargin": 106.0,
+      "rightMargin": 103.0,
+      "bottomMargin": 1653.0
+    },
+    "mask_sha256": "1e5011463e5185983e8dfdab820a8267f4bc1e262b113075b549ea01c9496f3e",
+    "source": "https://f2.market.xiaomi.com/download/GalleryEdit/0acec6f75fa4e45eabe0cc9ba2a3b55d2878ec3ec",
+    "opaque_alpha_threshold": 128
+  },
+  "hongkong": {
+    "original_png_sha256": "71b2c2ebcbac1510e137b1c3e74af080efec0005925b985b89c4e9cc8dd4180d",
+    "mapping": {
+      "with": 912.0,
+      "height": 596.0,
+      "leftMargin": 116.0,
+      "topMargin": 108.0,
+      "rightMargin": 115.0,
+      "bottomMargin": 1668.0
+    },
+    "mask_sha256": "00150cb13c8ddf61e2cb94f3f5546086c88257e602f6a34550fb7d41999fb6e0",
+    "source": "https://f2.market.xiaomi.com/download/GalleryEdit/003bff7e883294a648e3ac795a36fcdb74472c3b2",
+    "opaque_alpha_threshold": 128
+  },
+  "madrid": {
+    "original_png_sha256": "14aadeab9ef9074292ed09222e64c2a252946691505fae18d4a57e39ce538fa9",
+    "mapping": {
+      "with": 976.0,
+      "height": 596.0,
+      "leftMargin": 121.0,
+      "topMargin": 113.0,
+      "rightMargin": 114.0,
+      "bottomMargin": 1803.0
+    },
+    "mask_sha256": "f4c964faeb3d67bae43850d533461841a7282ed02103e85f5d0cd99302c10e15",
+    "source": "https://f4.market.xiaomi.com/download/GalleryEdit/06717632eb7654816a5b25acfdede4d6a25a151a7",
+    "opaque_alpha_threshold": 128
+  },
+  "popsicle": {
+    "original_png_sha256": "4ee85220d0afa345d320b8ec58186116fe91d5e9f7278e18996005477d5a0833",
+    "mapping": {
+      "with": 976.0,
+      "height": 596.0,
+      "leftMargin": 122.0,
+      "topMargin": 108.0,
+      "rightMargin": 112.0,
+      "bottomMargin": 1806.0
+    },
+    "mask_sha256": "ec2946ad66aa470ea08de6259eda7acfca0bd9a612e6301051c04fba8f19202b",
+    "source": "https://i.mi.com/gallery/public/resource/download?id=25000238622966048",
+    "opaque_alpha_threshold": 128
+  }
+}

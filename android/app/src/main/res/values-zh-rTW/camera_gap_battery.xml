@@ -6,4 +6,5 @@
     <string name="camera_status_title">鏡頭區基本資訊</string>
     <string name="camera_status_summary">避開鏡頭投放時顯示時間、日期和系統天氣；天氣過期或無法取得時隱藏。</string>
     <string name="camera_status_unavailable">目前機型尚未適配鏡頭區基本資訊。</string>
+    <string name="camera_area_template_unverified">已依本機官方範本適配，尚未經過實機驗證。</string>
 </resources>

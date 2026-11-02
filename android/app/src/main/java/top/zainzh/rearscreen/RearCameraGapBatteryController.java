@@ -54,8 +54,8 @@ final class RearCameraGapBatteryController implements AutoCloseable {
         this.safe = safe; this.running = running; this.full = full;
         View parent = view.getParent() instanceof View ? (View) view.getParent() : null;
         containsGap = profile != null && parent != null && originX <= profile.left()
-                && originY <= profile.centerY() - 58 && originX + parent.getWidth() >= profile.right()
-                && originY + parent.getHeight() >= profile.centerY() + 58;
+                && originY <= profile.upperY && originX + parent.getWidth() >= profile.right()
+                && originY + parent.getHeight() >= profile.lowerY;
         view.configure(profile, originX, originY);
         update();
     }

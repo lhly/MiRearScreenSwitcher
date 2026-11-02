@@ -34,13 +34,20 @@ public final class CameraStatusChecks {
         require(RearWeatherSnapshot.iconFor(-1)==RearWeatherSnapshot.Icon.UNKNOWN,"Negative code");
         require(RearWeatherSnapshot.iconFor(25)==RearWeatherSnapshot.Icon.SLEET,"Freezing rain");
         RearCameraGapGeometry.Profile p=RearCameraGapGeometry.supported("popsicle");
-        require(RearCameraStatusGeometry.arcs(RearCameraGapGeometry.candidate("madrid")).length==0,"Unverified same-size device");
         require(RearCameraStatusGeometry.arcs(null).length==0,"Unknown device");
-        for(RearCameraStatusGeometry.Arc arc:RearCameraStatusGeometry.arcs(p)) {
+        for(String device : new String[]{"pandora", "popsicle", "hongkong", "madrid"}) {
+          p = RearCameraGapGeometry.supported(device);
+          require(RearCameraStatusGeometry.supported(p),"Known device has no information layout");
+          RearCameraStatusGeometry.Arc[] arcs=RearCameraStatusGeometry.arcs(p);
+          require(arcs.length==4,"Missing arc");
+          for(int i=0;i<arcs.length;i++) {
+            RearCameraStatusGeometry.Arc arc=arcs[i];
+            require(arc.x==p.x && arc.y==(i%2==0?p.upperY:p.lowerY),"Arc uses another device's lens centers");
             require(arc.radius>p.radius+p.margin,"Baseline too close to lens");
-            require(arc.length()>50 && arc.length()<80,"Unexpected arc length");
-            require(arc.textSize>=19,"Unexpectedly small nominal text");
+            require(arc.length()>44 && arc.length()<80,"Unexpected arc length");
+            require(arc.textSize>=18,"Unexpectedly small nominal text");
             require(arc.clockwise==(arc.y==p.upperY),"Bottom text upside down");
+        }
         }
         System.out.println("PASS "+checks+" status checks: weather, units, expiry, Xiaomi codes and arc baselines (actual glyphs checked on Android)");
     }

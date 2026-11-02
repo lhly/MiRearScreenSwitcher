@@ -6,4 +6,5 @@
     <string name="camera_status_title">镜头区基础信息</string>
     <string name="camera_status_summary">避开摄像头投放时显示时间、日期和系统天气；天气过期或不可用时隐藏。</string>
     <string name="camera_status_unavailable">当前机型暂未适配镜头区基础信息。</string>
+    <string name="camera_area_template_unverified">已按本机官方模板适配，尚未真机验证。</string>
 </resources>
