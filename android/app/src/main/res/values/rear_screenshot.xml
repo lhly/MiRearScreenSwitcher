@@ -13,6 +13,10 @@
     <string name="rear_screenshot_white">White</string>
     <string name="rear_screenshot_purple">Purple</string>
     <string name="rear_screenshot_green">Green</string>
+    <string name="rear_screenshot_pink">Pink</string>
+    <string name="rear_screenshot_deep_blue">Dark blue</string>
+    <string name="rear_screenshot_red">Red</string>
+    <string name="rear_screenshot_transparent_red">Transparent red</string>
     <string name="rear_screenshot_keep_original">Also save original</string>
     <string name="rear_screenshot_keep_original_help">Save both the framed image and the original screenshot</string>
     <string name="rear_screenshot_preview">Preview</string>

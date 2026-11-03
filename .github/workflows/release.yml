@@ -67,6 +67,7 @@ jobs:
           python3 tools/test_virtual_cast_request.py
           python3 tools/test_camera_gap_geometry.py
           python3 tools/test_camera_status.py
+          python3 tools/test_rear_shell_catalog.py
           python3 tools/test_cast_notification.py
           python3 tools/test_cast_notification_touch.py
 

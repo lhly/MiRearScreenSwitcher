@@ -13,6 +13,10 @@
     <string name="rear_screenshot_white">白色</string>
     <string name="rear_screenshot_purple">紫色</string>
     <string name="rear_screenshot_green">绿色</string>
+    <string name="rear_screenshot_pink">粉色</string>
+    <string name="rear_screenshot_deep_blue">深蓝色</string>
+    <string name="rear_screenshot_red">红色</string>
+    <string name="rear_screenshot_transparent_red">红色透明外观</string>
     <string name="rear_screenshot_keep_original">同时保存原图</string>
     <string name="rear_screenshot_keep_original_help">带壳截图和原始截图各保存一份</string>
     <string name="rear_screenshot_preview">效果预览</string>

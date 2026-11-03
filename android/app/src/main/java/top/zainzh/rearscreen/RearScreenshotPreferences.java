@@ -15,12 +15,15 @@ public final class RearScreenshotPreferences {
         Options(boolean shell, boolean keepOriginal, String style, String color) {
             this.shell = shell; this.keepOriginal = keepOriginal;
             this.style = "half".equals(style) ? "half" : "full";
-            this.color = "WH".equals(color) || "PU".equals(color) || "LG".equals(color) ? color : "BK";
+            this.color = RearShellCatalog.isKnownColor(color) ? color : "BK";
         }
     }
     public static Options read(Context context) {
+        return readForDevice(context, android.os.Build.DEVICE);
+    }
+    static Options readForDevice(Context context, String device) {
         SharedPreferences p = preferences(context);
         return new Options(p.getBoolean("shell", false), p.getBoolean("keep_original", false),
-                p.getString("style", "full"), p.getString("color", "BK"));
+                p.getString("style", "full"), RearShellCatalog.colorForDevice(device, p.getString("color", "BK")));
     }
 }

@@ -32,6 +32,7 @@ open class RearScreenshotActivity : ComponentActivity() {
     // Overridden only by the debug preview fixture; capture always uses the real Build.DEVICE.
     protected open fun templateDevice(): String = android.os.Build.DEVICE
     private fun supported() = RearShellRepository.resourceId(templateDevice(), "BK") != 0L
+    private fun savedOptions() = RearScreenshotPreferences.readForDevice(this, templateDevice())
     private val worker = Executors.newSingleThreadExecutor()
     private var revision by mutableIntStateOf(0)
     private var preview by mutableStateOf<Bitmap?>(null)
@@ -45,9 +46,9 @@ open class RearScreenshotActivity : ComponentActivity() {
         super.onCreate(state)
         list = state.listState("rear_screenshot_list")
         picker = state?.getString("rear_screenshot_picker")
-        if (RearScreenshotPreferences.read(this).shell && supported()) loadPreview()
+        if (savedOptions().shell && supported()) loadPreview()
         miuixContent {
-            val options = remember(revision) { RearScreenshotPreferences.read(this) }
+            val options = remember(revision) { savedOptions() }
             PageFrame(getString(R.string.rear_screenshot_title), ::finish, "screenshot_back") { pageModifier, headerInset ->
                 LazyColumn(state = list, modifier = pageModifier.testTag("screenshot_scroll"),
                     contentPadding = PaddingValues(20.dp, headerInset + 8.dp, 20.dp, 28.dp),
@@ -114,7 +115,7 @@ open class RearScreenshotActivity : ComponentActivity() {
                 onDismissRequest = { picker = null }) {
                 Column(Modifier.fillMaxWidth().heightIn(max = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .6f })
                     .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val values = if (picker == "color") listOf("BK", "WH", "PU", "LG") else listOf("full", "half")
+                    val values = if (picker == "color") RearShellCatalog.colors(templateDevice()).toList() else listOf("full", "half")
                     values.forEach { value ->
                         val selected = value == if (picker == "color") options.color else options.style
                         TextButton(if (picker == "color") colorLabel(value) else styleLabel(value), {
@@ -132,11 +133,13 @@ open class RearScreenshotActivity : ComponentActivity() {
     private fun styleLabel(style: String) = getString(if (style == "half") R.string.rear_screenshot_half else R.string.rear_screenshot_full)
     private fun colorLabel(color: String) = getString(when (color) {
         "WH" -> R.string.rear_screenshot_white; "PU" -> R.string.rear_screenshot_purple
-        "LG" -> R.string.rear_screenshot_green; else -> R.string.rear_screenshot_black
+        "LG" -> R.string.rear_screenshot_green; "PK" -> R.string.rear_screenshot_pink
+        "DB" -> R.string.rear_screenshot_deep_blue; "RD" -> R.string.rear_screenshot_red
+        "CY" -> R.string.rear_screenshot_transparent_red; else -> R.string.rear_screenshot_black
     })
     private fun loadPreview() {
         val token = ++request
-        val options = RearScreenshotPreferences.read(this)
+        val options = savedOptions()
         loading = true; failed = false; preview = null
         worker.execute {
             val result = runCatching {

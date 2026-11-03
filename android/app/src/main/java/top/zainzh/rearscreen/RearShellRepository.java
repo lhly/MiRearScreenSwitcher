@@ -23,13 +23,7 @@ public final class RearShellRepository {
         return new File(directory, style + "_shell.json").isFile() && new File(directory, style + "_shell.png").isFile();
     }
     static long resourceId(String device, String color) {
-        String[] colors = {"BK", "WH", "PU", "LG"};
-        long[] ids;
-        if ("popsicle".equals(device)) ids = new long[]{25000238622966048L, 25000242116493312L, 25000241377443904L, 25000240442638464L};
-        else if ("pandora".equals(device)) ids = new long[]{24994890488217856L, 25005738663542848L, 25005736619999360L, 25005735444545792L};
-        else return 0;
-        for (int i = 0; i < colors.length; i++) if (colors[i].equals(color)) return ids[i];
-        return 0;
+        return RearShellCatalog.resourceId(device, color);
     }
     public static final class Asset implements AutoCloseable {
         public final Bitmap bitmap;
