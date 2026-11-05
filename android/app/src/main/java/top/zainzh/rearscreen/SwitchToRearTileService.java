@@ -192,7 +192,7 @@ public class SwitchToRearTileService extends TileService {
         updateFeedback("切换中...");
         Log.i(TAG, "request=" + request.id + " stage=ready elapsed_ms="
                 + (SystemClock.elapsedRealtime() - request.startedAt));
-        worker.execute(() -> performSwitch(request, service));
+        worker.execute(() -> RearAnimationManager.runDisplayAction(() -> performSwitch(request, service)));
     }
 
     private void performSwitch(SwitchRequest request, ITaskService service) {
@@ -227,6 +227,7 @@ public class SwitchToRearTileService extends TileService {
                 feedback = "✗ 切屏失败，请查看日志";
                 return;
             }
+            RearAnimationManager.projectionStarted(this);
             lastMovedTask = currentApp;
             Intent keeper = new Intent(this, RearScreenKeeperService.class);
             keeper.putExtra("lastMovedTask", currentApp);

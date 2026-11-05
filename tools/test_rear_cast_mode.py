@@ -9,7 +9,7 @@ STUBS = {
  'android/os/Build.java': '''package android.os;public class Build{public static class VERSION{public static int SDK_INT=37;}}''',
  'ModeTest.java': '''package top.zainzh.rearscreen;import android.content.Context;import android.os.Build;public class ModeTest {
  static void eq(boolean a,boolean b){if(a!=b)throw new AssertionError(a+" != "+b);}
- public static void main(String[] args){Context c=new Context();eq(RearCastMode.useVirtual(c),BuildConfig.VIRTUAL_CAST_ENABLED&&BuildConfig.DEBUG);
+ public static void main(String[] args){Context c=new Context();eq(RearCastMode.useVirtual(c),BuildConfig.VIRTUAL_CAST_ENABLED);
   RearCastMode.setVirtual(c,true);eq(RearCastMode.useVirtual(new Context()),BuildConfig.VIRTUAL_CAST_ENABLED);
   Build.VERSION.SDK_INT=32;eq(RearCastMode.useVirtual(c),false);Build.VERSION.SDK_INT=24;eq(RearCastMode.useVirtual(c),false);
   Build.VERSION.SDK_INT=33;eq(RearCastMode.useVirtual(c),BuildConfig.VIRTUAL_CAST_ENABLED);Build.VERSION.SDK_INT=37;

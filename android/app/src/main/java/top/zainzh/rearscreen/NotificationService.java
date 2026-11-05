@@ -32,6 +32,8 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -45,6 +47,8 @@ import java.util.Set;
  */
 public class NotificationService extends NotificationListenerService {
     private static final String TAG = "NotificationService";
+    // Android 自动分组汇总标记（该标记未公开为 SDK 常量）。
+    private static final int FLAG_AUTOGROUP_SUMMARY = 0x00000400;
     private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
     
     private Set<String> selectedApps = new HashSet<>();
@@ -54,15 +58,18 @@ public class NotificationService extends NotificationListenerService {
     private boolean onlyWhenLocked = false; // 仅倒扣手机时通知（默认关闭）
     private boolean notificationDarkMode = false; // 通知暗夜模式（默认关闭）
     private boolean serviceEnabled = false; // 服务是否启用
+    private volatile long disabledNotificationSessionId = Long.MIN_VALUE;
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService; // 自己的TaskService实例
     private SharedPreferences prefs;
     private final java.util.concurrent.ExecutorService animationWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private PowerManager.WakeLock wakeLock;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     
     // 主屏接近传感器相关
     private SensorManager sensorManager;
     private Sensor mainProximitySensor; // 主屏接近传感器
+    private boolean mainProximityRegistered;
     private boolean isMainScreenCovered = false; // 主屏是否被遮盖
     
     // 静态实例，供外部访问
@@ -130,14 +137,12 @@ public class NotificationService extends NotificationListenerService {
         loadNotificationServiceSettings();
         Log.d(TAG, "🔧 通知服务开关状态加载完成: " + serviceEnabled);
         
-        // 初始化主屏接近传感器
-        initMainProximitySensor();
-        
         // 启动为前台服务，防止被系统杀死
         startForeground(NOTIFICATION_ID, RearScreenKeeperService.createServiceNotification(this));
         Log.d(TAG, "✓ 前台服务已启动");
         
         loadSettings();
+        updateMainProximitySensorRegistration();
     }
     
     private void bindTaskService() {
@@ -161,6 +166,7 @@ public class NotificationService extends NotificationListenerService {
             // 如果开关关闭，服务仍会运行但不处理通知
             if (!serviceEnabled) {
                 Log.d(TAG, "⏸️ 通知服务已禁用，将忽略所有通知");
+                closeNotificationDisplaysForServiceOff();
             } else {
                 Log.d(TAG, "✅ 通知服务已启用，将处理通知");
             }
@@ -168,6 +174,45 @@ public class NotificationService extends NotificationListenerService {
             Log.e(TAG, "✗ 加载通知服务设置失败", e);
             serviceEnabled = false; // 默认关闭
         }
+    }
+
+    static void postNotificationFinishForSession(Context context, Handler handler, long sessionId) {
+        if (sessionId == Long.MIN_VALUE) return;
+        handler.post(() -> context.sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION")
+                .setPackage(context.getPackageName()).putExtra(RearAnimationManager.EXTRA_SESSION_ID, sessionId)));
+    }
+
+    void closeNotificationDisplaysForServiceOff() {
+        long sessionId = RearAnimationManager.captureSessionId(RearAnimationManager.AnimationType.NOTIFICATION);
+        disabledNotificationSessionId = sessionId;
+        postNotificationFinishForSession(this, mainHandler, sessionId);
+        RearCastNotification.clearNotification(RearCastNotification.captureNotificationToken());
+        unregisterMainProximitySensor();
+    }
+
+    static void disableForUser(Context context) {
+        NotificationService active = instance;
+        if (active != null) {
+            active.serviceEnabled = false;
+            active.closeNotificationDisplaysForServiceOff();
+            return;
+        }
+        long sessionId = RearAnimationManager.captureSessionId(RearAnimationManager.AnimationType.NOTIFICATION);
+        postNotificationFinishForSession(context, new Handler(Looper.getMainLooper()), sessionId);
+        RearCastNotification.clearNotification(RearCastNotification.captureNotificationToken());
+    }
+
+    static void enableForUser(Context context) {
+        NotificationService active = instance;
+        if (active == null) return;
+        active.loadNotificationServiceSettings();
+        active.loadSettings();
+    }
+
+    void closeOwnedDisplaysOnDestroy() {
+        if (instance != this) return;
+        closeNotificationDisplaysForServiceOff();
+        instance = null;
     }
     
     private void loadSettings() {
@@ -191,6 +236,7 @@ public class NotificationService extends NotificationListenerService {
             } else {
                 Log.w(TAG, "⚠️ 没有选中任何应用");
             }
+            updateMainProximitySensorRegistration();
         } catch (Exception e) {
             Log.e(TAG, "加载设置失败", e);
             selectedApps = new HashSet<>();
@@ -267,6 +313,11 @@ public class NotificationService extends NotificationListenerService {
                 Log.d(TAG, "⏭️ 应用不在选中列表中: " + packageName);
                 return;
             }
+
+            if ((notification.flags & FLAG_AUTOGROUP_SUMMARY) != 0) {
+                Log.d(TAG, "⏭️ 忽略系统自动分组汇总通知");
+                return;
+            }
             
             Log.d(TAG, "✓ 应用在选中列表中: " + packageName);
             
@@ -304,6 +355,7 @@ public class NotificationService extends NotificationListenerService {
                 android.os.SystemClock.elapsedRealtime(), prefs.getInt("notification_duration", 10),
                 prefs.getBoolean("notification_dark_mode", false))) return;
         RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        disabledNotificationSessionId = Long.MIN_VALUE;
         if (session.previous == RearAnimationManager.AnimationType.CHARGING) {
             RearAnimationManager.markInterruptedChargingAsAlwaysOn(prefs.getBoolean("charging_always_on_enabled", false));
             ChargingService.cancelForNotification();
@@ -315,25 +367,36 @@ public class NotificationService extends NotificationListenerService {
     }
 
     private boolean isCurrent(RearAnimationManager.Session session) {
-        return !taskServiceReleased && RearAnimationManager.isCurrent(session.type, session.id);
+        return !taskServiceReleased && !isDisabledNotificationSession(session)
+                && RearAnimationManager.isCurrent(session.type, session.id);
+    }
+
+    private boolean isDisabledNotificationSession(RearAnimationManager.Session session) {
+        return session.type == RearAnimationManager.AnimationType.NOTIFICATION
+                && disabledNotificationSessionId == session.id;
+    }
+
+    private void endDisabledNotificationBeforeLaunch(RearAnimationManager.Session session, boolean prepared, ITaskService service) {
+        if (!isDisabledNotificationSession(session) || !RearAnimationManager.endAnimation(session.type, session.id)) return;
+        if (prepared && service != null) ChargingService.restoreAfterAnimation(service, session.rearTaskId, session.id);
     }
 
     private void launchNotification(RearAnimationManager.Session session, String packageName, String title, String text, long when) {
         ITaskService service = null;
         boolean prepared = false;
         try {
-            if (!isCurrent(session)) return;
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, false, null); return; }
             if (taskService == null) bindTaskService();
             long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
             while (taskService == null && isCurrent(session) && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(50);
             service = taskService;
-            if (!isCurrent(session)) return;
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, false, service); return; }
             if (service == null) throw new IllegalStateException("TaskService unavailable");
             acquireWakeLock(6000);
             RearScreenKeeperService.pauseMonitoring();
             prepared = true;
             RearAnimationDisplay.prepare(service, session, getPackageName());
-            if (!isCurrent(session)) return;
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, true, service); return; }
             String component = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
             String command = "am start --display " + RearDisplay.requireId() + " -n " + component
                     + " --es packageName " + RearAnimationDisplay.quote(packageName)
@@ -392,6 +455,7 @@ public class NotificationService extends NotificationListenerService {
      */
     private void initMainProximitySensor() {
         try {
+            if (!serviceEnabled || !onlyWhenLocked || mainProximityRegistered) return;
             sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
             
             if (sensorManager != null) {
@@ -437,6 +501,7 @@ public class NotificationService extends NotificationListenerService {
                             SensorManager.SENSOR_DELAY_NORMAL);
                     
                     if (registered) {
+                        mainProximityRegistered = true;
                         Log.d(TAG, "✅ 主屏接近传感器已注册");
                     } else {
                         Log.w(TAG, "⚠ Failed to register main proximity sensor");
@@ -457,13 +522,24 @@ public class NotificationService extends NotificationListenerService {
      */
     private void unregisterMainProximitySensor() {
         try {
+            if (!mainProximityRegistered) {
+                isMainScreenCovered = false;
+                return;
+            }
             if (sensorManager != null && proximitySensorListener != null) {
                 sensorManager.unregisterListener(proximitySensorListener);
                 Log.d(TAG, "✓ 主屏接近传感器已注销");
             }
+            mainProximityRegistered = false;
+            isMainScreenCovered = false;
         } catch (Exception e) {
             Log.e(TAG, "✗ Error unregistering main proximity sensor", e);
         }
+    }
+
+    private void updateMainProximitySensorRegistration() {
+        if (serviceEnabled && onlyWhenLocked) initMainProximitySensor();
+        else unregisterMainProximitySensor();
     }
     
     /**
@@ -506,6 +582,7 @@ public class NotificationService extends NotificationListenerService {
     
     @Override
     public void onDestroy() {
+        closeOwnedDisplaysOnDestroy();
         taskServiceReleased = true;
         animationWorker.shutdown();
         super.onDestroy();
@@ -525,9 +602,6 @@ public class NotificationService extends NotificationListenerService {
         
         // 注销主屏接近传感器
         unregisterMainProximitySensor();
-        
-        // 清除实例
-        instance = null;
         
         stopForeground(true);
     }

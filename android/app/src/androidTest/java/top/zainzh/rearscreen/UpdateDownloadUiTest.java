@@ -49,8 +49,11 @@ public class UpdateDownloadUiTest {
 
     FixtureUpdateActivity launch(boolean slow, boolean permissionAllowed, boolean failFirst, boolean badHash) throws Exception {
         byte[] bytes = Files.readAllBytes(fixture.toPath());
-        UpdatePackage data = new UpdatePackage("v3.4.0", "3.4.0", BuildConfig.VERSION_CODE + 1,
-                ProjectInfo.RELEASES + "/download/v3.4.0/ReMRSS-v3.4.0.apk",
+        String[] installed = BuildConfig.VERSION_NAME.split("-")[0].split("\\.");
+        String versionName = installed[0] + "." + installed[1] + "." + (Integer.parseInt(installed[2]) + 1);
+        String tag = "v" + versionName;
+        UpdatePackage data = new UpdatePackage(tag, versionName, BuildConfig.VERSION_CODE + 1,
+                ProjectInfo.RELEASES + "/download/" + tag + "/ReMRSS-" + tag + ".apk",
                 badHash ? new String(new char[64]).replace('\0', 'f') : UpdateApkVerifier.hex(UpdateApkVerifier.sha256().digest(bytes)),
                 bytes.length, ProjectInfo.RELEASE_PACKAGE);
         Intent intent = new Intent(instrumentation.getTargetContext(), FixtureUpdateActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

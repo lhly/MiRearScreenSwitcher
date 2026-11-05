@@ -49,6 +49,7 @@
     <instrumentation android:name="top.zainzh.rearscreen.LayoutCompatibilityProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.LandscapeCastProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.CompatibilityCleanupInstrumentation" android:targetPackage="${applicationId}" />
+    <instrumentation android:name="top.zainzh.rearscreen.FormalSearchUiInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.RearCameraGapProbeInstrumentation" android:targetPackage="${applicationId}" />
     <instrumentation android:name="top.zainzh.rearscreen.RearWeatherProbeInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

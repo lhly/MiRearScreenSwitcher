@@ -3,6 +3,8 @@ package top.zainzh.rearscreen
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,11 +15,17 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -32,11 +40,17 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 import java.text.Collator
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+private object DensityBulkOperation {
+    var running by mutableStateOf(false)
+}
 
 /** Per-App policy editor; never changes an already running cast. */
 class DensityCompatibilityActivity : ComponentActivity() {
     private data class App(val packageName: String, val label: String)
-    private val worker = Executors.newSingleThreadExecutor()
+    private var bulkError by mutableStateOf(false)
+    private var bulkResult by mutableStateOf<String?>(null)
     private var apps by mutableStateOf(emptyList<App>())
     private var search by mutableStateOf("")
     private var loading by mutableStateOf(true)
@@ -47,7 +61,22 @@ class DensityCompatibilityActivity : ComponentActivity() {
     private var invalid by mutableStateOf(false)
     private lateinit var list: androidx.compose.foundation.lazy.LazyListState
     private lateinit var preferences: SharedPreferences
-    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> runOnUiThread { revision++ } }
+    private val preferenceRefreshQueued = AtomicBoolean(false)
+    private val refreshPreferences = Runnable {
+        preferenceRefreshQueued.set(false)
+        if (!isDestroyed && !isFinishing) revision++
+    }
+    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != null && (key.startsWith("enabled:") || key.startsWith("dpi:"))
+            && preferenceRefreshQueued.compareAndSet(false, true)) mainHandler.post(refreshPreferences)
+    }
+
+    private companion object {
+        val worker = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "density-compat-worker").apply { isDaemon = true }
+        }
+        val mainHandler = Handler(Looper.getMainLooper())
+    }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -84,6 +113,17 @@ class DensityCompatibilityActivity : ComponentActivity() {
                             label = getString(R.string.rear_density_search), singleLine = true,
                             textStyle = MiuixTheme.textStyles.main.copy(color = AppPalette.text()),
                             modifier = Modifier.fillMaxWidth().testTag("density_app_search"))
+                    }
+                    item("bulk_controls") {
+                        val canChangeAll = !loading && !failed && apps.isNotEmpty() && !DensityBulkOperation.running
+                        BulkControlSection(
+                            appCount = apps.size,
+                            enabled = canChangeAll,
+                            running = DensityBulkOperation.running,
+                            error = bulkError,
+                            result = bulkResult,
+                            apply = ::applyBulk,
+                        )
                     }
                     if (loading || failed || visible.isEmpty()) item("status") {
                         Text(getString(if (loading) R.string.rear_density_loading else if (failed) R.string.rear_density_failed else R.string.rear_density_empty),
@@ -149,6 +189,122 @@ class DensityCompatibilityActivity : ComponentActivity() {
             }
         }
     }
+
+    @Composable
+    private fun BulkControlSection(
+        appCount: Int,
+        enabled: Boolean,
+        running: Boolean,
+        error: Boolean,
+        result: String?,
+        apply: (Boolean) -> Unit,
+    ) {
+        val actionColors = ButtonDefaults.textButtonColors().copy(
+            color = Color.Transparent,
+            disabledColor = Color.Transparent,
+            textColor = AppPalette.accent(),
+            disabledTextColor = AppPalette.secondary().copy(alpha = 0.5f),
+        )
+        Column(
+            Modifier.fillMaxWidth().testTag("density_bulk_controls"),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    getString(R.string.rear_density_bulk_summary, appCount),
+                    Modifier.weight(1f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = AppPalette.text(),
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BulkActionText(
+                        getString(R.string.rear_density_bulk_enable),
+                        "density_bulk_enable",
+                        enabled,
+                        actionColors,
+                    ) { apply(true) }
+                    BulkActionText(
+                        getString(R.string.rear_density_bulk_disable),
+                        "density_bulk_disable",
+                        enabled,
+                        actionColors,
+                    ) { apply(false) }
+                }
+            }
+
+            when {
+                running -> Text(
+                    getString(R.string.rear_density_bulk_running, appCount),
+                    fontSize = 12.sp,
+                    color = AppPalette.secondary(),
+                    modifier = Modifier.testTag("density_bulk_status").semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                error -> Text(
+                    getString(R.string.rear_density_bulk_error),
+                    fontSize = 12.sp,
+                    color = AppPalette.accent(),
+                    modifier = Modifier.testTag("density_bulk_status").semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                result != null -> Text(
+                    result,
+                    fontSize = 12.sp,
+                    color = AppPalette.secondary(),
+                    modifier = Modifier.testTag("density_bulk_status").semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun BulkActionText(
+        label: String,
+        tag: String,
+        enabled: Boolean,
+        colors: top.yukonga.miuix.kmp.basic.TextButtonColors,
+        onClick: () -> Unit,
+    ) {
+        TextButton(
+            label,
+            onClick,
+            modifier = Modifier.testTag(tag),
+            enabled = enabled,
+            minWidth = 48.dp,
+            minHeight = 48.dp,
+            colors = colors,
+            insideMargin = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            textStyle = MiuixTheme.textStyles.main.copy(fontSize = 13.sp),
+        )
+    }
+
+    private fun applyBulk(enabled: Boolean) {
+        if (loading || failed || apps.isEmpty() || DensityBulkOperation.running) return
+        val targets = apps.map { it.packageName }.distinct()
+        if (targets.isEmpty()) return
+        DensityBulkOperation.running = true
+        bulkError = false
+        bulkResult = null
+        val application = applicationContext
+        worker.execute {
+            val result = runCatching { RearDensityPreferences.setAllEnabled(application, targets, enabled) }
+            mainHandler.post {
+                DensityBulkOperation.running = false
+                if (isDestroyed || isFinishing) return@post
+                if (result.isSuccess) {
+                    bulkResult = getString(R.string.rear_density_bulk_done, targets.size)
+                } else {
+                    bulkError = true
+                }
+            }
+        }
+    }
     private fun saveDraft(): Boolean {
         val value = draft.trim().toIntOrNull()
         if (value == null || value !in 72..640) { invalid = true; return false }
@@ -182,7 +338,7 @@ class DensityCompatibilityActivity : ComponentActivity() {
     }
     override fun onDestroy() {
         if (::preferences.isInitialized) preferences.unregisterOnSharedPreferenceChangeListener(listener)
-        worker.shutdownNow()
+        mainHandler.removeCallbacks(refreshPreferences)
         super.onDestroy()
     }
 }

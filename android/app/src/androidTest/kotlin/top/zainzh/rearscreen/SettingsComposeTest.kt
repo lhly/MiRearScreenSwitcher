@@ -1,5 +1,11 @@
 package top.zainzh.rearscreen
 
+import java.io.FileOutputStream
+
+import androidx.lifecycle.ViewModelProvider
+
+import android.graphics.Bitmap
+
 import android.app.Instrumentation
 import android.content.Intent
 import androidx.compose.ui.semantics.SemanticsActions
@@ -132,13 +138,13 @@ class SettingsComposeTest {
             }
         }
     }
-    private fun checker(fetch: ReleaseUpdateChecker.Fetcher): SettingsController {
+    private fun checker(automatic: Boolean = false, fetch: ReleaseUpdateChecker.Fetcher): SettingsController {
         val result = AtomicReference<SettingsController>()
         compose.runOnIdle {
             val field = MainActivity::class.java.getDeclaredField("nativeUi").apply { isAccessible = true }
             (field.get(compose.activity) as SettingsController).destroy()
             val state = android.os.Bundle().apply { putInt("native_page", 2) }
-            val ui = SettingsController(compose.activity, state, ReleaseUpdateChecker(fetch))
+            val ui = SettingsController(compose.activity, state, ReleaseUpdateChecker(fetch), automatic)
             field.set(compose.activity, ui); compose.activity.setContentView(ui.view); ui.onResume(); result.set(ui)
         }
         return result.get()
@@ -157,6 +163,193 @@ class SettingsComposeTest {
             compose.onNode(hasText(target, substring = true) and hasAnyAncestor(isDialog())).assertExists()
             compose.onNodeWithText(s(R.string.ui_view_release)).assertExists()
         } finally { release.countDown() }
+    }
+    @Test fun automaticCheckRunsOnceAcrossResumeAndShowsGroupedReleaseNotes() {
+        val attempts = AtomicInteger()
+        val target = "v${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
+        val args = InstrumentationRegistry.getArguments()
+        val longNotes = args.getString("longNotes") == "true"
+        val added = if (longNotes) "新增背屏提醒，" + "详细功能说明。".repeat(28) else "新增背屏提醒"
+        val improved = if (longNotes) "优化更新流程，" + "兼容性与稳定性优化。".repeat(20) else "优化更新流程"
+        val fixed = if (longNotes) "修复状态恢复，" + "覆盖异常退出和页面重建。".repeat(16) else "修复状态恢复"
+        val body = ReleaseUpdateCheckerTest.withNotes(ReleaseUpdateCheckerTest.release(target),
+            "{\"added\":[\"$added\"],\"improved\":[\"$improved\"],\"fixed\":[\"$fixed\"]}")
+        val ui = checker(automatic = true) { attempts.incrementAndGet(); ReleaseUpdateChecker.Response(200, body) }
+        try {
+            compose.runOnIdle { ui.onResume(); ui.onResume() }
+            compose.waitUntil(5000) {
+                compose.onAllNodesWithText("新增背屏提醒", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(1, attempts.get())
+            compose.onNodeWithText(s(R.string.ui_release_notes_added)).assertExists()
+            compose.onNodeWithText(s(R.string.ui_release_notes_improved)).assertExists()
+            compose.onNodeWithText(s(R.string.ui_release_notes_fixed)).assertExists()
+            compose.onNodeWithText("修复状态恢复", substring = true).assertExists()
+            if (longNotes) compose.onNodeWithText(s(R.string.ui_download_update)).performScrollTo()
+            compose.waitForIdle()
+            Thread.sleep(600)
+            val screenshot = instrumentation.uiAutomation.takeScreenshot()
+            assertNotNull(screenshot)
+            val filename = args.getString("screenshotName", "update-notes-zh-normal.png")
+            val file = java.io.File(instrumentation.targetContext.cacheDir, filename)
+            FileOutputStream(file).use { screenshot!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally { compose.runOnIdle { ui.destroy() } }
+    }
+    @Test fun automaticCheckIsRetainedAcrossActivityRecreation() {
+        val release = CountDownLatch(1)
+        val attempts = AtomicInteger()
+        val target = "v${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
+        val ui = checker(automatic = true) {
+            attempts.incrementAndGet()
+            release.await()
+            ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release(target))
+        }
+        try {
+            compose.waitUntil(5000) { attempts.get() == 1 }
+            compose.activityRule.scenario.recreate()
+            compose.waitForIdle()
+            compose.runOnIdle { (compose.activity as MainActivity).checkForUpdates() }
+            release.countDown()
+            compose.waitUntil(5000) {
+                compose.onAllNodesWithText(compose.activity.getString(R.string.ui_download_update)).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals("recreation/manual takeover must reuse the automatic request", 1, attempts.get())
+            compose.onNode(hasText(target, substring = true) and hasAnyAncestor(isDialog())).assertExists()
+        } finally { release.countDown() }
+    }
+    @Test fun automaticNetworkFailureStaysSilent() {
+        val attempts = AtomicInteger()
+        val ui = checker(automatic = true) { attempts.incrementAndGet(); ReleaseUpdateChecker.Response(503, "") }
+        try {
+            compose.waitUntil(5000) { attempts.get() == 1 && !ui.isCheckingUpdates() }
+            compose.onAllNodes(isDialog()).assertCountEquals(0)
+            assertEquals(1, attempts.get())
+        } finally { compose.runOnIdle { ui.destroy() } }
+    }
+    @Test fun lateAutomaticOfferDoesNotReplaceExistingDialogResult() {
+        val release = CountDownLatch(1)
+        val attempts = AtomicInteger()
+        val major = BuildConfig.VERSION_NAME.substringBefore('.').toInt()
+        val existingTag = "v${major + 1}.1.0"
+        val incomingTag = "v${major + 2}.0.0"
+        val ui = checker(automatic = true) {
+            attempts.incrementAndGet()
+            release.await()
+            ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release(incomingTag))
+        }
+        val session = ViewModelProvider(compose.activity, ViewModelProvider.NewInstanceFactory())
+            .get(UpdateDialogController.Session::class.java)
+        try {
+            compose.waitUntil(5000) { attempts.get() == 1 }
+            val existing = ReleaseUpdateChecker.evaluate(
+                ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release(existingTag)),
+                BuildConfig.SOURCE_TAG, BuildConfig.VERSION_CODE)
+            compose.runOnIdle {
+                session.result = existing
+                session.visible = true
+                session.dialogAutomatic = false
+            }
+            release.countDown()
+            compose.waitUntil(5000) { !ui.isCheckingUpdates() }
+            assertSame("an automatic completion must not overwrite the active dialog's bound release",
+                existing, session.result)
+            assertNull(session.pendingAutomaticResult)
+            assertTrue(session.automaticOfferConsumed)
+        } finally { release.countDown(); compose.runOnIdle { ui.destroy() } }
+    }
+    @Test fun processRestoreRetriesInterruptedCheckAndRestoresPendingNotesWithoutReplacingLegacyDialog() {
+        val session = ViewModelProvider(compose.activity, ViewModelProvider.NewInstanceFactory())
+            .get(UpdateDialogController.Session::class.java)
+        val attempts = AtomicInteger()
+        val target = "v${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
+        val manifest = ReleaseUpdateCheckerTest.withNotes(ReleaseUpdateCheckerTest.release(target),
+            "{\"added\":[\"进程恢复后保留说明\"],\"improved\":[],\"fixed\":[]}")
+        lateinit var first: UpdateDialogController
+        lateinit var restored: UpdateDialogController
+        fun resetSession() {
+            session.checker?.close()
+            session.clearDialog()
+            session.checker = null
+            session.listener = null
+            session.initialized = false
+            session.checking = false
+            session.automaticCheckClaimed = false
+            session.currentCheckAutomatic = false
+            session.manualRequested = false
+            session.pendingAutomaticOffer = false
+            session.pendingAutomaticResult = null
+            session.pendingManualResult = null
+            session.automaticOfferConsumed = false
+        }
+        fun controller(saved: android.os.Bundle, fetcher: ReleaseUpdateChecker.Fetcher,
+                       result: AtomicReference<UpdateDialogController?>): UpdateDialogController {
+            val value = UpdateDialogController(compose.activity, saved, ReleaseUpdateChecker(fetcher),
+                true, false, UpdateDialogController.CheckListener { _, _ -> },
+                java.util.function.BooleanSupplier { true }, Runnable {})
+            result.set(value)
+            return value
+        }
+        val controllerRef = AtomicReference<UpdateDialogController?>()
+        try {
+            val interrupted = android.os.Bundle().apply {
+                putBoolean("update_session_checking", true)
+                putBoolean("update_session_auto_claimed", true)
+                putBoolean("update_session_current_auto", true)
+            }
+            compose.runOnIdle {
+                resetSession()
+                first = controller(interrupted, ReleaseUpdateChecker.Fetcher {
+                    attempts.incrementAndGet()
+                    ReleaseUpdateChecker.Response(200, manifest)
+                }, controllerRef)
+                first.onResume(false)
+                first.startAutomaticCheck()
+            }
+            compose.waitUntil(5000) { attempts.get() == 1 && !first.isChecking() }
+            assertTrue(session.pendingAutomaticOffer)
+            assertEquals("进程恢复后保留说明", session.pendingAutomaticResult?.notes?.getAdded()?.single())
+
+            val snapshot = android.os.Bundle()
+            compose.runOnIdle { first.saveState(snapshot); first.destroy(true) }
+            compose.runOnIdle {
+                resetSession()
+                restored = controller(snapshot, ReleaseUpdateChecker.Fetcher {
+                    attempts.incrementAndGet()
+                    ReleaseUpdateChecker.Response(500, "unexpected repeat")
+                }, controllerRef)
+                restored.onResume(false)
+            }
+            assertEquals("a saved pending offer must not issue a second check", 1, attempts.get())
+            assertTrue(session.visible)
+            assertEquals("进程恢复后保留说明", session.result?.notes?.getAdded()?.single())
+
+            val oldOffer = ReleaseUpdateChecker.evaluate(
+                ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release("v${target.drop(1).split('.')[0]}.1.0")),
+                BuildConfig.SOURCE_TAG, BuildConfig.VERSION_CODE)
+            val legacyBundle = android.os.Bundle().apply {
+                putBoolean("update_dialog_visible", true)
+                putString("update_dialog_manifest", oldOffer.toManifestJson())
+                // Intentionally omit the newer automatic-check claim field.
+            }
+            compose.runOnIdle {
+                restored.destroy(true)
+                resetSession()
+                first = controller(legacyBundle, ReleaseUpdateChecker.Fetcher {
+                    attempts.incrementAndGet()
+                    ReleaseUpdateChecker.Response(200, manifest)
+                }, controllerRef)
+                first.onResume(false)
+                first.startAutomaticCheck()
+            }
+            assertEquals("a restored visible legacy offer must suppress an automatic check", 1, attempts.get())
+            assertTrue(session.visible)
+            assertEquals(oldOffer.tag, session.result?.tag)
+        } finally {
+            compose.runOnIdle {
+                first.destroy(false)
+                resetSession()
+            }
+        }
     }
     private fun retryCheck(first: ReleaseUpdateChecker.Response, expected: String) {
         val attempts = AtomicInteger()

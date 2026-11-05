@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ci_release import PACKAGE_ID, release_metadata
+from release_notes import validate_release_notes
 
 ROOT = Path(__file__).resolve().parents[1]
 BRANCH = 'main'  # Must match ProjectInfo.VERSION_MANIFEST in the Android client.
@@ -64,6 +65,12 @@ def validate_manifest(manifest, require_apk=False):
     if type(code) is not int or not 0 < code <= 2100000000 or tag != 'v' + name:
         raise ValueError('Invalid manifest versionCode or tag.')
     apk = manifest.get('apk')
+    if 'releaseNotes' in manifest:
+        # Optional display metadata must never invalidate an otherwise usable APK update.
+        try:
+            validate_release_notes(manifest['releaseNotes'])
+        except (TypeError, ValueError):
+            pass
     if apk is not None or require_apk:
         if not isinstance(apk, dict) or not isinstance(apk.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', apk['sha256']):
             raise ValueError('Invalid APK SHA256 metadata.')
@@ -82,6 +89,10 @@ def published_manifest(metadata, tag, release, repository, manifest):
     validate_manifest(manifest, require_apk=True)
     if any((manifest['versionName'] != metadata['version'], manifest['versionCode'] != int(metadata['build_number']), manifest['tag'] != tag)):
         raise ValueError('Verified artifact metadata does not match the release tag.')
+    try:
+        notes = validate_release_notes(manifest.get('releaseNotes'))
+    except (TypeError, ValueError):
+        raise ValueError('Verified artifact is missing valid categorized release notes.') from None
     if metadata['prerelease'] != 'false' or not isinstance(release, dict) or any((
             release.get('tag_name') != tag,
             release.get('draft') is not False,
@@ -94,6 +105,9 @@ def published_manifest(metadata, tag, release, repository, manifest):
                 and type(asset.get('size')) is int and asset['size'] > 0}
     if not {metadata['apk_name'], 'SHA256SUMS', 'LICENSE', 'NOTICE'} <= uploaded:
         raise ValueError('Published release is missing the verified APK or required assets.')
+    from release_notes import format_release_notes
+    if release.get('body') != format_release_notes(notes):
+        raise ValueError('Published release body differs from the verified feature notes.')
     assets = [asset for asset in release['assets'] if asset.get('name') == metadata['apk_name']]
     expected_url = f'https://github.com/{repository}/releases/download/{tag}/{metadata["apk_name"]}'
     apk = manifest['apk']
@@ -115,6 +129,15 @@ def should_update(current, candidate):
             return True  # Upgrade an older four-field feed after verifying its published APK.
         if current['apk'] != candidate['apk']:
             raise ValueError('An existing release tag cannot change its APK metadata.')
+        current_notes = current.get('releaseNotes')
+        if current_notes is None:
+            return 'releaseNotes' in candidate  # Controlled notes-only completion; APK identity stays byte-for-byte equal.
+        try:
+            normalized_current = validate_release_notes(current_notes)
+        except (TypeError, ValueError):
+            raise ValueError('Existing release notes are malformed; refusing same-tag metadata change.') from None
+        if normalized_current != candidate.get('releaseNotes'):
+            raise ValueError('An existing release tag cannot change its release notes.')
         return False  # Idempotent reruns do not create another commit.
     if candidate['versionCode'] <= current['versionCode']:
         raise ValueError('New stable releases must increase versionCode.')

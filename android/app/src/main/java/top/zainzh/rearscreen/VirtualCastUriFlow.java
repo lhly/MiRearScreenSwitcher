@@ -18,6 +18,8 @@ final class VirtualCastUriFlow {
     private static final int HOST_START_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
+    static boolean isPhysicalCastActive() { return RearScreenKeeperService.isPhysicalCastRunning(); }
+
     static boolean handle(Context context, ITaskService remote, Uri uri) {
         if (!BuildConfig.VIRTUAL_CAST_ENABLED || !("switch".equals(uri.getHost()) || "return".equals(uri.getHost()))) return false;
         try {
@@ -28,7 +30,7 @@ final class VirtualCastUriFlow {
                 toast(context, "虚拟背屏已在投放，请先停止当前投放");
                 return true;
             }
-            if (RearScreenKeeperService.isRunning()) {
+            if (isPhysicalCastActive()) {
                 toast(context, "请先停止当前投放，再开始新的投放");
                 return true;
             }
@@ -42,10 +44,9 @@ final class VirtualCastUriFlow {
             int density = VirtualCastRequest.density(uri.getQueryParameter("dpi"));
             finishOldHost(remote, before);
             String rear = remote.getForegroundAppOnDisplay(RearDisplay.requireId());
-            if (rear != null && !rear.startsWith("com.xiaomi.subscreencenter:")
-                    && !rear.startsWith(context.getPackageName() + ":"))
+            if (rear != null && !VirtualCastRequest.isReplaceableRearOwner(rear, context.getPackageName()))
                 throw new IllegalStateException("背屏已有其他应用，请先停止投放");
-            if (RearScreenKeeperService.isRunning()) throw new IllegalStateException("请先停止上一轮投放");
+            if (isPhysicalCastActive()) throw new IllegalStateException("请先停止上一轮投放");
             String targetPackage, launchComponent = null;
             int task;
             if (VirtualCastRequest.yes(uri.getQueryParameter("current"))) {
@@ -82,6 +83,7 @@ final class VirtualCastUriFlow {
                 JSONObject state = new JSONObject(remote.getRearVirtualCastStatus());
                 if (targetPackage.equals(state.optString("package")) && !state.optString("id").equals(before.optString("id"))) {
                     if ("running".equals(state.optString("state"))) {
+                        RearAnimationManager.projectionStarted(context);
                         Log.i(TAG, "switch_running id=" + state.optString("id") + " task=" + state.optInt("task") + " display=" + state.optInt("display"));
                         toast(context, "已投放到虚拟背屏");
                         return true;

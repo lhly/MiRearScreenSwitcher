@@ -13,11 +13,12 @@ import unittest
 from unittest.mock import patch
 
 from ci_release import prepare_signing, properties_value, release_metadata, write_private, verify_apk
+from release_notes import format_release_notes
 
 
 class ReleaseChecks(unittest.TestCase):
     def check_legal_assets(self, license_content=b'complete GPL text', notice_content=b'upstream and maintainer credits', signature=None,
-                           package_name='top.zainzh.rearscreen'):
+                           package_name='top.zainzh.rearscreen', notes_tag='v3.3.2', notes_markdown=None):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             (project / 'LICENSE').write_bytes(b'complete GPL text')
@@ -34,11 +35,16 @@ class ReleaseChecks(unittest.TestCase):
                           else f"package: name='{package_name}' versionCode='2014' versionName='3.3.2'")
                 return subprocess.CompletedProcess(command, 0, stdout=output)
             dist = project / 'dist'
+            notes = {'added': ['Test feature'], 'improved': [], 'fixed': []}
+            dist.mkdir()
+            (dist / 'release-notes.json').write_text(json.dumps({'tag': notes_tag, 'releaseNotes': notes}), encoding='utf-8')
+            (dist / 'release-notes.md').write_text(format_release_notes(notes) if notes_markdown is None else notes_markdown, encoding='utf-8')
             with patch.dict(os.environ, {'RELEASE_CERT_SHA256': '1' * 64, 'ANDROID_HOME': directory}), patch('ci_release.subprocess.run', side_effect=inspect):
                 try:
                     verify_apk(apk, metadata, dist, project)
                 except ValueError:
-                    self.assertFalse(dist.exists(), 'Reject incomplete legal assets before staging any release.')
+                    self.assertFalse((dist / metadata['apk_name']).exists(), 'Reject before staging any APK.')
+                    self.assertFalse((dist / 'version-artifact.json').exists(), 'Reject before writing publishable metadata.')
                     raise
             self.assertEqual((dist / 'LICENSE').read_bytes(), (project / 'LICENSE').read_bytes())
             self.assertEqual((dist / 'NOTICE').read_bytes(), (project / 'NOTICE').read_bytes())
@@ -46,6 +52,7 @@ class ReleaseChecks(unittest.TestCase):
             self.assertEqual(manifest['apk']['sha256'], hashlib.sha256((dist / metadata['apk_name']).read_bytes()).hexdigest())
             self.assertEqual(manifest['apk']['size'], (dist / metadata['apk_name']).stat().st_size)
             self.assertEqual(manifest['apk']['packageName'], 'top.zainzh.rearscreen')
+            self.assertEqual(notes, manifest['releaseNotes'])
             lines = (dist / 'SHA256SUMS').read_text().splitlines()
             self.assertEqual(len(lines), 3)
             for line in lines:
@@ -81,6 +88,12 @@ class ReleaseChecks(unittest.TestCase):
     def test_outdated_apk_credits_prevent_release(self):
         with self.assertRaisesRegex(ValueError, 'complete current NOTICE'):
             self.check_legal_assets(notice_content=b'old credits')
+
+    def test_notes_must_match_exact_tag_and_structured_body(self):
+        with self.assertRaisesRegex(ValueError, 'do not match'):
+            self.check_legal_assets(notes_tag='v3.3.1')
+        with self.assertRaisesRegex(ValueError, 'differs from the structured'):
+            self.check_legal_assets(notes_markdown='## 新增\n\n- Different text\n')
 
     def test_build_tools_37_signature_format(self):
         self.check_legal_assets(signature='V2 Signer: certificate SHA-256 digest: ' + '1' * 64 + '\nV3.0 Signer: certificate SHA-256 digest: ' + '1' * 64)

@@ -46,6 +46,9 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         public void show(RearCastNotification.Message message) {
             main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.offer(message); });
         }
+        public void clearNotification(long token) {
+            main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismiss(token); });
+        }
         public void clearCharging() {
             main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismissCharging(); });
         }

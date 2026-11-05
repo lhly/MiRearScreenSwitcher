@@ -26,8 +26,22 @@ final class ReleaseUpdateChecker implements AutoCloseable {
         final Status status;
         final String tag;
         final UpdatePackage apk;
-        Result(Status status, String tag) { this(status, tag, null); }
-        Result(Status status, String tag, UpdatePackage apk) { this.status = status; this.tag = tag; this.apk = apk; }
+        final ReleaseNotes notes;
+        Result(Status status, String tag) { this(status, tag, null, ReleaseNotes.EMPTY); }
+        Result(Status status, String tag, UpdatePackage apk) { this(status, tag, apk, ReleaseNotes.EMPTY); }
+        Result(Status status, String tag, UpdatePackage apk, ReleaseNotes notes) {
+            this.status = status; this.tag = tag; this.apk = apk;
+            this.notes = notes == null ? ReleaseNotes.EMPTY : notes;
+        }
+        /** Complete untrusted network metadata for lifecycle restoration; APK fields are revalidated on evaluate. */
+        String toManifestJson() {
+            if (apk == null) return "";
+            try {
+                JSONObject manifest = new JSONObject(apk.toJson());
+                manifest.put("releaseNotes", notes.toJson());
+                return manifest.toString();
+            } catch (JSONException impossible) { throw new IllegalStateException(impossible); }
+        }
         String releaseUrl() {
             // Construct the trusted repository URL; never launch a manifest-supplied URL.
             return tag.isEmpty() ? ProjectInfo.RELEASES : ProjectInfo.RELEASES + "/tag/" + tag;
@@ -105,9 +119,10 @@ final class ReleaseUpdateChecker implements AutoCloseable {
             int order = latest.compareTo(installed);
             int remoteCode = (Integer) code;
             UpdatePackage apk = UpdatePackage.parse(manifest, tag, remoteCode);
+            ReleaseNotes notes = ReleaseNotes.parseOptional(manifest);
             if (order < 0 || remoteCode < installedCode) return new Result(Status.LOCAL_NEWER, tag);
             if (order > 0 && remoteCode == installedCode) return new Result(Status.INVALID_RESPONSE, "");
-            return new Result(remoteCode > installedCode ? Status.AVAILABLE : Status.CURRENT, tag, apk);
+            return new Result(remoteCode > installedCode ? Status.AVAILABLE : Status.CURRENT, tag, apk, notes);
         } catch (JSONException failure) {
             return new Result(Status.INVALID_RESPONSE, "");
         }

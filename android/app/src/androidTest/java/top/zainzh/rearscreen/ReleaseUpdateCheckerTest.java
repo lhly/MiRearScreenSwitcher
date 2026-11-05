@@ -23,6 +23,20 @@ public class ReleaseUpdateCheckerTest {
                 + "0000000000000000000000000000000000000000000000000000000000000000"
                 + "\",\"packageName\":\"" + ProjectInfo.RELEASE_PACKAGE + "\"},\"html_url\":\"https://example.invalid\"}";
     }
+    static String withNotes(String body, String notes) {
+        return body.substring(0, body.length() - 1) + ",\"releaseNotes\":" + notes + "}";
+    }
+    static String repeated(String value, int count) {
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < count; index++) result.append(value);
+        return result.toString();
+    }
+    static String noteArray(int count, int length) {
+        String[] items = new String[count];
+        String item = "\"" + repeated("x", length) + "\"";
+        java.util.Arrays.fill(items, item);
+        return "[" + String.join(",", items) + "]";
+    }
     private ReleaseUpdateChecker.Result result(int code, String body, String current) {
         return ReleaseUpdateChecker.evaluate(new ReleaseUpdateChecker.Response(code, body), current, BuildConfig.VERSION_CODE);
     }
@@ -58,6 +72,49 @@ public class ReleaseUpdateCheckerTest {
                 "{\"tag_name\":\"v3.4.0\",\"draft\":false,\"prerelease\":false}"}) {
             assertEquals(body, ReleaseUpdateChecker.Status.INVALID_RESPONSE, result(200, body, "v3.3.2").status);
         }
+    }
+
+    @Test public void optionalReleaseNotesAreBoundedAndMalformedNotesDoNotInvalidateApk() {
+        String notes = "{\"added\":[\"Message capsule\"],\"improved\":[\"Retains the app while dismissing\"],\"fixed\":[]}";
+        ReleaseUpdateChecker.Result parsed = result(200, withNotes(release("v3.4.0"), notes), "v3.3.2");
+        assertEquals(ReleaseUpdateChecker.Status.AVAILABLE, parsed.status);
+        assertArrayEquals(new String[]{"Message capsule"}, parsed.notes.getAdded());
+        assertArrayEquals(new String[]{"Retains the app while dismissing"}, parsed.notes.getImproved());
+        assertArrayEquals(new String[0], parsed.notes.getFixed());
+        assertFalse(parsed.notes.isEmpty());
+
+        ReleaseUpdateChecker.Result oldManifest = result(200, release("v3.4.0"), "v3.3.2");
+        assertEquals(ReleaseUpdateChecker.Status.AVAILABLE, oldManifest.status);
+        assertTrue(oldManifest.notes.isEmpty());
+
+        String[] malformedNotes = {
+                "\"not an object\"",
+                "{\"added\":\"wrong type\",\"improved\":[],\"fixed\":[]}",
+                "{\"added\":[7],\"improved\":[],\"fixed\":[]}",
+                "{\"added\":" + noteArray(13, 4) + ",\"improved\":[],\"fixed\":[]}",
+                "{\"added\":" + noteArray(1, 501) + ",\"improved\":[],\"fixed\":[]}",
+                "{\"added\":" + noteArray(12, 500) + ",\"improved\":" + noteArray(12, 500)
+                        + ",\"fixed\":" + noteArray(12, 500) + "}"
+        };
+        for (String invalid : malformedNotes) {
+            ReleaseUpdateChecker.Result compatible = result(200, withNotes(release("v3.4.0"), invalid), "v3.3.2");
+            assertEquals(invalid, ReleaseUpdateChecker.Status.AVAILABLE, compatible.status);
+            assertNotNull(compatible.apk);
+            assertTrue(invalid, compatible.notes.isEmpty());
+        }
+    }
+
+    @Test public void manifestSnapshotRoundTripsApkIdentityAndFeatureNotes() {
+        String notes = "{\"added\":[\"Capsule notice\"],\"improved\":[],\"fixed\":[\"Avoid duplicate close\"]}";
+        ReleaseUpdateChecker.Result original = result(200, withNotes(release("v3.4.0"), notes), "v3.3.2");
+        ReleaseUpdateChecker.Result restored = result(200, original.toManifestJson(), "v3.3.2");
+        assertEquals(ReleaseUpdateChecker.Status.AVAILABLE, restored.status);
+        assertEquals(original.apk.tag, restored.apk.tag);
+        assertEquals(original.apk.url, restored.apk.url);
+        assertEquals(original.apk.sha256, restored.apk.sha256);
+        assertEquals(original.apk.size, restored.apk.size);
+        assertArrayEquals(original.notes.getAdded(), restored.notes.getAdded());
+        assertArrayEquals(original.notes.getFixed(), restored.notes.getFixed());
     }
 
     @Test public void androidVersionCodePreventsIncompatibleDowngrades() {

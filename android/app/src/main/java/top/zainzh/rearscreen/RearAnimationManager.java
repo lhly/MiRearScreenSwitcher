@@ -61,14 +61,36 @@ public class RearAnimationManager {
     }
 
     static synchronized long getGeneration() { return currentSession.id; }
+    static synchronized long captureSessionId(AnimationType type) {
+        return currentAnimation == type ? currentSession.id : Long.MIN_VALUE;
+    }
     static synchronized boolean isCurrent(AnimationType type, long id) {
         return currentAnimation == type && currentSession.id == id;
     }
     static synchronized boolean isIdle(long id) {
         return currentAnimation == AnimationType.NONE && currentSession.id == id;
     }
+    /** Explicit casting replaces the transient animation owner, including queued restoration. */
+    static synchronized void projectionStarted(android.content.Context context) {
+        Session previous = currentSession;
+        currentAnimation = AnimationType.NONE;
+        currentSession = new Session(++generation, AnimationType.NONE, AnimationType.NONE, -1);
+        interruptedChargingWasAlwaysOn = false;
+        String action;
+        String extra;
+        if (previous.type == AnimationType.NOTIFICATION) {
+            action = BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION";
+            extra = EXTRA_SESSION_ID;
+        } else if (previous.type == AnimationType.CHARGING) {
+            action = BuildConfig.APPLICATION_ID + ".FINISH_CHARGING_ANIMATION";
+            extra = RearScreenChargingActivity.EXTRA_REQUEST_ID;
+        } else return;
+        // Never send a wildcard close: a replacement Activity may already accept a newer request.
+        context.sendBroadcast(new android.content.Intent(action).setPackage(context.getPackageName())
+                .putExtra(extra, previous.id));
+    }
 
-    // 只串行化充电/通知改变前台的操作；主线程领取新会话不等待Binder调用。
+    // 串行化动画恢复与显式投放的前台变更；主线程领取新会话不等待Binder调用。
     static void runDisplayAction(Runnable action) {
         synchronized (DISPLAY_ACTION_LOCK) { action.run(); }
     }

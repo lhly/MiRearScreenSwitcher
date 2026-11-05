@@ -18,21 +18,43 @@ final class RearSystemBridge {
         if (binder == null) throw new IllegalStateException("Missing system service: " + name);
         return Class.forName(stub).getMethod("asInterface", IBinder.class).invoke(null, binder);
     }
-    static int rootTask(String stacks, int task) {
-        int root = -1;
+    static final class TaskLocation {
+        final int rootTask, displayId;
+        TaskLocation(int rootTask, int displayId) { this.rootTask = rootTask; this.displayId = displayId; }
+    }
+    static TaskLocation taskLocation(String stacks, int task) {
+        int root = -1, display = -1;
         for (String line : stacks.split("\n")) {
             Matcher header = Pattern.compile("^\\s*(?:RootTask|Stack)\\s+id=(\\d+)\\b").matcher(line);
-            if (header.find()) root = Integer.parseInt(header.group(1));
-            if (root >= 0 && Pattern.compile("\\btaskId=" + task + ":").matcher(line).find()) return root;
+            if (header.find()) {
+                root = Integer.parseInt(header.group(1));
+                Matcher id = Pattern.compile("\\bdisplayId=(\\d+)\\b").matcher(line);
+                display = id.find() ? Integer.parseInt(id.group(1)) : -1;
+            }
+            if (root >= 0 && Pattern.compile("\\btaskId=" + task + ":").matcher(line).find())
+                return new TaskLocation(root, display);
         }
-        return -1;
+        return null;
+    }
+    static int rootTask(String stacks, int task) {
+        TaskLocation location = taskLocation(stacks, task);
+        return location == null ? -1 : location.rootTask;
     }
     static boolean moveTask(int task, int display) throws Exception {
         if (task < 0 || display < 0) throw new IllegalArgumentException("Invalid task/display");
         DisplayRotationController.Result stacks = DisplayRotationController.runCommand("am", "stack", "list");
         if (stacks.exitCode != 0) throw new IllegalStateException("Cannot read root tasks: " + stacks.output);
-        int root = rootTask(stacks.output, task);
-        if (root < 0) throw new IllegalStateException("Root task not found for task " + task);
+        TaskLocation location = taskLocation(stacks.output, task);
+        if (location == null) throw new IllegalStateException("Root task not found for task " + task);
+        int root = location.rootTask;
+        if (location.displayId == display) {
+            // Moving a root to its current display is rejected; restore its foreground instead.
+            DisplayRotationController.Result focused = DisplayRotationController.runCommand("am", "task", "focus", Integer.toString(task));
+            boolean ok = commandSucceeded(focused);
+            CompatibilityDiagnostics.record("task_move", "method=am_task_focus task=" + task + " display=" + display
+                    + " success=" + ok + " response=" + focused.output);
+            return ok;
+        }
         try {
             Object manager = service("activity_task", "android.app.IActivityTaskManager$Stub");
             manager.getClass().getMethod("moveRootTaskToDisplay", int.class, int.class).invoke(manager, root, display);

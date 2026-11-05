@@ -91,7 +91,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     public static void refreshInputProxyPreference() {
         RearScreenKeeperService s = instance;
         if (s != null && s.handler != null) s.handler.post(() -> {
-            s.handler.removeCallbacks(s.wakeupRearScreenRunnable);
+            s.stopRearScreenWakeup();
             s.startInputProxy();
             s.startRearScreenWakeup();
         });
@@ -121,6 +121,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     // V2.4: 持续唤醒背屏（防止自动熄屏）
     private static final long WAKEUP_INTERVAL_MS = 100; // 持续发送，每0.1秒唤醒一次（对熄屏几乎无感）
     private boolean keepScreenOnEnabled = true; // 默认启用背屏常亮
+    private boolean wakeupLoopRunning;
 
     public static void pauseMonitoring() {
         if (instance != null) {
@@ -170,6 +171,12 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String requestedSession = intent == null ? null : intent.getStringExtra(VirtualCastUriFlow.EXTRA_SESSION);
+        boolean startsProjection = intent != null && VirtualCastRequest.startsProjection(
+                intent.getAction(), intent.getStringExtra("lastMovedTask"), requestedSession);
+        if (startsProjection) {
+            // A new cast must not inherit an old animation's pause.
+            monitoringPaused = false;
+        }
         if (BuildConfig.VIRTUAL_CAST_ENABLED && (virtualSessionId != null || requestedSession != null)) {
             if ("ACTION_RETURN_TO_MAIN".equals(intent == null ? null : intent.getAction())) {
                 // A cold stale PendingIntent must never enter legacy global launcher restoration.
@@ -185,7 +192,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 monitoredTaskInfo = intent.getStringExtra("lastMovedTask");
             }
             keepScreenOnEnabled = false;
-            handler.removeCallbacks(wakeupRearScreenRunnable);
+            stopRearScreenWakeup();
             startForeground(NOTIFICATION_ID, buildNotification());
             bindTaskService();
             if (sensorManager == null) initProximitySensor();
@@ -262,12 +269,12 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
             // 如果关闭了常亮，停止发送WAKEUP
             if (!enabled && handler != null) {
-                handler.removeCallbacks(wakeupRearScreenRunnable);
+                stopRearScreenWakeup();
                 Log.d(TAG, "⏸️ 背屏WAKEUP发送已停止");
             }
             // 如果打开了常亮，启动发送WAKEUP
             else if (enabled && handler != null) {
-                handler.removeCallbacks(wakeupRearScreenRunnable);
+                stopRearScreenWakeup();
                 startRearScreenWakeup();
             }
 
@@ -409,8 +416,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private final Runnable wakeupRearScreenRunnable = new Runnable() {
         @Override
         public void run() {
-            if (virtualSessionId != null) return;
-            if (RearInputProxySession.enabled(RearScreenKeeperService.this)) return;
+            if (virtualSessionId != null) { wakeupLoopRunning = false; return; }
+            if (RearInputProxySession.enabled(RearScreenKeeperService.this)) {
+                wakeupLoopRunning = false;
+                return;
+            }
             // 检查开关状态
             if (keepScreenOnEnabled && taskService != null) {
                 try {
@@ -425,6 +435,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             // 持续发送，每0.5秒执行一次
             if (keepScreenOnEnabled) {
                 handler.postDelayed(this, WAKEUP_INTERVAL_MS);
+            } else {
+                wakeupLoopRunning = false;
             }
         }
     };
@@ -432,11 +444,17 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private void startRearScreenWakeup() {
         if (virtualSessionId != null) return;
         if (RearInputProxySession.enabled(this)) return;
-        if (handler != null && keepScreenOnEnabled) {
+        if (handler != null && keepScreenOnEnabled && !wakeupLoopRunning) {
             // 立即执行第一次唤醒，然后开始持续发送
+            wakeupLoopRunning = true;
             handler.post(wakeupRearScreenRunnable);
             Log.d(TAG, "⏰ 背屏持续唤醒已启动 (0.5秒间隔)");
         }
+    }
+
+    private void stopRearScreenWakeup() {
+        if (handler != null) handler.removeCallbacks(wakeupRearScreenRunnable);
+        wakeupLoopRunning = false;
     }
 
     /**
@@ -867,8 +885,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
         try {
             if (taskService != null) {
-                // 获取最后移动的任务信息
-                String lastTask = SwitchToRearTileService.getLastMovedTask();
+                // URI and Tile starts both update this keeper's actual projection owner.
+                String lastTask = monitoredTaskInfo;
 
                 if (lastTask != null && lastTask.contains(":")) {
                     String[] parts = lastTask.split(":");
@@ -879,7 +897,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                     String appName = getAppName(packageName);
 
                     // 拉回主屏
-                    boolean success = taskService.moveTaskToDisplay(taskId, 0);
+                    boolean success = taskService.isTaskOnDisplay(taskId, RearDisplay.requireId())
+                            && taskService.moveTaskToDisplay(taskId, 0);
 
                     if (success) {
                         // 延迟显示Toast

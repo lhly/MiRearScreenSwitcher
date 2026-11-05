@@ -13,6 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from ci_release import release_metadata
+from release_notes import format_release_notes
 from update_version_manifest import ApiError, FEED_PATH, GitHubApi, publish, validate_manifest
 
 REPO = 'lhly/MiRearScreenSwitcher'
@@ -21,7 +22,8 @@ METADATA = release_metadata('versionName=3.3.2\nversionCode=2014\n', TAG)
 CURRENT = {'schemaVersion': 1, 'versionName': '3.3.0', 'versionCode': 2012, 'tag': 'v3.3.0'}
 CANDIDATE = dict(CURRENT, versionName='3.3.2', versionCode=2014, tag=TAG,
                  apk={'url': f'https://github.com/{REPO}/releases/download/{TAG}/ReMRSS-{TAG}.apk',
-                      'sha256': '1' * 64, 'size': 123, 'packageName': 'top.zainzh.rearscreen'})
+                      'sha256': '1' * 64, 'size': 123, 'packageName': 'top.zainzh.rearscreen'},
+                 releaseNotes={'added': ['Feature'], 'improved': [], 'fixed': []})
 NEWER = dict(CANDIDATE, versionName='3.4.0', versionCode=2015, tag='v3.4.0',
              apk=dict(CANDIDATE['apk'], url=f'https://github.com/{REPO}/releases/download/v3.4.0/ReMRSS-v3.4.0.apk'))
 
@@ -30,6 +32,7 @@ def release():
     return {'tag_name': TAG, 'draft': False, 'prerelease': False,
             'published_at': '2026-10-15T00:00:00Z',
             'html_url': f'https://github.com/{REPO}/releases/tag/{TAG}',
+            'body': format_release_notes(CANDIDATE['releaseNotes']),
             'assets': [{'name': name, 'state': 'uploaded', 'size': 123, 'digest': 'sha256:' + '1' * 64,
                         'browser_download_url': f'https://github.com/{REPO}/releases/download/{TAG}/{name}'}
                        for name in ('ReMRSS-v3.3.2.apk', 'SHA256SUMS', 'LICENSE', 'NOTICE')]}
@@ -250,6 +253,30 @@ class ManifestChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cannot change its APK'):
             publish(api, REPO, TAG, METADATA, CANDIDATE)
         self.assertEqual(api.writes, [])
+
+    def test_same_tag_notes_only_completion_never_changes_apk_metadata(self):
+        api = FakeApi()
+        legacy_candidate = copy.deepcopy(CANDIDATE)
+        legacy_candidate.pop('releaseNotes')
+        api.file = contents(legacy_candidate)
+        self.assertTrue(publish(api, REPO, TAG, METADATA, CANDIDATE))
+        updated = json.loads(base64.b64decode(api.writes[0][2]['content']))
+        self.assertEqual(updated['apk'], legacy_candidate['apk'])
+        self.assertEqual(updated['releaseNotes'], CANDIDATE['releaseNotes'])
+
+    def test_same_tag_existing_notes_cannot_be_changed(self):
+        api = FakeApi()
+        existing = copy.deepcopy(CANDIDATE)
+        existing['releaseNotes']['added'] = ['Different feature']
+        api.file = contents(existing)
+        with self.assertRaisesRegex(ValueError, 'cannot change its release notes'):
+            publish(api, REPO, TAG, METADATA, CANDIDATE)
+        self.assertEqual(api.writes, [])
+
+    def test_malformed_optional_notes_do_not_invalidate_apk_manifest(self):
+        malformed = copy.deepcopy(CANDIDATE)
+        malformed['releaseNotes'] = {'added': 'wrong'}
+        validate_manifest(malformed, require_apk=True)
 
 
 if __name__ == '__main__':

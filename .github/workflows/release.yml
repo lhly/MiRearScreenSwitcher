@@ -38,6 +38,9 @@ jobs:
         id: version
         run: python3 tools/ci_release.py metadata
 
+      - name: Extract this tag's categorized release notes
+        run: python3 tools/release_notes.py "$RELEASE_TAG" --output-dir dist
+
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -47,6 +50,7 @@ jobs:
 
       - name: Test release checks and service lifecycle
         run: |
+          python3 tools/test_release_notes.py
           python3 tools/test_ci_release.py
           python3 tools/test_update_version_manifest.py
           python3 tools/test_task_service_connection.py
@@ -125,46 +129,22 @@ jobs:
         working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
           APK_NAME: ${{ needs.build.outputs.apk_name }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           sha256sum --check SHA256SUMS
-          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          ReMRSS 基于 AntiOblivionis 的 MRSS 项目继续开发；感谢上游测试贡献者汐木泽。
-
-          - 虚拟投放期间，消息通知和充电提示改为摄像头安全区顶部的紧凑胶囊，保留原 App 画面和投放任务，避免提示结束后退出投放。
-          - 点按胶囊即可关闭，整次手势不穿透下方 App；消息继续遵循已有隐私、勿扰、来源与显示时长设置，新消息替换旧内容。
-          - 充电胶囊显示充电/满电状态和电量，约 8 秒后消失；重复插电广播不会反复弹出，拔线仅清理充电提示。
-          - 新增“镜头区域信息”独立板块，可选显示摄像头间的电量条，以及沿镜头圆弧排列的时间、日期、星期和系统天气；两个开关默认关闭。
-
-          已在小米 17 Pro Max 正式签名预览包验证通知点按关闭、充电到期/拔线保留投放；独立源码通过构建、36 项运行回归及混淆正式包 Binder 契约检查。其他机型仍以实际兼容性为准。
-
-          胶囊仅用于虚拟投放，非投放和物理直投保留原全屏通知/充电动画。镜头区域信息当前仅对已验证的小米 17 Pro Max 摄像头避让布局开放，详见[镜头区域说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/camera-gap-battery.md)与[胶囊说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/cast-notifications.md)。
-
-          虚拟投放首次默认关闭，在“背屏 → 虚拟背屏投放”开启；需要 Android 13 及以上和受支持的背屏硬件，详见[虚拟投放说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/virtual-rear-casting.md)与[兼容性说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/rear-compatibility.md)。手机壳截图资源仍限小米 17 Pro / 17 Pro Max，其余机型可保存原图。
-
-          沿用 ReMRSS 包名 top.zainzh.rearscreen 和正式签名，可覆盖升级并保留数据；手机重启后仍需先启动 Shizuku，再打开 ReMRSS。
-
-          - [对应版本源码](https://github.com/$GH_REPO/tree/$RELEASE_TAG)
-          - [下载对应版本源码](https://github.com/$GH_REPO/archive/refs/tags/$RELEASE_TAG.zip)
-          - [该版本构建说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/android-studio-release.md)
-          - [GPL-3.0 完整许可证](https://github.com/$GH_REPO/blob/$RELEASE_TAG/LICENSE) · [贡献与修改说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/NOTICE)
-
-          APK 内附带可离线阅读的 LICENSE 和 NOTICE，Release 另提供相同文件及 SHA256 校验。本版本允许依照 GPL-3.0 修改与再分发，不提供担保。
-          EOF
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-is-draft"; then
             if [[ "$(cat "$RUNNER_TEMP/release-is-draft")" != 'true' ]]; then
               echo "Release already published; keeping its existing assets."
               exit 0
             fi
             gh release upload "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE --clobber
-            gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           else
             gh release create "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE \
               --verify-tag --title "ReMRSS $RELEASE_TAG" \
-              --notes-file "$RUNNER_TEMP/release-notes.md" --draft
+              --notes-file release-notes.md --draft
           fi
           if [[ "$PRERELEASE" == 'true' ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

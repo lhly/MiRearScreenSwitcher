@@ -34,9 +34,11 @@ public class RearScreenNotificationActivity extends Activity {
     
     // 静态实例追踪
     private static volatile RearScreenNotificationActivity currentInstance = null;
+    private static volatile long deferredFinishSessionId = Long.MIN_VALUE;
     
     private String packageName;
     private long animationId;
+    private long acceptedAnimationId;
     private int rearTaskId = -1;
     private final android.os.Handler lifecycleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable autoFinish = this::finish;
@@ -54,9 +56,18 @@ public class RearScreenNotificationActivity extends Activity {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
             long target = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
-            if (target != 0 && target != animationId) return;
-            if ((BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION").equals(intent.getAction())
-                    || !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) finish();
+            boolean finish = (BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION").equals(intent.getAction());
+            long expected = target == 0 ? acceptedAnimationId : target;
+            if (expected != acceptedAnimationId) return;
+            if (finish) {
+                if (expected != animationId) {
+                    deferredFinishSessionId = expected;
+                    return;
+                }
+                finish();
+            } else if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
+                finish();
+            }
         }
     };
     
@@ -73,6 +84,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         super.onCreate(savedInstanceState);
         animationId = getIntent().getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, RearAnimationManager.getGeneration());
+        acceptedAnimationId = animationId;
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
             finish(); return;
@@ -133,6 +145,7 @@ public class RearScreenNotificationActivity extends Activity {
             androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
             currentInstance = this;
+            scheduleDeferredFinish();
             return;
         }
         
@@ -316,6 +329,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 设置为当前实例
         currentInstance = this;
+        scheduleDeferredFinish();
         
         // 初始化wakeup循环
         wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -633,10 +647,21 @@ public class RearScreenNotificationActivity extends Activity {
     
     protected int currentDisplayId() { return getWindowManager().getDefaultDisplay().getDisplayId(); }
 
+    private void scheduleDeferredFinish() {
+        if (deferredFinishSessionId != animationId) return;
+        deferredFinishSessionId = Long.MIN_VALUE;
+        long target = animationId;
+        lifecycleHandler.post(() -> {
+            if (currentInstance == this && animationId == target
+                    && RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, target)) finish();
+        });
+    }
+
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         long nextId = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, nextId)) return;
+        acceptedAnimationId = nextId;
         setIntent(intent);
         lifecycleHandler.removeCallbacks(autoFinish);
         stopWakeupLoop();

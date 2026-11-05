@@ -49,6 +49,15 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     private volatile ITaskService taskService;
     private SettingsController nativeUi;
     ReleaseUpdateChecker createUpdateChecker() { return new ReleaseUpdateChecker(getApplicationContext()); }
+    boolean automaticUpdateChecksEnabled() {
+        if (!BuildConfig.DEBUG) return true;
+        try {
+            for (android.content.pm.InstrumentationInfo info : getPackageManager().queryInstrumentation(getPackageName(), 0)) {
+                if (getPackageName().equals(info.targetPackage)) return false;
+            }
+        } catch (RuntimeException ignored) { }
+        return true;
+    }
     UpdateDownloadTask createUpdateTask(UpdatePackage update) { return new UpdateDownloadTask(getApplicationContext(), update); }
     boolean canInstallUpdates() { return Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls(); }
     void checkForUpdates() { if (nativeUi != null) nativeUi.checkForUpdates(); }
@@ -85,7 +94,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        nativeUi = new SettingsController(this, savedInstanceState);
+        nativeUi = new SettingsController(this, savedInstanceState, automaticUpdateChecksEnabled());
         setContentView(nativeUi.getView());
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -111,7 +120,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         super.onNewIntent(intent);
         handleIncomingIntent(intent);
     }
-    
+
     /**
      * 处理来自Service的通知Intent
      */
@@ -619,11 +628,13 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         
                         if (enabled) {
                             // 开启时启动服务
+                            NotificationService.enableForUser(this);
                             Intent intent = new Intent(this, NotificationService.class);
                             startService(intent);
                             Log.d(TAG, "NotificationService started");
                         } else {
                             // 关闭时停止服务
+                            NotificationService.disableForUser(this);
                             Intent intent = new Intent(this, NotificationService.class);
                             stopService(intent);
                             Log.d(TAG, "NotificationService stopped");
@@ -730,6 +741,8 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                             prefs.edit()
                                 .putBoolean("notification_only_when_locked", enabled)
                                 .apply();
+                            // 立即同步通知监听服务的传感器注册状态。
+                            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(getPackageName()));
                             Log.d(TAG, "Only when upside down mode set to: " + enabled);
                             result.success(true);
                         } catch (Exception e) {

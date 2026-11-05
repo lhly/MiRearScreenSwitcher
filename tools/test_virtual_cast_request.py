@@ -9,6 +9,20 @@ public final class VirtualRequestChecks {
  static void check(boolean ok){if(!ok)throw new AssertionError();}
  static void rejected(Runnable r){try{r.run();throw new AssertionError("accepted invalid input");}catch(IllegalArgumentException expected){}}
  public static void main(String[] args){
+  check(VirtualCastRequest.startsProjection(null,"com.example.app:42",null));
+  check(VirtualCastRequest.startsProjection(null,null,"session-1"));
+  check(!VirtualCastRequest.startsProjection(null,null,null));
+  check(!VirtualCastRequest.startsProjection(null,"",""));
+  check(!VirtualCastRequest.startsProjection("ACTION_RETURN_TO_MAIN",null,"old-session"));
+  check(!VirtualCastRequest.startsProjection("ACTION_SET_KEEP_SCREEN_ON_ENABLED","com.example.app:42",null));
+  check(!VirtualCastRequest.startsProjection("ACTION_SET_PROXIMITY_ENABLED",null,null));
+  String host="top.zainzh.rearscreen";
+  check(VirtualCastRequest.isReplaceableRearOwner(host+":55",host));
+  check(VirtualCastRequest.isReplaceableRearOwner("com.xiaomi.subscreencenter:12",host));
+  check(!VirtualCastRequest.isReplaceableRearOwner("com.example.app:55",host));
+  check(!VirtualCastRequest.isReplaceableRearOwner(host+".other:55",host));
+  check(!VirtualCastRequest.isReplaceableRearOwner("com.xiaomi.subscreencenter.other:12",host));
+  check(!VirtualCastRequest.isReplaceableRearOwner(null,host)&&!VirtualCastRequest.isReplaceableRearOwner("",host));
   check(VirtualCastRequest.yes("true")&&VirtualCastRequest.yes("TRUE")&&VirtualCastRequest.yes("1")&&!VirtualCastRequest.yes(null));
   check(VirtualCastRequest.density(null)==200&&VirtualCastRequest.density("72")==72&&VirtualCastRequest.density("640")==640);
   check(VirtualCastRequest.density("240")==240&&VirtualCastRequest.density("320")==320);
@@ -28,7 +42,7 @@ public final class VirtualRequestChecks {
   check(!VirtualCastRequest.matchesReturn(null,null,"com.other",10,11,"com.foo","com.child"));
   check(VirtualCastRequest.matchesReturn(null,null,null,10,11,"com.foo","com.child"));
   rejected(()->VirtualCastRequest.matchesReturn(null,"10;id",null,10,11,"com.foo","com.child"));
-  System.out.println("PASS URI validation, independent density, rotation rejection, exact task/package stop selectors");
+  System.out.println("PASS exact rear-owner gates, URI validation, independent density, rotation rejection, exact task/package stop selectors");
  }
 }'''
 with tempfile.TemporaryDirectory(prefix='mrss-vd-request-') as folder:

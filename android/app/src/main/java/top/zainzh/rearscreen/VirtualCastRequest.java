@@ -5,6 +5,14 @@ final class VirtualCastRequest {
     // This controls the effective layout density. Density compatibility can retain the source DPI.
     static final int DEFAULT_DENSITY_DPI = 200;
     static boolean yes(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value); }
+    static boolean isReplaceableRearOwner(String foreground, String hostPackage) {
+        return foreground != null && (foreground.startsWith(hostPackage + ":")
+                || foreground.startsWith("com.xiaomi.subscreencenter:"));
+    }
+    static boolean startsProjection(String action, String physicalTask, String virtualSession) {
+        return action == null && ((physicalTask != null && !physicalTask.isEmpty())
+                || (virtualSession != null && !virtualSession.isEmpty()));
+    }
     static String packageName(String value) {
         if (value == null || !value.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+"))
             throw new IllegalArgumentException("无效的应用包名");

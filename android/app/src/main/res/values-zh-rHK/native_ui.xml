@@ -117,6 +117,10 @@
     <string name="ui_update_restricted" formatted="false">更新來源存取受限，請稍後再試。</string>
     <string name="ui_update_network_error" formatted="false">檢查更新失敗，請檢查網路後再試。</string>
     <string name="ui_update_invalid" formatted="false">無法識別發布版本，請前往 GitHub 發布頁查看。</string>
+    <string name="ui_release_notes_added" formatted="false">新增</string>
+    <string name="ui_release_notes_improved" formatted="false">改進</string>
+    <string name="ui_release_notes_fixed" formatted="false">修正</string>
+    <string name="ui_release_notes_empty" formatted="false">此版本暫無詳細更新說明。</string>
     <string name="ui_view_release" formatted="false">查看更新</string>
     <string name="ui_view_releases" formatted="false">發布紀錄</string>
     <string name="ui_retry" formatted="false">重試</string>

@@ -14,6 +14,8 @@ import subprocess
 import sys
 import zipfile
 
+from release_notes import format_release_notes, validate_release_notes
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ID = 'top.zainzh.rearscreen'
 SEMVER = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
@@ -105,6 +107,16 @@ def prepare_signing(project):
 
 
 def verify_apk(apk, metadata, dist, project=ROOT):
+    tag = 'v' + metadata['version']
+    try:
+        extracted = json.loads((dist / 'release-notes.json').read_text(encoding='utf-8'))
+        if not isinstance(extracted, dict) or extracted.get('tag') != tag:
+            raise ValueError('Extracted release notes do not match the release tag.')
+        release_notes = validate_release_notes(extracted.get('releaseNotes'))
+        if (dist / 'release-notes.md').read_text(encoding='utf-8') != format_release_notes(release_notes):
+            raise ValueError('Release body differs from the structured notes artifact.')
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+        raise ValueError(f'Missing or invalid extracted release notes: {error}') from None
     fingerprint = expected_certificate()
     sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
     if not sdk:
@@ -144,12 +156,11 @@ def verify_apk(apk, metadata, dist, project=ROOT):
     repository = os.environ.get('GITHUB_REPOSITORY', 'lhly/MiRearScreenSwitcher')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('Invalid GitHub repository name.')
-    tag = 'v' + metadata['version']
     # CI artifact only: APK digest/size come from the verified bytes, not hand-entered values.
     manifest = {'schemaVersion': 1, 'versionName': metadata['version'], 'versionCode': int(metadata['build_number']), 'tag': tag,
                 'apk': {'url': f'https://github.com/{repository}/releases/download/{tag}/{target.name}',
                         'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'size': target.stat().st_size,
-                        'packageName': PACKAGE_ID}}
+                        'packageName': PACKAGE_ID}, 'releaseNotes': release_notes}
     (dist / 'version-artifact.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     print(f'Verified {target.name}: {PACKAGE_ID}, certificate {fingerprint}')
 

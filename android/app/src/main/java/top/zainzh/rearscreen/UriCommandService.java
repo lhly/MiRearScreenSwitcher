@@ -69,7 +69,12 @@ public class UriCommandService extends IntentService {
     protected void onHandleIntent(Intent intent) {
         try { PrivilegeOperations.begin(); }
         catch (IllegalStateException switching) { return; }
-        try { handlePrivilegedIntent(intent); } finally { PrivilegeOperations.end(); }
+        try {
+            Uri uri = intent == null ? null : intent.getData();
+            if (uri != null && "switch".equals(uri.getHost())) {
+                RearAnimationManager.runDisplayAction(() -> handlePrivilegedIntent(intent));
+            } else handlePrivilegedIntent(intent);
+        } finally { PrivilegeOperations.end(); }
     }
 
     private void handlePrivilegedIntent(Intent intent) {
@@ -166,10 +171,8 @@ public class UriCommandService extends IntentService {
                     // 排除允许的进程：
                     // 1. ReMRSS自己的Activity（充电动画、通知动画、唤醒等）
                     // 2. 小米官方Launcher（com.xiaomi.subscreencenter.SubScreenLauncher）
-                    if (!rearForegroundApp.contains("RearScreenChargingActivity") &&
-                            !rearForegroundApp.contains("RearScreenNotificationActivity") &&
-                            !rearForegroundApp.contains("RearScreenWakeupActivity") &&
-                            !rearForegroundApp.contains("com.xiaomi.subscreencenter")) {
+                    // The control service reports package:task, not an Activity component.
+                    if (!VirtualCastRequest.isReplaceableRearOwner(rearForegroundApp, getPackageName())) {
                         Log.w(TAG, "❌ 背屏已有应用在运行: " + rearForegroundApp);
                         Log.d(TAG, "════════════════════════════════════════");
                         return;
@@ -246,10 +249,7 @@ public class UriCommandService extends IntentService {
                 String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
                 if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
                     // 排除允许的进程
-                    if (!rearForegroundApp.contains("RearScreenChargingActivity") &&
-                            !rearForegroundApp.contains("RearScreenNotificationActivity") &&
-                            !rearForegroundApp.contains("RearScreenWakeupActivity") &&
-                            !rearForegroundApp.contains("com.xiaomi.subscreencenter")) {
+                    if (!VirtualCastRequest.isReplaceableRearOwner(rearForegroundApp, getPackageName())) {
                         Log.w(TAG, "❌ 背屏已有其他应用: " + rearForegroundApp);
                         return;
                     }
@@ -258,15 +258,19 @@ public class UriCommandService extends IntentService {
                 Log.w(TAG, "背屏占用检查失败: " + e.getMessage());
             }
 
-            // 步骤1: 禁用系统背屏Launcher（关键！防止挤占）
+            // 先确认目标，再改变背屏策略；空目标不启动无 owner 的前台服务。
+            String currentApp = taskService.getCurrentForegroundApp();
+            if (currentApp == null || !currentApp.contains(":")) {
+                Log.w(TAG, "No current task; do not start an unowned foreground keeper");
+                return;
+            }
+
+            // 禁用系统背屏Launcher（关键！防止挤占）
             try {
                 taskService.disableSubScreenLauncher();
             } catch (Exception e) {
                 Log.w(TAG, "Failed to disable SubScreenLauncher", e);
             }
-
-            // 步骤2: 获取当前前台应用
-            String currentApp = taskService.getCurrentForegroundApp();
 
             // 步骤3: 立即启动前台Service（让通知快速出现）
             Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
@@ -298,6 +302,7 @@ public class UriCommandService extends IntentService {
                 boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
                 if (success) {
+                    RearAnimationManager.projectionStarted(this);
                     Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
 
                     // 步骤5: 主动点亮背屏 (通过TaskService启动Activity，绕过BAL限制) - 关键步骤！
@@ -500,6 +505,7 @@ public class UriCommandService extends IntentService {
             boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
             if (success) {
+                RearAnimationManager.projectionStarted(this);
                 Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
 
                 // 步骤5.5: 等待应用在背屏稳定显示

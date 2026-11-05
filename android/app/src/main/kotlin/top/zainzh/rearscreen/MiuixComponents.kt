@@ -284,6 +284,7 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
         if (model?.number == true) { bundle.putString("native_number_kind", kind); bundle.putString("native_number_draft", draft) }
     }
     fun isShowing(title: String): Boolean = model?.title == title
+    fun isVisible(): Boolean = model != null
     fun dismiss() { model = null; kind = null }
     @Composable private fun DialogAction(current: Model, index: Int) {
         TextButton(current.labels[index], {
@@ -328,6 +329,9 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
 /** A stable Miuix window while transfer/verification state changes. */
 class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) {
     private data class Model(val title: String, val current: String, val status: String, val details: String,
+        val showReleaseNotes: Boolean,
+        val notesAdded: List<String>, val notesImproved: List<String>, val notesFixed: List<String>,
+        val notesAddedTitle: String, val notesImprovedTitle: String, val notesFixedTitle: String, val notesEmpty: String,
         val progress: Int, val indeterminate: Boolean, val labels: List<String>, val actions: List<Runnable>)
     private var model by mutableStateOf<Model?>(null)
     val view: View = ComposeView(activity).apply {
@@ -342,6 +346,17 @@ class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) 
                         if (current.status.isNotEmpty()) Text(current.status, color = AppPalette.text(), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                         if (current.progress >= 0) LinearProgressIndicator(progress = if (current.indeterminate) null else current.progress / 100f, modifier = Modifier.fillMaxWidth())
                         Text(current.details, fontSize = 14.sp, color = AppPalette.secondary())
+                        if (current.showReleaseNotes) {
+                            val hasNotes = current.notesAdded.isNotEmpty() || current.notesImproved.isNotEmpty() || current.notesFixed.isNotEmpty()
+                            if (hasNotes) {
+                                ReleaseNoteGroup(current.notesAddedTitle, current.notesAdded)
+                                ReleaseNoteGroup(current.notesImprovedTitle, current.notesImproved)
+                                ReleaseNoteGroup(current.notesFixedTitle, current.notesFixed)
+                            } else {
+                                Text(current.notesEmpty, fontSize = 14.sp, color = AppPalette.secondary(),
+                                    modifier = Modifier.testTag("update_release_notes_empty"))
+                            }
+                        }
                         current.labels.forEachIndexed { index, label ->
                             TextButton(label, { current.actions[index].run() }, Modifier.fillMaxWidth(), minHeight = 48.dp,
                                 colors = if (index == 0 && current.labels.size > 1) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
@@ -351,9 +366,27 @@ class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) 
             }
         }
     }
-    fun update(title: String, current: String, status: String, details: String, progress: Int, indeterminate: Boolean,
+    fun update(title: String, current: String, status: String, details: String, showReleaseNotes: Boolean,
+        progress: Int, indeterminate: Boolean,
+        notesAdded: Array<String>, notesImproved: Array<String>, notesFixed: Array<String>,
+        notesAddedTitle: String, notesImprovedTitle: String, notesFixedTitle: String, notesEmpty: String,
         labels: Array<String>, actions: Array<Runnable>) {
-        model = Model(title, current, status, details, progress, indeterminate, labels.toList(), actions.toList())
+        model = Model(title, current, status, details, showReleaseNotes, notesAdded.toList(), notesImproved.toList(), notesFixed.toList(),
+            notesAddedTitle, notesImprovedTitle, notesFixedTitle, notesEmpty, progress, indeterminate,
+            labels.toList(), actions.toList())
     }
     fun dismiss() { model = null }
+}
+
+@Composable
+private fun ReleaseNoteGroup(title: String, items: List<String>) {
+    if (items.isEmpty()) return
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, fontSize = 14.sp, color = AppPalette.text(), fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { heading() })
+        items.forEach { item ->
+            Text("•  $item", fontSize = 14.sp, color = AppPalette.secondary(),
+                modifier = Modifier.fillMaxWidth().testTag("update_release_note_item"))
+        }
+    }
 }

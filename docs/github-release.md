@@ -2,6 +2,8 @@
 
 工作流为 `.github/workflows/release.yml`，替代旧的 `build.yml`。推送 `v*` tag 时，GitHub Actions 会构建并发布 ReMRSS 正式 APK。普通分支推送不会触发此工作流。
 
+正式发布并更新稳定版清单后，本机可通过夸克网盘官方 Skill 自动同步发行文件，方便国内用户下载。启用、状态与异常处理见[夸克网盘本地同步](quark-release-sync.md)。
+
 ## 首次配置 GitHub Secrets
 
 当前仓库的四项 Secrets 已于 2026-10-13 配置完成，使用本机生成的个人正式签名密钥。后续沿用这把密钥发版时无需重复填写，直接按下方步骤更新版本并推送新 tag。
@@ -46,7 +48,7 @@ git push origin v3.6.2
 
 预览版可使用下一版本的`v3.6.3-rc.1`，并递增versionCode。预览版标记为Pre-release，正式版标记为Latest。tag必须与versionName一致，不允许带构建元数据。
 
-[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.2)提供`ReMRSS-v3.6.2.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。说明列出本次功能变更，不自动拼接旧发布记录。Actions另保存`release-v3.6.2`构建产物14天。
+[Release](https://github.com/lhly/MiRearScreenSwitcher/releases/tag/v3.6.2)提供`ReMRSS-v3.6.2.apk`、`SHA256SUMS`、`LICENSE`和`NOTICE`，以及同tag源码和构建说明链接。功能正文从对应 tag 的 CHANGELOG 分类提取，不会混入 Unreleased 或旧版本记录；Actions另保存`release-v3.6.2`构建产物14天。
 
 ## 构建与签名检查
 
@@ -62,11 +64,11 @@ git push origin v3.6.2
 
 ## Raw版本清单与应用内更新
 
-ReMRSS 匿名读取`https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json`，不含Token，不请求GitHub Release API。清单含schemaVersion、versionName、versionCode、tag，以及apk.url/sha256/size/packageName。下载必须来自本仓库对应tag的HTTPS APK附件。
+ReMRSS 匿名读取`https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json`，不含Token，不请求GitHub Release API。清单含schemaVersion、versionName、versionCode、tag，以及apk.url/sha256/size/packageName；可选`releaseNotes`包含`added`、`improved`、`fixed`三个纯展示字符串数组。旧清单可不带此字段；客户端对缺失或格式错误的 notes 显示缺失提示，不影响 APK 元数据校验和更新。下载必须来自本仓库对应tag的HTTPS APK附件。
 
 `version.properties`表示构建版本，`updates/remrss/version.json`只描述已公开的 ReMRSS 正式成品；由首次成功发布自动创建，不写虚构的待发布APK。根目录旧 `version.json` 留给旧 MRSS，继续指向原公开附件。新版本的URL、大小和SHA256由CI在公开成功后填写，不能用本地预览包提前生成线上清单。撤下问题发布时，可将清单恢复为已核验且仍公开的上一稳定版；新版本成功后仍由CI替换，不修改客户端协议或防回退逻辑。
 
-清单job读取公开Release，确认不是草稿或预览，APK/SHA256SUMS/LICENSE/NOTICE附件齐全且上传结束；再将下载URL、digest和size与构建job生成的version-artifact.json对照。全部一致才使用内置GITHUB_TOKEN和contents: write权限，仅提交main/updates/remrss/version.json；Token不进入APK或清单。
+清单job读取公开Release，确认不是草稿或预览，APK/SHA256SUMS/LICENSE/NOTICE附件齐全且上传结束；再将下载URL、digest、size和功能正文与构建job生成的version-artifact.json对照。全部一致才使用内置GITHUB_TOKEN和contents: write权限，仅提交main/updates/remrss/version.json；Token不进入APK或清单。相同 tag 的受控补齐只允许填入缺失的 releaseNotes，APK字段必须完全一致；已存在的 notes 不可改写。
 
 同一清单更新串行执行，版本号和versionCode阻止延迟任务回退；重复运行不产生额外提交，SHA冲突重读后最多重试三次。CI提交后，本地需同步main再继续开发。
 

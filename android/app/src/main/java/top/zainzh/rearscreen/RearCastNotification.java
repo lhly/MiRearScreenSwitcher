@@ -5,19 +5,28 @@ final class RearCastNotification {
     private static final java.util.concurrent.atomic.AtomicLong tokens = new java.util.concurrent.atomic.AtomicLong();
     interface Target {
         void show(Message message);
+        default void clearNotification(long token) { }
         default void clearCharging() { }
     }
     private static Target target;
+    private static long activeNotificationToken;
 
-    static synchronized void attach(Target next) { target = next; }
-    static synchronized void detach(Target previous) { if (target == previous) target = null; }
+    static synchronized void attach(Target next) {
+        if (target != next) activeNotificationToken = 0;
+        target = next;
+    }
+    static synchronized void detach(Target previous) { if (target == previous) { target = null; activeNotificationToken = 0; } }
     static synchronized boolean hasTarget() { return target != null; }
 
     static boolean offer(String pkg, String title, String text, long now, int seconds, boolean oled) {
         Target current;
-        synchronized (RearCastNotification.class) { current = target; }
+        Message message = new Message(pkg, title, text, now, seconds, oled);
+        synchronized (RearCastNotification.class) {
+            current = target;
+            if (current != null) activeNotificationToken = message.token;
+        }
         if (current == null) return false;
-        current.show(new Message(pkg, title, text, now, seconds, oled));
+        current.show(message);
         return true;
     }
     static boolean offerCharging(String pkg, String title, String text, long now, boolean oled) {
@@ -31,6 +40,18 @@ final class RearCastNotification {
         Target current;
         synchronized (RearCastNotification.class) { current = target; }
         if (current != null) current.clearCharging();
+    }
+
+    static synchronized long captureNotificationToken() { return activeNotificationToken; }
+
+    static void clearNotification(long token) {
+        Target current;
+        synchronized (RearCastNotification.class) {
+            if (token == 0 || activeNotificationToken != token) return;
+            activeNotificationToken = 0;
+            current = target;
+        }
+        if (current != null) current.clearNotification(token);
     }
 
     static final class Message {

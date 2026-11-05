@@ -38,8 +38,8 @@ final class SettingsController {
     private final MiuixSettingsUi composeUi;
     private final MiuixDialogUi modal;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final ReleaseUpdateChecker updateChecker;
     private final UpdateDialogController updateDialog;
+    private final boolean automaticChecksEnabled;
     private final UriConflictMonitor uriConflicts;
     private java.util.List<String> uriConflictApps = Collections.emptyList();
     private boolean checkingUpdates;
@@ -58,18 +58,34 @@ final class SettingsController {
         @Override public void run() {
             if (!resumed || destroyed) return;
             refreshStatus();
+            updateDialog.offerAutomaticResultIfReady();
             handler.postDelayed(this, 2500);
         }
     };
 
     SettingsController(MainActivity activity, Bundle state) {
-        this(activity, state, activity.createUpdateChecker());
+        this(activity, state, activity.createUpdateChecker(), true, false);
+    }
+
+    SettingsController(MainActivity activity, Bundle state, boolean automaticChecksEnabled) {
+        this(activity, state, activity.createUpdateChecker(), automaticChecksEnabled, false);
     }
 
     SettingsController(MainActivity activity, Bundle state, ReleaseUpdateChecker updateChecker) {
+        this(activity, state, updateChecker, false, true);
+    }
+
+    SettingsController(MainActivity activity, Bundle state, ReleaseUpdateChecker updateChecker,
+            boolean automaticChecksEnabled) {
+        this(activity, state, updateChecker, automaticChecksEnabled, true);
+    }
+
+    private SettingsController(MainActivity activity, Bundle state, ReleaseUpdateChecker updateChecker,
+            boolean automaticChecksEnabled, boolean injectedChecker) {
         this.activity = activity;
-        this.updateChecker = updateChecker;
-        updateDialog = new UpdateDialogController(activity, state, this::checkForUpdates);
+        this.automaticChecksEnabled = automaticChecksEnabled;
+        updateDialog = new UpdateDialogController(activity, state, updateChecker, automaticChecksEnabled, injectedChecker,
+                this::onUpdateCheckCompleted, this::automaticOfferAllowed, this::checkForUpdates);
         modal = new MiuixDialogUi(activity);
         preferences = new NativePreferences(activity);
         uriConflicts = new UriConflictMonitor(activity, this::updateUriConflicts);
@@ -145,7 +161,10 @@ final class SettingsController {
         resumed = true;
         displayRead = false;
         uriConflicts.start();
-        updateDialog.onResume();
+        updateDialog.onResume(page == 2);
+        updateDialog.resumeInterruptedCheck();
+        if (automaticChecksEnabled) updateDialog.startAutomaticCheck();
+        updateDialog.offerAutomaticResultIfReady();
         handler.removeCallbacks(statusTick);
         handler.post(statusTick);
         if (picker != null) picker.onResume();
@@ -155,9 +174,8 @@ final class SettingsController {
     void onPause() { resumed = false; uriConflicts.stop(); updateDialog.onPause(); handler.removeCallbacks(statusTick); }
     void destroy() {
         destroyed = true;
-        updateChecker.close();
         uriConflicts.close();
-        updateDialog.destroy();
+        updateDialog.destroy(activity.isChangingConfigurations());
         handler.removeCallbacksAndMessages(null);
         if (picker != null) picker.destroy();
         modal.dismiss();
@@ -187,6 +205,7 @@ final class SettingsController {
             composeUi.showPicker(null);
         }
         page = target;
+        updateDialog.setManualFeedbackVisible(page == 2);
         hideKeyboard();
         if (target == 3 && picker == null) {
             picker = new AppPickerModel(activity, pickerState, this::closePicker);
@@ -201,29 +220,36 @@ final class SettingsController {
     private void onPageSettled(int target) {
         if (destroyed || page == 3 || page == target) return;
         page = target;
+        updateDialog.setManualFeedbackVisible(page == 2);
         refreshStatus();
     }
 
     private String updateSummaryText() {
-        if (checkingUpdates) return s("checking_updates");
+        if (checkingUpdates || updateDialog.isChecking()) return s("checking_updates");
         if (updateResult == null) return s("updates_help");
         return UpdateDialogController.summary(activity, updateResult);
     }
 
 
     void checkForUpdates() {
-        if (destroyed || checkingUpdates) return;
+        if (destroyed) return;
         checkingUpdates = true;
         updateHome();
-        updateChecker.check(BuildConfig.SOURCE_TAG, result -> {
-            if (destroyed) return;
-            checkingUpdates = false;
-            updateResult = result;
-            updateHome();
-            // A completed background check must not interrupt a different page/app.
-            if (page != 2 || !resumed) return;
-            updateDialog.show(result);
-        });
+        updateDialog.checkManually();
+    }
+
+    boolean isCheckingUpdates() { return updateDialog.isChecking(); }
+
+    private void onUpdateCheckCompleted(ReleaseUpdateChecker.Result result, boolean manual) {
+        if (destroyed) return;
+        checkingUpdates = false;
+        updateResult = result;
+        updateHome();
+        updateDialog.handleCheckCompleted(result, manual);
+    }
+
+    private boolean automaticOfferAllowed() {
+        return !destroyed && page >= 0 && page <= 2 && (modal == null || !modal.isVisible());
     }
 
 

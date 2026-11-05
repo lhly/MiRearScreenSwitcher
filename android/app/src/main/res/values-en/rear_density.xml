@@ -1,6 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="rear_density_help">Allows apps to adapt to the casting window and helps with scaling issues. Applies to the next virtual cast.</string>
+    <string name="rear_density_help">Allows apps to adapt to the casting window and helps with scaling issues. Applies to the next virtual cast; newly installed apps remain off by default.</string>
+    <string name="rear_density_bulk_summary">%1$d apps total</string>
+    <string name="rear_density_bulk_running">Updating %1$d apps…</string>
+    <string name="rear_density_bulk_enable">Enable all</string>
+    <string name="rear_density_bulk_disable">Disable all</string>
+    <string name="rear_density_bulk_done">Updated %1$d apps. Changes apply on the next cast.</string>
+    <string name="rear_density_bulk_error">Could not save the setting. Please try again.</string>
     <string name="rear_density_search">Search app name or package</string>
     <string name="rear_density_loading">Loading apps…</string>
     <string name="rear_density_failed">Could not load apps</string>

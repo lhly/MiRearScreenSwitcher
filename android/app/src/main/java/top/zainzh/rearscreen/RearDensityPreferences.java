@@ -2,6 +2,9 @@ package top.zainzh.rearscreen;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /** App-owned preferences; the chosen value is explicitly passed to the shell session. */
 public final class RearDensityPreferences {
@@ -13,6 +16,16 @@ public final class RearDensityPreferences {
     }
     public static void setEnabled(Context context, String packageName, boolean enabled) {
         if (BuildConfig.VIRTUAL_CAST_ENABLED) preferences(context).edit().putBoolean(key(packageName), enabled).apply();
+    }
+    /** Updates only the explicitly supplied apps in one preferences transaction. */
+    public static void setAllEnabled(Context context, Collection<String> packageNames, boolean enabled) {
+        if (packageNames == null) throw new IllegalArgumentException("App package list is required");
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String packageName : packageNames) normalized.add(VirtualCastRequest.packageName(packageName));
+        if (!BuildConfig.VIRTUAL_CAST_ENABLED || normalized.isEmpty()) return;
+        SharedPreferences.Editor editor = preferences(context).edit();
+        for (String packageName : normalized) editor.putBoolean(key(packageName), enabled);
+        if (!editor.commit()) throw new IllegalStateException("Unable to save density compatibility choices");
     }
     public static int layoutDensity(Context context, String packageName) {
         String key = "dpi:" + VirtualCastRequest.packageName(packageName);

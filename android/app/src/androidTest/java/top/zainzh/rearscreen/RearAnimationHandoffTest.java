@@ -82,6 +82,7 @@ public class RearAnimationHandoffTest {
             else if (value instanceof Set) edit.putStringSet(key, (Set<String>)value);
         }
         edit.commit();
+        if (getStatic("instance") == service) setStatic("instance", null);
     }
     @Test public void notificationWakesBeforeLaunchWithoutStoppingOfficialProcess() throws Exception {
         inst.runOnMainSync(() -> service.showNotificationOnRearScreen("android", "Title", "Content", 1));
@@ -113,6 +114,24 @@ public class RearAnimationHandoffTest {
         Thread.sleep(200); assertEquals(0, starts.get()); set("taskService", fake());
         await(() -> starts.get() == 1, 3000);
     }
+    @Test public void serviceOffActionEndsNotificationWaitingForBinderBeforeItCanLaunch() throws Exception {
+        set("taskService", null);
+        setStatic("instance", service);
+        inst.runOnMainSync(() -> service.showNotificationOnRearScreen("android", "Pending", "Content", 1));
+        await(() -> RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NOTIFICATION, 2000);
+        NotificationService.disableForUser(context);
+        set("taskService", fake());
+        await(() -> RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NONE, 3000);
+        assertEquals("disabled pending notification must not start later", 0, starts.get());
+    }
+    @Test public void serviceOffActionFinishesCurrentNotificationActivity() throws Exception {
+        RearAnimationManager.Session current = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        setStatic("instance", service);
+        activity = launch(current.id, "Visible");
+        NotificationService.disableForUser(context);
+        await(() -> activity.isDestroyed() && !RearAnimationManager.isCurrent(current.type, current.id), 3000);
+        assertTrue("service off must end the displayed notification session", activity.isDestroyed());
+    }
     @Test public void staleRestoreCannotRunAfterNewAnimationStartsAndEnds() throws Exception {
         RearAnimationManager.Session old = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
         RearAnimationManager.endAnimation(old.type, old.id);
@@ -127,6 +146,96 @@ public class RearAnimationHandoffTest {
         RearAnimationManager.Session next = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
         inst.runOnMainSync(activity::finish); await(activity::isDestroyed, 3000);
         assertTrue(RearAnimationManager.isCurrent(next.type, next.id));
+    }
+    @Test public void delayedServiceOffFinishUsesCapturedSessionAndLeavesReplacementAlive() throws Exception {
+        RearAnimationManager.Session old = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        long capturedId = RearAnimationManager.captureSessionId(RearAnimationManager.AnimationType.NOTIFICATION);
+        assertEquals(old.id, capturedId);
+        RearAnimationManager.Session next = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        activity = launch(next.id, "Replacement");
+        NotificationService.postNotificationFinishForSession(context, new Handler(Looper.getMainLooper()), capturedId);
+        Thread.sleep(400);
+        assertFalse(activity.isFinishing());
+        assertTrue(RearAnimationManager.isCurrent(next.type, next.id));
+        inst.runOnMainSync(() -> assertEquals("Replacement", ((TextView)activity.findViewById(R.id.notification_title)).getText().toString()));
+    }
+    @Test public void staleOffDuringAcceptedNewIntentDoesNotFinishRecreatingActivity() throws Exception {
+        RearAnimationManager.Session old = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        activity = launch(old.id, "Old");
+        RearAnimationManager.Session next = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        Instrumentation.ActivityMonitor monitor = inst.addMonitor(FixtureNotificationActivity.class.getName(), null, false);
+        Intent nextIntent = new Intent(context, FixtureNotificationActivity.class)
+                .putExtra(RearAnimationManager.EXTRA_SESSION_ID, next.id)
+                .putExtra("packageName", "android").putExtra("title", "AcceptedNew")
+                .putExtra("text", "Content").putExtra("when", 2L)
+                .putExtra("fixtureRearDisplayId", display.getDisplay().getDisplayId());
+        Intent staleFinish = new Intent(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION")
+                .putExtra(RearAnimationManager.EXTRA_SESSION_ID, old.id);
+        Intent currentFinish = new Intent(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION")
+                .putExtra(RearAnimationManager.EXTRA_SESSION_ID, next.id);
+        java.lang.reflect.Field receiverField = RearScreenNotificationActivity.class.getDeclaredField("interruptReceiver");
+        receiverField.setAccessible(true);
+        inst.runOnMainSync(() -> {
+            activity.onNewIntent(nextIntent);
+            try { ((android.content.BroadcastReceiver)receiverField.get(activity)).onReceive(context, staleFinish); }
+            catch (IllegalAccessException error) { throw new AssertionError(error); }
+            assertFalse("old close must not finish after the new intent was accepted", activity.isFinishing());
+            try { ((android.content.BroadcastReceiver)receiverField.get(activity)).onReceive(context, currentFinish); }
+            catch (IllegalAccessException error) { throw new AssertionError(error); }
+            assertFalse("current close is deferred until the replacement instance exists", activity.isFinishing());
+        });
+        try {
+            RearScreenNotificationActivity replacement = (RearScreenNotificationActivity) monitor.waitForActivityWithTimeout(4000);
+            assertNotNull("accepted intent must recreate the activity", replacement);
+            activity = replacement;
+            await(() -> replacement.isDestroyed() && !RearAnimationManager.isCurrent(next.type, next.id), 3000);
+            assertFalse("current close during recreation must end the new session", RearAnimationManager.isCurrent(next.type, next.id));
+        } finally { inst.removeMonitor(monitor); }
+    }
+    @Test public void serviceOffClearsOnlyCapturedPassiveNotificationToken() {
+        final RearCastNotification.Message[] visible = {null};
+        RearCastNotification.Target target = new RearCastNotification.Target() {
+            @Override public void show(RearCastNotification.Message message) { visible[0] = message; }
+            @Override public void clearNotification(long token) {
+                if (visible[0] != null && visible[0].token == token) visible[0] = null;
+            }
+        };
+        RearCastNotification.attach(target);
+        try {
+            assertTrue(RearCastNotification.offer("android", "Old", "Body", 1, 10, false));
+            long oldToken = RearCastNotification.captureNotificationToken();
+            assertTrue(RearCastNotification.offer("android", "New", "Body", 2, 10, false));
+            RearCastNotification.clearNotification(oldToken);
+            assertNotNull("late close must not clear replacement notification", visible[0]);
+            long currentToken = RearCastNotification.captureNotificationToken();
+            RearCastNotification.offerCharging("android", "Charging", "", 3, false);
+            RearCastNotification.clearNotification(currentToken);
+            assertNotNull("notification off must not clear a charging capsule", visible[0]);
+            assertTrue(visible[0].charging);
+        } finally { RearCastNotification.detach(target); }
+    }
+    @Test public void destroyedOldServiceDoesNotCloseReplacementSessionOrCapsule() throws Exception {
+        NotificationService replacementService = new AttachedNotificationService();
+        RearAnimationManager.Session replacement = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        final RearCastNotification.Message[] visible = {null};
+        RearCastNotification.Target target = new RearCastNotification.Target() {
+            @Override public void show(RearCastNotification.Message message) { visible[0] = message; }
+            @Override public void clearNotification(long token) {
+                if (visible[0] != null && visible[0].token == token) visible[0] = null;
+            }
+        };
+        RearCastNotification.attach(target);
+        RearCastNotification.offer("android", "Replacement", "Body", 1, 10, false);
+        setStatic("instance", replacementService);
+        try {
+            service.closeOwnedDisplaysOnDestroy();
+            assertSame(replacementService, getStatic("instance"));
+            assertTrue(RearAnimationManager.isCurrent(replacement.type, replacement.id));
+            assertNotNull("old service destruction must not clear a newer capsule", visible[0]);
+        } finally {
+            RearCastNotification.detach(target);
+            setStatic("instance", service);
+        }
     }
     @Test public void repeatedNotificationRecreatesContentAndOldCloseDoesNotFinishNewWindow() throws Exception {
         prefs.edit().putInt("notification_duration", 1).commit();
@@ -180,6 +289,8 @@ public class RearAnimationHandoffTest {
     }
     private static class AttachedNotificationService extends NotificationService { AttachedNotificationService() { attachBaseContext(context); } }
     private void set(String name,Object value) throws Exception { Field f=NotificationService.class.getDeclaredField(name);f.setAccessible(true);f.set(service,value); }
+    private static void setStatic(String name,Object value) throws Exception { Field f=NotificationService.class.getDeclaredField(name);f.setAccessible(true);f.set(null,value); }
+    private static Object getStatic(String name) throws Exception { Field f=NotificationService.class.getDeclaredField(name);f.setAccessible(true);return f.get(null); }
     private Object get(String name) throws Exception { Field f=NotificationService.class.getDeclaredField(name);f.setAccessible(true);return f.get(service); }
     private static void await(BooleanSupplier condition,long timeout) throws Exception {
         long end=android.os.SystemClock.elapsedRealtime()+timeout;

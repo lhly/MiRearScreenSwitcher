@@ -1,6 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="rear_density_help">允許應用程式依投放視窗重新排版，並改善局部縮放。下次虛擬投放生效。</string>
+    <string name="rear_density_help">允許應用程式依投放視窗重新排版，並改善局部縮放。下次虛擬投放生效；新安裝的應用程式預設關閉。</string>
+    <string name="rear_density_bulk_summary">共 %1$d 個應用程式</string>
+    <string name="rear_density_bulk_running">正在更新 %1$d 個應用程式…</string>
+    <string name="rear_density_bulk_enable">全部開啟</string>
+    <string name="rear_density_bulk_disable">全部關閉</string>
+    <string name="rear_density_bulk_done">已更新 %1$d 個應用程式；下次投放生效。</string>
+    <string name="rear_density_bulk_error">無法儲存統一設定，請重試。</string>
     <string name="rear_density_search">搜尋應用名稱或套件名稱</string>
     <string name="rear_density_loading">正在讀取應用…</string>
     <string name="rear_density_failed">無法讀取應用清單</string>

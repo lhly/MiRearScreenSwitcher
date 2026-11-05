@@ -22,4 +22,21 @@ public class TaskTopologyTest {
                 + "    taskId=71: test.game/.LandscapeGame\n";
         assertEquals(9, RearSystemBridge.rootTask(stacks, 71));
     }
+    @Test public void locationRetainsExactDisplayForSameDisplayFocus() {
+        String stacks = "RootTask id=42 displayId=1 userId=0\n  taskId=2042: test.rear/.Main\n"
+                + "RootTask id=43 displayId=10 userId=0\n  taskId=2043: test.virtual/.Main\n";
+        RearSystemBridge.TaskLocation rear = RearSystemBridge.taskLocation(stacks, 2042);
+        assertNotNull(rear);
+        assertEquals(42, rear.rootTask);
+        assertEquals(1, rear.displayId);
+        assertEquals(10, RearSystemBridge.taskLocation(stacks, 2043).displayId);
+        assertNull(RearSystemBridge.taskLocation(stacks, 999));
+    }
+    @Test public void missingDisplayDoesNotGuessSameDisplay() {
+        RearSystemBridge.TaskLocation task = RearSystemBridge.taskLocation(
+                "Stack id=9\n taskId=71: test.game/.Main\n", 71);
+        assertNotNull(task);
+        assertEquals(9, task.rootTask);
+        assertEquals(-1, task.displayId);
+    }
 }

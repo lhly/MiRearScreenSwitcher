@@ -5,19 +5,21 @@ import os, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 STUBS={
 'android/content/SharedPreferences.java': '''package android.content; public interface SharedPreferences {
- boolean getBoolean(String key,boolean fallback); int getInt(String key,int fallback); Editor edit();
- interface Editor { Editor putBoolean(String key,boolean value);Editor putInt(String key,int value);Editor remove(String key);void apply(); }
+ boolean getBoolean(String key,boolean fallback); int getInt(String key,int fallback); boolean contains(String key); Editor edit();
+ interface Editor { Editor putBoolean(String key,boolean value);Editor putInt(String key,int value);Editor remove(String key);void apply();boolean commit(); }
 }''',
+'android/os/Build.java': '''package android.os; public final class Build { public static final class VERSION { public static int SDK_INT=34; } }''',
 'android/content/Context.java': '''package android.content;import java.util.*; public class Context {
  public static final int MODE_PRIVATE=0;static final Map<String,Map<String,Object>> disk=new HashMap<>();
  public SharedPreferences getSharedPreferences(String name,int mode){Map<String,Object> data=disk.computeIfAbsent(name,k->new HashMap<>());
- return new SharedPreferences(){public boolean getBoolean(String k,boolean fallback){return (Boolean)data.getOrDefault(k,fallback);}
+ return new SharedPreferences(){public boolean contains(String k){return data.containsKey(k);}public boolean getBoolean(String k,boolean fallback){return (Boolean)data.getOrDefault(k,fallback);}
  public int getInt(String k,int fallback){return (Integer)data.getOrDefault(k,fallback);}
  public Editor edit(){return new Editor(){Map<String,Object> pending=new HashMap<>();public Editor putBoolean(String k,boolean v){pending.put(k,v);return this;}
  public Editor putInt(String k,int v){pending.put(k,v);return this;}public Editor remove(String k){pending.put(k,null);return this;}
- public void apply(){for(Map.Entry<String,Object> e:pending.entrySet()){if(e.getValue()==null)data.remove(e.getKey());else data.put(e.getKey(),e.getValue());}}};}};}
+ private void save(){for(Map.Entry<String,Object> e:pending.entrySet()){if(e.getValue()==null)data.remove(e.getKey());else data.put(e.getKey(),e.getValue());}}
+ public void apply(){save();}public boolean commit(){save();return true;}};}};}
 }''',
-'PrefsTest.java': '''package top.zainzh.rearscreen;import android.content.Context; public class PrefsTest {
+'PrefsTest.java': '''package top.zainzh.rearscreen;import android.content.Context;import java.util.Arrays; public class PrefsTest {
  static void eq(boolean a,boolean b){if(a!=b)throw new AssertionError(a+" != "+b);}
  public static void main(String[] args){Context a=new Context();String first="com.example.reader",other="com.example.video",third="com.example.browser";
   if(!BuildConfig.VIRTUAL_CAST_ENABLED){
@@ -26,8 +28,13 @@ STUBS={
    if(RearDensityPreferences.preferences(a).getBoolean(RearDensityPreferences.key(other),false))throw new AssertionError("Disabled feature wrote preference");
    RearDensityPreferences.setLayoutDensity(a,other,240);
    if(RearDensityPreferences.layoutDensity(a,other)!=0)throw new AssertionError("Disabled feature wrote DPI");
+   eq(RearCastMode.useVirtual(a),false);
+   RearCastMode.setVirtual(a,true);eq(RearCastMode.useVirtual(a),false);
    System.out.println("PASS disabled feature ignores compatibility preferences and writes");return;
   }
+  eq(RearCastMode.useVirtual(a),true);
+  RearCastMode.setVirtual(a,false);eq(RearCastMode.useVirtual(a),false);
+  RearCastMode.setVirtual(a,true);eq(RearCastMode.useVirtual(a),true);
   for(String pkg:new String[]{first,other,third})eq(RearDensityPreferences.enabled(a,pkg),false);
   // Simulate choices already stored by an earlier installed version.
   RearDensityPreferences.preferences(a).edit().putBoolean("enabled:"+first,true).putBoolean("enabled:"+other,false).apply();
@@ -48,7 +55,20 @@ STUBS={
   if(RearDensityPreferences.layoutDensity(a,first)!=0)throw new AssertionError("Corrupt DPI did not fall back");
   boolean rejected=false;try{RearDensityPreferences.setEnabled(a,"invalid/../key",true);}catch(IllegalArgumentException expected){rejected=true;}
   if(!rejected)throw new AssertionError("Invalid package accepted");
-  System.out.println("PASS default200, existing ON/OFF and custom DPI retained, reset/corruption fallback, independent durable updates and package validation");
+  RearDensityPreferences.setEnabled(a,first,true);RearDensityPreferences.setEnabled(a,other,false);RearDensityPreferences.setEnabled(a,third,true);
+  RearDensityPreferences.setLayoutDensity(a,first,240);RearDensityPreferences.setLayoutDensity(a,other,320);
+  RearDensityPreferences.setAllEnabled(a,Arrays.asList(first,first,other),false);
+  eq(RearDensityPreferences.enabled(a,first),false);eq(RearDensityPreferences.enabled(a,other),false);eq(RearDensityPreferences.enabled(a,third),true);
+  if(RearDensityPreferences.layoutDensity(a,first)!=240||RearDensityPreferences.layoutDensity(a,other)!=320)throw new AssertionError("Bulk switch changed DPI");
+  eq(RearDensityPreferences.enabled(a,"com.example.newapp"),false);
+  RearDensityPreferences.setAllEnabled(a,Arrays.asList(first,other),true);
+  eq(RearDensityPreferences.enabled(a,first),true);eq(RearDensityPreferences.enabled(a,other),true);eq(RearDensityPreferences.enabled(a,third),true);
+  boolean beforeFirst=RearDensityPreferences.enabled(a,first),beforeValid=RearDensityPreferences.enabled(a,"com.example.valid");
+  rejected=false;try{RearDensityPreferences.setAllEnabled(a,Arrays.asList("com.example.valid","invalid/../key"),false);}catch(IllegalArgumentException expected){rejected=true;}
+  if(!rejected||beforeFirst!=RearDensityPreferences.enabled(a,first)||beforeValid!=RearDensityPreferences.enabled(a,"com.example.valid"))throw new AssertionError("Invalid bulk input partially wrote preferences");
+  rejected=false;try{RearDensityPreferences.setAllEnabled(a,null,true);}catch(IllegalArgumentException expected){rejected=true;}
+  if(!rejected)throw new AssertionError("Null bulk collection accepted");
+  System.out.println("PASS default-off per-App choices, atomic bulk ON/OFF, deduplication, custom DPI retention, untouched/new apps and invalid input");
  }
 }'''}
 jdk=Path(os.environ.get('JAVA_HOME',ROOT/'.local/toolchains/jdk21'))/'bin';src=ROOT/'android/app/src/main/java/top/zainzh/rearscreen'
@@ -57,5 +77,5 @@ for enabled in [True,False]:
   out=Path(tmp);files=[]
   for name,text in STUBS.items():p=out/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);files.append(str(p))
   p=out/'BuildConfig.java';p.write_text('package top.zainzh.rearscreen;final class BuildConfig {static final boolean VIRTUAL_CAST_ENABLED='+str(enabled).lower()+';}');files.append(str(p))
-  subprocess.run([str(jdk/'javac'),'-d',tmp,*files,*[str(src/name) for name in ['RearDensityPreferences.java','VirtualCastRequest.java']]],check=True)
+  subprocess.run([str(jdk/'javac'),'-d',tmp,*files,*[str(src/name) for name in ['RearDensityPreferences.java','RearCastMode.java','VirtualCastRequest.java']]],check=True)
   subprocess.run([str(jdk/'java'),'-cp',tmp,'top.zainzh.rearscreen.PrefsTest'],check=True)

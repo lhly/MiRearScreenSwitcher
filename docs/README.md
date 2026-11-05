@@ -12,6 +12,7 @@
 | Android Studio、终端构建与签名 | [构建说明](android-studio-release.md) |
 | GitHub Actions、版本清单与发布 | [发版说明](github-release.md) |
 | 各版本变化 | [更新日志](../CHANGELOG.md) |
+| 应用内更新说明与发布 notes 数据契约 | [更新版本说明](update-release-notes.md) |
 | 当前界面开发约定 | [Miuix 设计规范](../design-system/mrss-native/MASTER.md) |
 
 ## 专项记录
