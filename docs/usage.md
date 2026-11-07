@@ -9,7 +9,7 @@
 3. 打开 ReMRSS，完成 Shizuku 授权，等待控制服务连接。
 4. 按需开启通知、充电动画等功能，再添加控制中心磁贴。
 
-从旧 MRSS 迁移时，新包 `top.zainzh.rearscreen` 会独立安装，不会自动读取旧应用的配置和权限；需要重新配置、授权并添加磁贴。详见[迁移说明](remrss-identity-validation.md)。
+从旧 MRSS 迁移时，新包 `top.zainzh.rearscreen` 会独立安装，不会自动读取旧应用的配置和权限；需要重新配置、授权并添加磁贴。详见[迁移说明](migration.md)。
 
 ## 控制中心磁贴
 

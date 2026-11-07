@@ -148,7 +148,7 @@ jobs:
 
           - [对应版本源码](https://github.com/$GH_REPO/tree/$RELEASE_TAG)
           - [下载对应版本源码](https://github.com/$GH_REPO/archive/refs/tags/$RELEASE_TAG.zip)
-          - [该版本构建说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/docs/android-studio-release.md)
+          - [该版本构建说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/BUILDING.md)
           - [GPL-3.0 完整许可证](https://github.com/$GH_REPO/blob/$RELEASE_TAG/LICENSE) · [贡献与修改说明](https://github.com/$GH_REPO/blob/$RELEASE_TAG/NOTICE)
 
           APK 内附带可离线阅读的 LICENSE 和 NOTICE，Release 另提供相同文件及 SHA256 校验。本版本允许依照 GPL-3.0 修改与再分发，不提供担保。

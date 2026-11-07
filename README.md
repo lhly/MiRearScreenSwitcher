@@ -39,8 +39,8 @@
 ## 文档与反馈
 
 - [使用指南](docs/usage.md)：日常操作、权限、后台运行、故障排查和自动化。
-- [构建说明](docs/android-studio-release.md) · [发版说明](docs/github-release.md)
-- [文档索引](docs/README.md)：迁移说明、界面与功能验收、包体积审计。
+- [源码构建](BUILDING.md)：环境准备、调试构建与自行签名。
+- [文档索引](docs/README.md)：功能设置、兼容与排障、迁移和更新。
 - [提交问题](https://github.com/lhly/MiRearScreenSwitcher/issues)：请附上机型、系统版本、复现步骤和诊断信息。
 
 ## 许可证与致谢
@@ -49,4 +49,4 @@
 
 感谢原作者 **AntiOblivionis**、上游测试贡献者 **汐木泽**，以及 [Shizuku](https://github.com/RikkaApps/Shizuku) 和 [Miuix](https://github.com/compose-miuix-ui/miuix) 项目。
 
-应用图标为[独立设计](docs/app-icon-design.md)，第三方组件和品牌标识归各自权利人所有。本项目为独立第三方工具，与小米官方无关。
+应用图标为本项目独立设计，第三方组件和品牌标识归各自权利人所有。本项目为独立第三方工具，与小米官方无关。

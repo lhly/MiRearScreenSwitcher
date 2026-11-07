@@ -46,3 +46,6 @@ migrate_working_dir/
 task_plan.md
 findings.md
 progress.md
+
+# Local development designs, debugging and validation records (never commit)
+/dev-docs/
