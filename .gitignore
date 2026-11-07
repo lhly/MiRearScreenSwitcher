@@ -49,3 +49,6 @@ progress.md
 
 # Local development designs, debugging and validation records (never commit)
 /dev-docs/
+
+# Local generated code-count reports
+/.VSCodeCounter/
