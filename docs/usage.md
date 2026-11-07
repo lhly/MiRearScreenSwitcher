@@ -9,7 +9,7 @@
 3. 打开 ReMRSS。使用 Shizuku 时完成对应授权；使用 Root 时，在首页连接状态卡选择“权限来源 → Root”，点击“授权并连接”，并在 root 管理器中允许当前安装的 ReMRSS。等待控制服务就绪。
 4. 按需开启通知、充电动画等功能，再添加控制中心磁贴。
 
-从旧 MRSS 迁移时，新包 `top.zainzh.rearscreen` 会独立安装，不会自动读取旧应用的配置和权限；需要重新配置、授权并添加磁贴。详见[迁移说明](remrss-identity-validation.md)。
+从旧 MRSS 迁移时，新包 `top.zainzh.rearscreen` 会独立安装，不会自动读取旧应用的配置和权限；需要重新配置、授权并添加磁贴。详见[迁移说明](migration.md)。
 
 ## 控制中心磁贴
 
@@ -101,7 +101,6 @@
 仍有问题时，在“关于 → 诊断信息”查看连接状态，向 [Issues](https://github.com/lhly/MiRearScreenSwitcher/issues) 提供机型、系统版本、操作步骤和实际现象。
 
 [返回项目首页](../README.md)
-
 
 ## Root 模式
 

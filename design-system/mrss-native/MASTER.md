@@ -46,10 +46,6 @@
 
 ## 图标
 
-- 启动与关于页复用当前蓝色双摄/背屏图标。图形源为 `tools/generate_launcher_icons.py`，详见 `docs/app-icon-design.md`。
+- 启动与关于页复用当前蓝色双摄/背屏图标。图形源为 `tools/generate_launcher_icons.py`。
 - 系统磁贴采用单色线性矢量并交给系统着色，不保留重复密度 PNG。
 - 设置页使用统一线性矢量图标；不要用表情符号替代结构图标。
-
-## 历史记录
-
-早期 View 改版和首页 Miuix 试点的验收分别保留在 `docs/native-ui-validation.md`、`docs/compose-home-validation.md`，仅作为历史证据，不能作为新增页面的实现依据。

@@ -2,8 +2,18 @@
 
 - 所有解释和回复使用简体中文；标识符、命令和报错保留原文。
 - 多步骤任务遵循 planning-with-files-zh，规划、发现与进度仅保存在已忽略的 `.planning/<任务目录>/`，通过 `.planning/.active_plan` 选择当前计划。
-- 不在项目根目录生成 `task_plan.md`、`findings.md`、`progress.md`；这些本地过程记录不得加入 Git，包括强制添加。公开文档只保留整理后的使用说明、设计决策和验收结论。
-- 提交前运行 `python3 tools/check_private_plans.py`，确认暂存区不包含本地规划目录或过程记录。
+- 不在项目根目录生成 `task_plan.md`、`findings.md`、`progress.md`；这些本地过程记录不得加入 Git，包括强制添加。公开用户文档只保留已发布功能的使用、配置、兼容与排障说明。
+- 提交前运行 `python3 tools/check_private_plans.py`，确认暂存区不包含本地规划目录或开发过程文档。
+
+## 文档目录与公开范围
+
+- `docs/`：公开的用户指南，只写软件使用、配置、迁移、更新、兼容范围与可操作的故障排查；入口为 `docs/README.md`。不得放入开发设计草稿、任务追踪、调试记录、测试命令/日志、性能测量原稿、验收流水账或未上线实验方案。
+- `dev-docs/`：仅保存在本机的开发文档，包括设计草稿、实现追踪、调试诊断、测试/验收记录、性能分析、维护与发版操作记录。整目录由 `.gitignore` 排除，不得提交、强制添加或放入 Release 附件。
+- `.planning/<任务目录>/`：继续保存 `task_plan.md`、`findings.md`、`progress.md`，通过 `.planning/.active_plan` 选择；不要用公开文档代替任务记录。
+- `BUILDING.md`、`LICENSE`、`NOTICE` 与 `design-system/` 保留必要的源码构建、许可证、归属和现行开发规范，不追加某轮开发或验收过程。SDK 正式对外文档随对应已发布接口维护在 SDK 自身目录；未定稿接口设计放 `dev-docs/`。
+- 混合文档先将原稿移至 `dev-docs/`，再把用户需要的操作步骤、参数含义、适用条件及已知限制整理进 `docs/`；不能因文件名带 `validation` 就丢掉有效指南，也不能把内部记录换个公开目录继续提交。
+- 移动、改名或删除公开文档时，同步更新 README、文档索引、源码构建说明及发布模板引用。旧 tag 中的版本文档保持原状，普通整理不改写 Git 历史。
+- 提交前运行 `python3 tools/check_private_plans.py`；`.gitignore` 只负责排除未跟踪内容，已入库的过程文档仍需通过普通清理提交停止跟踪。新克隆可执行 `git config --local core.hooksPath .githooks` 启用同一提交检查。
 
 ## UI 开发
 
