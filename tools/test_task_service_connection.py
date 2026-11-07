@@ -79,17 +79,25 @@ f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class R
  public static void ready(int index,IBinder b){binds.get(index).onServiceConnected(new ComponentName("test","TaskService"),b);}
 }''',
 f'{PACKAGE}/ITaskService.java': '''package top.zainzh.rearscreen; public interface ITaskService {
- android.os.IBinder asBinder(); String getForegroundAppOnDisplay(int d); String getCurrentForegroundApp(); default String getRearVirtualCastStatus(){return "{}";} default String getRearInputProxyStatus(){return "{}";} default void stopRearVirtualCast(String s){} default void stopRearInputProxy(String s){} boolean disableSubScreenLauncher(); boolean enableSubScreenLauncher(); boolean moveTaskToDisplay(int t,int d); boolean launchWakeActivity(int d); boolean collapseStatusBar();
+ android.os.IBinder asBinder(); String getForegroundAppOnDisplay(int d); String getDisplayCastOccupancy(int d); String getCurrentForegroundApp(); default String getRearVirtualCastStatus(){return "{}";} default String getRearInputProxyStatus(){return "{}";} default void stopRearVirtualCast(String s){} default void stopRearInputProxy(String s){} boolean disableSubScreenLauncher(); boolean enableSubScreenLauncher(); boolean moveTaskToDisplay(int t,int d); boolean launchWakeActivity(int d); boolean collapseStatusBar();
  class Stub { public static ITaskService asInterface(android.os.IBinder b){return (ITaskService)b;} }
 }''',
 f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
- public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores; public int links; public Runnable beforeTarget; public final List<DeathRecipient> recipients=new ArrayList<>();
+ public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores,disables; public int links; public String occupancy=""; public Runnable beforeTarget,beforeOccupancy; public final List<DeathRecipient> recipients=new ArrayList<>();
  public boolean isBinderAlive(){return alive;} public void linkToDeath(DeathRecipient r,int f) throws RemoteException {if(failLink)throw new RemoteException();recipients.add(r);links++;} public boolean unlinkToDeath(DeathRecipient r,int f){return recipients.remove(r);}
  public void die(){alive=false;for(DeathRecipient r:new ArrayList<>(recipients))r.binderDied();}
  public IBinder asBinder(){return this;} public String getForegroundAppOnDisplay(int d){return null;} public String getCurrentForegroundApp(){if(beforeTarget!=null)beforeTarget.run();return "com.test:42";}
- public boolean disableSubScreenLauncher(){return true;} public boolean enableSubScreenLauncher(){restores++;return true;} public boolean moveTaskToDisplay(int t,int d){moves++;return moveSuccess;} public boolean launchWakeActivity(int d){return true;} public boolean collapseStatusBar(){return true;}
+ public String getDisplayCastOccupancy(int d){if(beforeOccupancy!=null)beforeOccupancy.run();return occupancy;}
+ public boolean disableSubScreenLauncher(){disables++;return true;} public boolean enableSubScreenLauncher(){restores++;return true;} public boolean moveTaskToDisplay(int t,int d){moves++;return moveSuccess;} public boolean launchWakeActivity(int d){return true;} public boolean collapseStatusBar(){return true;}
 }''',
-f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {static boolean isRunning(){return false;}}''',
+f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {static boolean physical;static boolean isRunning(){return physical;}static boolean isPhysicalCastRunning(){return physical;}static String physicalCastTask(){return physical?"com.test:42":null;}}''',
+# This harness owns Tile lifecycle/effects. The production occupancy policy/JSON reader is exercised by its JVM tests.
+f'{PACKAGE}/RearDisplayCastOccupancy.java': '''package top.zainzh.rearscreen; final class RearDisplayCastOccupancy {
+ static final class Result {final String foreground;Result(String value){foreground=value.isEmpty()?null:value;}boolean allowed(){return foreground==null;}}
+ static Result query(ITaskService remote,String host,int display){String value=remote.getDisplayCastOccupancy(display);if(value==null)throw new IllegalStateException("query unavailable");return new Result(value);}
+}''',
+f'{PACKAGE}/RearAnimationManager.java': '''package top.zainzh.rearscreen; final class RearAnimationManager {static void runDisplayAction(Runnable action){action.run();}static void projectionStarted(android.content.Context c){}static void projectionStarted(android.content.Context c,int task,String pkg){}}''',
+f'{PACKAGE}/platform/RearCapabilityCore.java': '''package top.zainzh.rearscreen.platform; public final class RearCapabilityCore {public static boolean hasActiveSceneSessions(){return false;}}''',
 f'{PACKAGE}/R.java': '''package top.zainzh.rearscreen; public class R { public static class string { public static int toast_please_switch_back=1,toast_cast_to_rear=2,privilege_service_unavailable=3,privilege_not_connected=4; } }''',
 }
 HARNESS = '''package top.zainzh.rearscreen;
@@ -209,6 +217,17 @@ public class ConnectionRegressionTest {
       case "tile_other_owner": acquire(a);Shizuku.ready(0,service);tile.onStopListening();check(Shizuku.unbinds==0&&a.lost==0,"tile killed shared service");TaskServiceManager.release(a);break;
       case "tile_destroy_pending": tile.onClick();tile.onDestroy();Shizuku.ready(0,service);Handler.drain();check(service.moves==0,"destroyed tile moved task");break;
       case "tile_failed_move": service.moveSuccess=false;Shizuku.ready(0,service);tile.onClick();awaitFinished(tile);check(service.restores==1&&tile.getQsTile().subtitle.contains("失败"),"failure did not restore launcher");break;
+      case "tile_visible_owner": service.occupancy="com.other:45";Shizuku.ready(0,service);tile.onClick();awaitFinished(tile);
+       check(service.moves==0&&service.disables==0&&tile.getQsTile().subtitle.contains("占用"),"visible owner was disturbed");break;
+      case "tile_occupancy_query_failed": service.occupancy=null;Shizuku.ready(0,service);tile.onClick();awaitFinished(tile);
+       check(service.moves==0&&service.disables==0,"failed occupancy query changed the display");break;
+      case "tile_active_physical_owner": RearScreenKeeperService.physical=true;Shizuku.ready(0,service);tile.onClick();awaitFinished(tile);
+       check(service.moves==0&&service.disables==0,"a live physical session was replaced");break;
+      case "tile_close_during_occupancy":
+       CountDownLatch queryEntered=new CountDownLatch(1),queryResume=new CountDownLatch(1);
+       service.beforeOccupancy=()->{queryEntered.countDown();try{queryResume.await(2,TimeUnit.SECONDS);}catch(InterruptedException e){throw new RuntimeException(e);}};
+       Shizuku.ready(0,service);tile.onClick();check(queryEntered.await(2,TimeUnit.SECONDS),"occupancy query did not start");
+       tile.onStopListening();queryResume.countDown();awaitFinished(tile);check(service.moves==0&&service.disables==0,"cancelled occupancy query moved a task");break;
       case "tile_close_during_target":
        CountDownLatch entered=new CountDownLatch(1),resume=new CountDownLatch(1);
        service.beforeTarget=()->{entered.countDown();try{resume.await(2,TimeUnit.SECONDS);}catch(InterruptedException e){throw new RuntimeException(e);}};
@@ -260,7 +279,8 @@ for scenario in ['switch_timeout_cancel', 'switch_old_callbacks', 'switch_active
                  'permission_granted', 'release_after_death', 'dead_on_connect',
                  'tile_delayed_ready', 'tile_duplicate_click', 'tile_close_pending',
                  'tile_timeout', 'tile_other_owner', 'tile_destroy_pending',
-                 'tile_failed_move', 'tile_close_during_target', 'tile_prototype_serial_route',
+                 'tile_failed_move', 'tile_visible_owner', 'tile_occupancy_query_failed', 'tile_active_physical_owner',
+                 'tile_close_during_occupancy', 'tile_close_during_target', 'tile_prototype_serial_route',
                  'tile_prototype_serial_route_pre34', 'tile_prototype_permission_denied']:
     setattr(ConnectionTests, 'test_' + scenario, lambda self, name=scenario: self.run_scenario(name))
 

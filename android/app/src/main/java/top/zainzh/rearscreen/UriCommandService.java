@@ -164,26 +164,19 @@ public class UriCommandService extends IntentService {
         try {
             // 0. 检查背屏是否已有应用在运行（拒绝重复投放）
             try {
-                String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
-                Log.d(TAG, "背屏前台应用: " + rearForegroundApp);
-
-                if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
-                    // 排除允许的进程：
-                    // 1. ReMRSS自己的Activity（充电动画、通知动画、唤醒等）
-                    // 2. 小米官方Launcher（com.xiaomi.subscreencenter.SubScreenLauncher）
-                    // The control service reports package:task, not an Activity component.
-                    if (!VirtualCastRequest.isReplaceableRearOwner(rearForegroundApp, getPackageName())) {
-                        Log.w(TAG, "❌ 背屏已有应用在运行: " + rearForegroundApp);
-                        Log.d(TAG, "════════════════════════════════════════");
-                        return;
-                    } else {
-                        Log.d(TAG, "✓ 背屏空闲或仅有官方Launcher/ReMRSS临时Activity");
-                    }
-                } else {
-                    Log.d(TAG, "✓ 背屏空闲");
+                RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                        taskService, getPackageName(), RearDisplay.requireId());
+                Log.i(TAG, "cast_gate mode=physical stage=entry disposition=" + occupancy.disposition
+                        + " hidden_tasks=" + occupancy.hiddenTasks + " result=" + (occupancy.allowed() ? "allow" : "busy"));
+                if (!occupancy.allowed()) {
+                    Log.w(TAG, "Rear display is occupied by an unmanaged task; cast remains blocked");
+                    Log.d(TAG, "════════════════════════════════════════");
+                    return;
                 }
             } catch (Exception e) {
-                Log.w(TAG, "检查背屏占用失败: " + e.getMessage());
+                Log.w(TAG, "cast_gate mode=physical stage=entry result=query_error error=" + e.getClass().getSimpleName());
+                showToast("无法确认背屏占用状态，请稍后重试");
+                return;
             }
 
             // 1. 确定目标
@@ -224,38 +217,17 @@ public class UriCommandService extends IntentService {
      */
     private void switchCurrentAppToRear() {
         try {
-            // 步骤0: 检查背屏是否已有应用在运行（复用TileService逻辑）
-            String lastMovedTask = SwitchToRearTileService.getLastMovedTask();
-            if (lastMovedTask != null && lastMovedTask.contains(":")) {
-                try {
-                    String[] oldParts = lastMovedTask.split(":");
-                    String oldPackageName = oldParts[0];
-
-                    // 检查旧应用是否还在背屏
-                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
-                    if (rearForegroundApp != null && rearForegroundApp.equals(lastMovedTask)) {
-                        // 背屏已有应用在运行，禁止操作
-                        String oldAppName = getAppName(oldPackageName);
-                        Log.w(TAG, "❌ 背屏已被占用: " + oldAppName);
-                        return;
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "检查旧应用失败: " + e.getMessage());
-                }
-            }
-
-            // 额外检查：确保背屏没有其他用户应用
+            // Recheck admission after configuration, without using the Tile's cached task as ownership.
             try {
-                String rearForegroundApp = taskService.getForegroundAppOnDisplay(RearDisplay.requireId());
-                if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
-                    // 排除允许的进程
-                    if (!VirtualCastRequest.isReplaceableRearOwner(rearForegroundApp, getPackageName())) {
-                        Log.w(TAG, "❌ 背屏已有其他应用: " + rearForegroundApp);
-                        return;
-                    }
-                }
+                RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                        taskService, getPackageName(), RearDisplay.requireId());
+                Log.i(TAG, "cast_gate mode=physical stage=current disposition=" + occupancy.disposition
+                        + " hidden_tasks=" + occupancy.hiddenTasks + " result=" + (occupancy.allowed() ? "allow" : "busy"));
+                if (!occupancy.allowed()) return;
             } catch (Exception e) {
-                Log.w(TAG, "背屏占用检查失败: " + e.getMessage());
+                Log.w(TAG, "cast_gate mode=physical stage=current result=query_error error=" + e.getClass().getSimpleName());
+                showToast("无法确认背屏占用状态，请稍后重试");
+                return;
             }
 
             // 先确认目标，再改变背屏策略；空目标不启动无 owner 的前台服务。

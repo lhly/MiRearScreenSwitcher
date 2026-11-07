@@ -201,10 +201,13 @@ public class SwitchToRearTileService extends TileService {
         boolean moved = false;
         try {
             if (request.cancelled) return;
-            if (lastMovedTask != null && lastMovedTask.equals(service.getForegroundAppOnDisplay(RearDisplay.requireId()))) {
+            RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                    service, getPackageName(), RearDisplay.requireId());
+            if (!occupancy.allowed() || RearScreenKeeperService.isPhysicalCastRunning()) {
                 feedback = "✗ 背屏已占用";
                 service.collapseStatusBar();
-                String appName = getAppName(lastMovedTask.split(":")[0]);
+                String task = occupancy.foreground != null ? occupancy.foreground : RearScreenKeeperService.physicalCastTask();
+                String appName = task == null ? "背屏应用" : getAppName(task.split(":")[0]);
                 handler.postDelayed(() -> Toast.makeText(this,
                         getString(R.string.toast_please_switch_back, appName), Toast.LENGTH_LONG).show(), 300);
                 return;

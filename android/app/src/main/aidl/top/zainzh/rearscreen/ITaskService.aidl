@@ -161,5 +161,8 @@ interface ITaskService {
     // Only temperature, condition and update time; no location or arbitrary query access.
     String readSystemWeather() = 43;
     boolean setRearCastNotificationBounds(String sessionId, long token, int left, int top, int right, int bottom) = 44;
+    // Transactions 45-58 remain reserved for unpublished experiments.
+    /** Read-only cast admission snapshot; legacy foreground/ownership queries retain their semantics. */
+    String getDisplayCastOccupancy(int displayId) = 59;
 }
 

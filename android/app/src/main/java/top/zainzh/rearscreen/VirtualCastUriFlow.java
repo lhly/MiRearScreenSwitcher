@@ -43,8 +43,11 @@ final class VirtualCastUriFlow {
             VirtualCastRequest.rotation(uri.getQueryParameter("rotation"));
             int density = VirtualCastRequest.density(uri.getQueryParameter("dpi"));
             finishOldHost(remote, before);
-            String rear = remote.getForegroundAppOnDisplay(RearDisplay.requireId());
-            if (rear != null && !VirtualCastRequest.isReplaceableRearOwner(rear, context.getPackageName()))
+            RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                    remote, context.getPackageName(), RearDisplay.requireId());
+            Log.i(TAG, "cast_gate mode=virtual stage=entry disposition=" + occupancy.disposition
+                    + " hidden_tasks=" + occupancy.hiddenTasks + " result=" + (occupancy.allowed() ? "allow" : "busy"));
+            if (!occupancy.allowed())
                 throw new IllegalStateException("背屏已有其他应用，请先停止投放");
             if (isPhysicalCastActive()) throw new IllegalStateException("请先停止上一轮投放");
             String targetPackage, launchComponent = null;

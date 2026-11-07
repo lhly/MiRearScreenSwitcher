@@ -776,6 +776,10 @@ public class TaskService extends ITaskService.Stub {
         }
     }
     
+    @Override public String getDisplayCastOccupancy(int displayId) {
+        return RearDisplayCastOccupancyReader.read(displayId).toJson();
+    }
+
     /**
      * V2.1: 设置显示器旋转方向
      * @param displayId 显示器ID (0=主屏, 1=背屏)
