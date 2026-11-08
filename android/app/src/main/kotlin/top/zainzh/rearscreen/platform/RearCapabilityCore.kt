@@ -13,6 +13,13 @@ import top.zainzh.rearscreen.RearDisplay
 import top.zainzh.rearscreen.TaskServiceManager
 import top.zainzh.rearscreen.platform.data.DataField
 import top.zainzh.rearscreen.platform.data.DataSnapshot
+import top.zainzh.rearscreen.platform.actions.ActionDispatchResult
+import top.zainzh.rearscreen.platform.actions.ActionError
+import top.zainzh.rearscreen.platform.actions.ActionResolveResult
+import top.zainzh.rearscreen.platform.actions.PlatformRegisteredActionRegistry
+import top.zainzh.rearscreen.platform.actions.RegisteredActionActivation
+import top.zainzh.rearscreen.platform.actions.RegisteredActionActivationAuthority
+import top.zainzh.rearscreen.platform.actions.RegisteredActionRef
 
 /** Maps the privileged presentation IPC outcome without conflating transport loss with a stale lease. */
 internal fun sceneRecoveryResultForPresentationStatus(status: String): SceneRecoveryResult = when (status) {
@@ -28,6 +35,7 @@ internal fun sceneRecoveryResultForPresentationStatus(status: String): SceneReco
 class RearCapabilityCore private constructor(context: Context) {
     private val appContext = context.applicationContext
     internal val activationAuthority = SceneActivationAuthority()
+    private val registeredActionActivationAuthority = RegisteredActionActivationAuthority()
     private val modData = ModPlatformDataAccess(appContext)
     private val sceneGateway = PrivilegedRearSceneGateway(appContext)
     val displaySessions: DisplaySessionCoordinator = RearSceneCoordinator(
@@ -42,6 +50,38 @@ class RearCapabilityCore private constructor(context: Context) {
 
     /** Returns an owner only for an installed, enabled, author-trusted Mod. */
     internal fun modDataOwner(modId: String): SessionOwner? = modData.ownerForMod(modId)
+
+    /** Host UI calls this synchronously from a native action-button click callback. */
+    internal fun issueRegisteredActionActivationAfterHostClick(
+        owner: SessionOwner,
+        ref: RegisteredActionRef,
+        hostGestureElapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime(),
+    ): RegisteredActionActivation = registeredActionActivationAuthority.issueFromHostClick(owner, ref, hostGestureElapsedRealtimeMs)
+
+    /** A single-use five-second host-click grant is consumed before resolving the opaque ref. */
+    internal fun invokeRegisteredAction(
+        owner: SessionOwner,
+        ref: RegisteredActionRef,
+        activation: RegisteredActionActivation,
+    ): ActionDispatchResult {
+        if (owner.principal is SessionPrincipal.SignedMod) {
+            val principal = owner.principal as SessionPrincipal.SignedMod
+            val installed = top.zainzh.rearscreen.platform.mods.ModPackageStore.installed(appContext, principal.modId)
+                ?: return ActionDispatchResult.Rejected(ActionError.OWNER_MISMATCH)
+            if (!installed.enabled || installed.authorFingerprint != principal.authorFingerprint ||
+                installed.logicalSessionId != principal.logicalSessionId || "action.invoke" !in installed.grantedCapabilities ||
+                !top.zainzh.rearscreen.platform.mods.ModPackageStore.isAuthorTrusted(appContext, installed.authorFingerprint) ||
+                modData.ownerForMod(principal.modId) != owner
+            ) return ActionDispatchResult.Rejected(ActionError.OWNER_MISMATCH)
+        }
+        if (!registeredActionActivationAuthority.consume(owner, ref, activation))
+            return ActionDispatchResult.Rejected(ActionError.BACKGROUND_RESTRICTED)
+        val registry = PlatformRegisteredActionRegistry.get(appContext)
+        return when (val resolved = registry.resolve(owner, ref)) {
+            is ActionResolveResult.Rejected -> ActionDispatchResult.Rejected(resolved.error)
+            is ActionResolveResult.Resolved -> registry.launch(resolved.action)
+        }
+    }
 
     /** Explicit rear-scene activation may wait for the selected backend on a Binder worker. */
     internal fun awaitSceneCapabilitiesForActivation(owner: SessionOwner): CapabilitySnapshot =

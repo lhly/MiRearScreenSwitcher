@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:remrss:mod:runtime:v1",
+  "title": "ReMRSS Mod clock and host effect wire v1",
+  "$defs": {
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wallTimeMs",
+        "elapsedRealtimeMs",
+        "timezoneId",
+        "bootId"
+      ],
+      "properties": {
+        "wallTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "elapsedRealtimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "timezoneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "bootId": {
+          "type": "null"
+        }
+      }
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "scene",
+            "region",
+            "keepVisible"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "rear.open"
+            },
+            "scene": {
+              "const": "rear"
+            },
+            "region": {
+              "const": "CAMERA_SAFE"
+            },
+            "keepVisible": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "intervalMs"
+              ]
+            },
+            {
+              "required": [
+                "deadlineElapsedRealtimeMs"
+              ]
+            }
+          ],
+          "properties": {
+            "type": {
+              "const": "schedule.visible.register"
+            },
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "intervalMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 9007199254740991
+            },
+            "deadlineElapsedRealtimeMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "const": "schedule.visible.cancel"
+            },
+            "id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "ref"
+          ],
+          "properties": {
+            "type": {
+              "const": "action.invoke"
+            },
+            "ref": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{48}$"
+                },
+                "version": {
+                  "const": 1
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "effectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectId",
+        "requestEventId",
+        "status"
+      ],
+      "properties": {
+        "effectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?:[A-Za-z0-9_.-]{1,64}|[0-9]+:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$"
+        },
+        "requestEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "scheduleTick": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scheduledElapsedRealtimeMs",
+        "actualElapsedRealtimeMs",
+        "missedCount",
+        "causes"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "scheduledElapsedRealtimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "actualElapsedRealtimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "missedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "causes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "interval",
+              "deadline"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clock": {
+      "$ref": "#/$defs/clock"
+    },
+    "effects": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/effect"
+      }
+    }
+  }
+}

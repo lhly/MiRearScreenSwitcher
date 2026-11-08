@@ -1,6 +1,6 @@
 # ReMRSS Mod SDK v1
 
-**Kit 1.0.5 candidate** refines `host.configChanged` failures and Effect admission. A reducer refusal rejects only that Save; the logical scene observers and committed model stay active while the host confirms old-worker teardown and reloads the committed model into a fresh worker. Declarative Mods still save directly without starting JavaScript. Effect intents are typed and checked before commit; `rear.open` cannot be emitted by Save because it needs a fresh user activation. The bounded `layout.row` and migration contracts remain unchanged.
+**Kit 1.1.0 / RC3**冻结原生列表、条件显示、格式化、图标、对齐、deadlineText、用户登记动作、可见调度与 clock 环境；host renderer、CLI、JSON Schema 和 TypeScript 类型使用同一白名单。Debug 开发重载必须同作者、同 Mod ID、同 `versionCode` 与 `dataVersion`，保留当前模型和授权；正常更新仍走更高 `versionCode` 的导入/迁移流程。此版本随 ReMRSS v4.0.0-rc.3 预览版提供。
 
 从普通 ZIP 开始：Mod 用 JSON 声明两个原生场景；只有确实需要自定义业务规则时才附带 `main.js`。宿主按同一 manifest、签名和载荷摘要校验安装包。无脚本包不会启动 JavaScript runtime。
 
@@ -72,7 +72,7 @@ ZIP 条目仅含 `manifest.json`、`manifest.sig`、`author.pub` 及 manifest �
 }
 ```
 
-`minimumVersion` 与 core `CapabilityRequirement(name, minimumVersion)` 同形；当前工具开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`data.battery@1`、`data.systemMetrics@1` 与宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`。`data.battery` UI binding 为 `data.battery.level`（百分比）、`data.battery.scale`（100）和 `data.battery.charging`；`data.systemMetrics` UI binding 为 `data.systemMetrics.cpu.utilizationPercent`、`data.systemMetrics.memory.availableBytes` 与 `.totalBytes`。数据只在获授权且页面可见时供原生场景绑定使用，关闭订阅即清空旧值，不默认传入脚本；GPU字段目前不受支持。设计文档 §4.1 中其余能力仍在实现/验收中，不会因为名字已列在设计表就被工具当作可用。设备能力、后端连接、作者信任和用户逐项授权仍由宿主分别判断；声明不是授权。
+`minimumVersion` 与 core `CapabilityRequirement(name, minimumVersion)` 同形；当前工具开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`data.battery@1`、`data.systemMetrics@1`、`action.invoke@1`、`clock.snapshot@1`、`schedule.visible@1`，以及宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`。`data.battery` UI binding 为 `data.battery.level`（百分比）、`data.battery.scale`（100）和 `data.battery.charging`；`data.systemMetrics` UI binding 为 `data.systemMetrics.cpu.utilizationPercent`、`data.systemMetrics.memory.availableBytes` 与 `.totalBytes`。数据只在获授权且页面可见时供原生场景绑定使用，关闭订阅即清空旧值，不默认传入脚本；GPU字段目前不受支持。设计文档 §4.1 中其余能力仍在实现/验收中，不会因为名字已列在设计表就被工具当作可用。设备能力、后端连接、作者信任和用户逐项授权仍由宿主分别判断；声明不是授权。
 
 上限：ZIP 2 MiB、展开 8 MiB、64 条目、`main.js` 512 KiB、单场景 UI 64 KiB；拒绝路径穿越、重复条目、符号链接、未知 UI 组件/字段和未声明载荷。状态/配置 schema 只支持有界 JSON 基础类型与 object/array 子结构；UI binding 只能引用 `state.*`、`config.*` 或版本化公开 `data.*` 路径，不接受表达式。
 
@@ -97,4 +97,25 @@ ZIP 条目仅含 `manifest.json`、`manifest.sig`、`author.pub` 及 manifest �
 
 隔离 runtime 以原生 CPU watchdog 限制脚本计算：`reduce` 为 100 ms，首次 `init` 与 `migrate` 为 500 ms。系统调度和 IPC 往返不计入脚本 CPU 预算，也没有固定墙钟返回时限；超预算返回 `E_CPU_BUDGET`。
 
-可机器读取的 JSON Schema：[`manifest.schema.json`](manifest.schema.json)，URI 为 `urn:remrss:mod:manifest:v1`，仅用于本地工具引用，不请求网络。
+可机器读取的 JSON Schema：[`manifest.schema.json`](manifest.schema.json)（`urn:remrss:mod:manifest:v1`）、[`ui.schema.json`](ui.schema.json)（`urn:remrss:mod:ui:v1`）与[`runtime.schema.json`](runtime.schema.json)（`urn:remrss:mod:runtime:v1`）。它们仅用于本地工具引用，不请求网络。
+
+
+## RC3 原生 UI、clock 与动作
+
+UI 节点保持有界、声明式，不提供任意 Miuix API、HTML、外部 URL 或绘制代码。`layout.*` 支持对齐 token；`ui.text/number` 支持语义字号、语义 tone、条件显示与受限格式化。`ui.list` 仅接受 schema 声明的标量数组，最多显示 32 项；图标使用固定名称集合。`ui.deadlineText` 绑定 `state.*` 或 `config.*` 中的 elapsedRealtime 毫秒截止值，需要 `clock.snapshot`。它只在宿主真实可见时原生刷新；隐藏/生命周期离开暂停，恢复时重读 elapsedRealtime，不运行 JavaScript、不常亮。
+
+clock 环境包含 `{wallTimeMs, elapsedRealtimeMs, timezoneId, bootId: null}`。`elapsedRealtimeMs` 仅在本次启动周期比较，不能持久化为跨重启截止时间。`schedule.visible` 每 owner 最多 4 个 key，周期至少 1000ms；周期与单次deadline可组合在同一key上，数值必须是非负 JavaScript 安全整数。隐藏不补发积压 tick，恢复时周期从当前可见时刻重新开始；已过期deadline最多立即触发一次。注册/取消是 Effect 意图，宿主以 `host.effectResult` 回报接受或拒绝；`host.schedule.tick` 的 `causes` 精确列出 `interval` 和/或 `deadline`。
+
+用户登记动作由 `action.invoke@1` 控制。设置页用 `settings.action` 打开宿主选择器，把 opaque `{id,version}` 保存进一个**可选的** config 字段；后屏按钮再绑定同一字段：`onPress:{type:"registeredAction",ref:{bind:"config.launchAction"}}`。只支持顶层 `config.*` 引用，不能绑定 `state.*`；字段 schema 必须严格声明登记生成的 48 位小写十六进制 `id` 与 `version:1`。尚未选择动作时按钮禁用并提示去设置页选择。宿主只在真实原生点击时请求执行，并再次核对能力授权、Mod owner 和该 owner 名下登记引用。动作引用不携带 Intent 或可执行目标。QuickJS reducer 产生的 `host.action.invoke(ref)` 仍须宿主验证用户激活。
+
+## Debug 同作者重载
+
+正常安装/升级使用 `pack` 与递增 `versionCode`。迭代 UI/脚本时，可用当前已签名 ZIP 作为比较基准生成 Debug 包：
+
+```sh
+./bin/remrss dev-reload my-mod --key author-private.pem --installed current-signed.zip --out my-mod-debug.zip
+```
+
+命令只接受相同 ID、作者指纹、`versionCode` 与 `dataVersion`，并重新签名和回验输出。然后在 Debug 构建的“Mod 开发重载”启动器入口选择该 ZIP。宿主保留原模型/授权并验证新包对当前模型仍兼容；新增必需能力或数据迁移必须通过正常导入/审核。此功能不进入 Release，不启用 HTTP 服务或设备自动发现。
+
+同页诊断要求输入单个 Mod ID，且目标已启用、作者仍受信任。只连接该 Mod，内存中最多保留 64 条 ready、提交 revision、Effect 请求与错误代码，不保留 state/config 或错误正文。离开页面会停止观察；记录只留在当前 Activity。资源统计只显示该 Mod 签名载荷的字节量，不代表 CPU、PSS 或电量。

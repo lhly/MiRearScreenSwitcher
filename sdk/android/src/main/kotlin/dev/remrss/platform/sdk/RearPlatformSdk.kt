@@ -272,6 +272,26 @@ class RearClient private constructor(
         RearInfoSnapshot.fromJson(service.service.queryRearInfo(callerPackage))
     }
 
+    /** Returns a one-shot host picker PendingIntent. Launch it for result to receive the opaque ref. */
+    fun requestRegisteredActionSelection(callback: (Result<PendingIntent>) -> Unit) = onBinder(callback) { service ->
+        requireActionCapabilitySupported(service)
+        service.service.requestRegisteredActionSelection(callerPackage, service.callback)
+    }
+
+    /** Returns a host confirmation PendingIntent; each run still requires the user's explicit tap. */
+    fun requestRegisteredActionInvocation(ref: RearRegisteredActionRef, callback: (Result<PendingIntent>) -> Unit) = onBinder(callback) { service ->
+        requireActionCapabilitySupported(service)
+        val capability = registeredActionCapabilityState(service.service.queryCapabilities(callerPackage))
+        if (!capability.granted) throw SecurityException("E_CAPABILITY_DENIED: no registered action has been authorized")
+        service.service.requestRegisteredActionInvocation(callerPackage, ref.id, ref.version, service.callback)
+    }
+
+    private fun requireActionCapabilitySupported(service: ClientEpoch) {
+        val capability = registeredActionCapabilityState(service.service.queryCapabilities(callerPackage))
+        if (!capability.supported)
+            throw UnsupportedOperationException("E_UNSUPPORTED: host does not implement registered actions")
+    }
+
     /** Start this only from a focused Activity; the host asks the user to choose data categories. */
     fun requestDataAuthorization(activity: Activity, fields: Set<RearDataField>, callback: (Result<Unit>) -> Unit = {}) {
         if (Looper.myLooper() != Looper.getMainLooper() || activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
@@ -454,6 +474,18 @@ class RearClient private constructor(
             eventExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
             onEvent: (RearPlatformEvent) -> Unit
         ) = RearClient(context, hostPackageName, eventExecutor, onEvent)
+    }
+}
+
+/** Opaque identity returned by the host picker. It contains no Intent or executable target data. */
+data class RearRegisteredActionRef(val id: String, val version: Int = 1) {
+    companion object {
+        /** Read only a successful RegisteredActionsActivity result. */
+        @JvmStatic fun fromActivityResult(data: Intent?): RearRegisteredActionRef? {
+            val id = data?.getStringExtra("registered_actions_selected_ref_id") ?: return null
+            val version = data.getIntExtra("registered_actions_selected_ref_version", 0)
+            return RearRegisteredActionRef(id, version).takeIf { id.matches(Regex("[a-f0-9]{48}") ) && version == 1 }
+        }
     }
 }
 

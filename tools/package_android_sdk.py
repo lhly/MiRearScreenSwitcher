@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the RC2 Android SDK as a narrowly allowlisted, standalone bundle."""
+"""Export the RC3 Android SDK as a narrowly allowlisted, standalone bundle."""
 
 from __future__ import annotations
 
@@ -26,8 +26,10 @@ CAPABILITIES = [
     {"name": "rear.scene.keep_visible", "version": 1},
     {"name": "data.battery", "version": 1},
     {"name": "data.systemMetrics", "version": 1},
+    {"name": "action.invoke", "version": 1},
 ]
-FEATURES = ["rear-info", "scene-lifecycle", "keep-visible", "consent-gated-battery-and-system-metrics"]
+FEATURES = ["rear-info", "scene-lifecycle", "keep-visible", "consent-gated-battery-and-system-metrics",
+            "publisher-scoped-registered-actions", "per-invocation-host-confirmation"]
 RUNTIME_DEPENDENCIES = ["Android framework (minSdk 24)", "org.json (Android platform)", "Kotlin standard library"]
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 TEMPLATE_FILES = (
@@ -186,9 +188,9 @@ def _resolved_inside(path: Path, parent: Path) -> bool:
 def _prepare_destination(destination: Path, repo: Path) -> None:
     # The default location is ignored planning state. Custom destinations are
     # accepted only outside the repository or under this ignored delivery root.
-    ignored_root = repo / ".planning/2026-11-05-platform-implementation/rc2-sdk-opening/delivery"
+    ignored_root = repo / ".planning/2026-11-05-platform-implementation/rc3-common-capabilities/delivery"
     if _resolved_inside(destination, repo) and not _resolved_inside(destination, ignored_root):
-        raise PackageError("output inside the repository must stay under the ignored RC2 delivery directory")
+        raise PackageError("output inside the repository must stay under the ignored RC3 delivery directory")
     if destination.is_symlink():
         raise PackageError(f"output path may not be a symbolic link: {destination}")
     if destination.exists():
@@ -205,7 +207,7 @@ def _prepare_destination(destination: Path, repo: Path) -> None:
 
 def package(
     repo: Path, aar: Path, sample_apk: Path, output: Path,
-    host_service: int = 57, host_compiled: bool = False,
+    host_service: int = 57, host_compiled: bool = False, host_debug_compiled: bool = False,
     host_release_compiled: bool = False, host_apk_produced: bool = False,
 ) -> tuple[Path, Path, dict]:
     repo = repo.resolve()
@@ -223,12 +225,12 @@ def package(
     host_props = parse_properties(repo / HOST_VERSION_FILE)
     host_name = host_props.get("versionName", "")
     host_code = host_props.get("versionCode", "")
-    if host_name != "4.0.0-rc.2" or host_code != "2023":
-        raise PackageError(f"expected tested Host 4.0.0-rc.2/2023, got {host_name}/{host_code}")
+    if host_name != "4.0.0-rc.3" or host_code != "2024":
+        raise PackageError(f"expected tested Host 4.0.0-rc.3/2024, got {host_name}/{host_code}")
     if host_service != 57:
-        raise PackageError("RC2 SDK is validated only against internal service contract 57")
-    if host_apk_produced and not (host_compiled or host_release_compiled):
-        raise PackageError("recording a Host APK requires verified Host release compilation")
+        raise PackageError("RC3 SDK is validated only against internal service contract 57")
+    if host_apk_produced and not (host_compiled or host_debug_compiled or host_release_compiled):
+        raise PackageError("recording a Host APK requires verified Host compilation")
     service_text = (repo / HOST_SERVICE_SOURCE).read_text(encoding="utf-8")
     match = re.search(r"USER_SERVICE_CONTRACT_VERSION\s*=\s*(\d+)\s*;", service_text)
     if not match or int(match.group(1)) != host_service:
@@ -326,10 +328,11 @@ def package(
                               "internalServiceContract": host_service,
                               "versionSource": str(HOST_VERSION_FILE)},
             "hostBuild": {
-                "debugCompilation": "passed" if host_compiled else "not-recorded",
+                "debugCompilation": "passed" if host_compiled or host_debug_compiled else "not-recorded",
                 "releaseCompilation": "passed" if host_compiled or host_release_compiled else "not-recorded",
                 "debugAndReleaseCompilation": "passed" if host_compiled else "not-recorded",
                 "hostApkProduced": host_apk_produced,
+                "hostApkVariant": ("release" if host_release_compiled or host_compiled else "debug") if host_apk_produced else None,
             },
             "hostSdkInteroperability": {"status": "not-verified",
                                          "note": "未完成该版本实机互通；referenceHost为源码版本参考，不是运行验证结果。"},
@@ -382,22 +385,25 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--aar", type=Path, required=True, help="built platform-sdk-release.aar")
     parser.add_argument("--sample-apk", type=Path, required=True, help="independently built sample debug APK")
-    parser.add_argument("--output", type=Path, help="bundle directory; defaults to ignored RC2 planning delivery path")
+    parser.add_argument("--output", type=Path, help="bundle directory; defaults to ignored RC3 planning delivery path")
     parser.add_argument("--host-service", type=int, default=57)
     parser.add_argument("--host-compile-verified", action="store_true",
                         help="legacy shorthand: record only after both Host debug and release compilation passed")
+    parser.add_argument("--host-debug-compile-verified", action="store_true",
+                        help="record only the reference Host debug compilation as passed")
     parser.add_argument("--host-release-compile-verified", action="store_true",
                         help="record only after the reference Host release compile/lint or release APK build passed")
     parser.add_argument("--host-apk-produced", action="store_true",
-                        help="record only after the reference Host APK was produced by this workflow")
+                        help="record only after a reference Host APK was produced by this workflow; records debug/release variant from verified build flags")
     args = parser.parse_args()
     try:
         repo = args.repo.resolve()
         sdk_version = parse_properties(repo / SDK_VERSION_FILE).get("sdkVersion", "unknown")
-        output = args.output or repo / ".planning/2026-11-05-platform-implementation/rc2-sdk-opening/delivery" / f"remrss-platform-sdk-{sdk_version}"
+        output = args.output or repo / ".planning/2026-11-05-platform-implementation/rc3-common-capabilities/delivery" / f"remrss-platform-sdk-{sdk_version}"
         bundle, archive, meta = package(
             repo, args.aar, args.sample_apk, output, args.host_service,
             host_compiled=args.host_compile_verified,
+            host_debug_compiled=args.host_debug_compile_verified,
             host_release_compiled=args.host_release_compile_verified,
             host_apk_produced=args.host_apk_produced,
         )

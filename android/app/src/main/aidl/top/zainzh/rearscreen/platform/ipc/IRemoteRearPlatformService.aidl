@@ -31,4 +31,10 @@ interface IRemoteRearPlatformService {
             IRemoteRearPlatformCallback callback);
     /** Read-only hardware and capability snapshot; dimensions are physical px, not window dp. */
     String queryRearInfo(String callerPackageName);
+    /** Opens the host-owned picker; the returned Activity result contains only an opaque ref. */
+    PendingIntent requestRegisteredActionSelection(String callerPackageName,
+            IRemoteRearPlatformCallback callback);
+    /** Host confirmation Activity is the only path that creates the short-lived invocation grant. */
+    PendingIntent requestRegisteredActionInvocation(String callerPackageName, String refId, int refVersion,
+            IRemoteRearPlatformCallback callback);
 }

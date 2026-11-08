@@ -1,4 +1,4 @@
-import json, subprocess, sys, tempfile, unittest, zipfile
+import json, runpy, subprocess, sys, tempfile, unittest, zipfile
 from pathlib import Path
 SDK=Path(__file__).resolve().parents[1]
 CLI=SDK/'remrss_mod.py'
@@ -15,6 +15,98 @@ def minimal_scenes(project):
     (project/'tests'/'config-changes.json').unlink(missing_ok=True)
 
 class ModToolTests(unittest.TestCase):
+    def test_runtime_schema_freezes_clock_effect_and_schedule_tick_wire(self):
+        schema=json.loads((SDK/'runtime.schema.json').read_text())
+        self.assertEqual(schema['$id'],'urn:remrss:mod:runtime:v1')
+        self.assertEqual(schema['$defs']['clock']['required'],['wallTimeMs','elapsedRealtimeMs','timezoneId','bootId'])
+        self.assertEqual(schema['$defs']['clock']['properties']['bootId']['type'],'null')
+        self.assertEqual(schema['$defs']['clock']['properties']['elapsedRealtimeMs']['maximum'],9007199254740991)
+        effects=schema['$defs']['effect']['oneOf']
+        self.assertEqual({item['properties']['type']['const'] for item in effects},
+            {'rear.open','schedule.visible.register','schedule.visible.cancel','action.invoke'})
+        action=next(item for item in effects if item['properties']['type']['const']=='action.invoke')
+        self.assertEqual(action['properties']['ref']['properties']['id']['pattern'],'^[a-f0-9]{48}$')
+        self.assertIn(':',schema['$defs']['effectResult']['properties']['effectId']['pattern'])
+        schedule=next(item for item in effects if item['properties']['type']['const']=='schedule.visible.register')
+        self.assertEqual(schedule['anyOf'],[{'required':['intervalMs']},{'required':['deadlineElapsedRealtimeMs']}])
+        self.assertEqual(schedule['properties']['intervalMs']['maximum'],9007199254740991)
+        self.assertEqual(schedule['properties']['deadlineElapsedRealtimeMs']['maximum'],9007199254740991)
+        self.assertEqual(schema['$defs']['scheduleTick']['required'],['id','scheduledElapsedRealtimeMs','actualElapsedRealtimeMs','missedCount','causes'])
+        self.assertEqual(schema['$defs']['scheduleTick']['properties']['actualElapsedRealtimeMs']['maximum'],9007199254740991)
+        tick={'id':'phase','scheduledElapsedRealtimeMs':1000,'actualElapsedRealtimeMs':1020,'missedCount':0,'causes':['interval','deadline']}
+        self.assertEqual(set(tick),set(schema['$defs']['scheduleTick']['required']))
+        self.assertTrue(set(tick['causes']) <= set(schema['$defs']['scheduleTick']['properties']['causes']['items']['enum']))
+        effect_id='123456:550e8400-e29b-41d4-a716-446655440000'
+        self.assertRegex(effect_id,schema['$defs']['effectResult']['properties']['effectId']['pattern'])
+        ui_schema=json.loads((SDK/'ui.schema.json').read_text())
+        action_ref=ui_schema['$defs']['eventAction']['oneOf'][1]['properties']['ref']['oneOf']
+        self.assertEqual(action_ref[0]['properties']['id']['pattern'],'^[a-f0-9]{48}$')
+        self.assertEqual(action_ref[1]['properties']['bind']['pattern'],r'^config\.[A-Za-z][A-Za-z0-9_]{0,63}$')
+
+    def test_schedule_accepts_combined_deadline_and_period_and_rejects_unsafe_integers(self):
+        validate=runpy.run_path(str(CLI))['validate_effect_intent']
+        capabilities={'schedule.visible'}
+        validate({'type':'schedule.visible.register','id':'clock','intervalMs':1000,'deadlineElapsedRealtimeMs':0},capabilities,'effect')
+        validate({'type':'schedule.visible.register','id':'clock','deadlineElapsedRealtimeMs':9007199254740991},capabilities,'effect')
+        for effect in (
+            {'type':'schedule.visible.register','id':'clock'},
+            {'type':'schedule.visible.register','id':'clock','intervalMs':9007199254740992},
+            {'type':'schedule.visible.register','id':'clock','deadlineElapsedRealtimeMs':9007199254740992},
+        ):
+            with self.assertRaises(ValueError): validate(effect,capabilities,'effect')
+
+    def test_action_effect_accepts_registry_ids_with_numeric_leading_and_rejects_nonopaque_ids(self):
+        validate=runpy.run_path(str(CLI))['validate_effect_intent']
+        capabilities={'action.invoke'}
+        validate({'type':'action.invoke','ref':{'id':'0'+'a'*47,'version':1}},capabilities,'effect')
+        for action_id in ('abc','A'*48,'g'*48):
+            with self.assertRaises(ValueError): validate({'type':'action.invoke','ref':{'id':action_id,'version':1}},capabilities,'effect')
+
+    def test_ui_lists_conditions_icons_deadlines_and_registered_action_picker(self):
+        with tempfile.TemporaryDirectory() as td:
+            project=Path(td)/'features'
+            run('create','sample.ui-features','--out',project)
+            manifest=json.loads((project/'manifest.json').read_text())
+            manifest['capabilities']['optional']=[{'name':'action.invoke','minimumVersion':1},{'name':'clock.snapshot','minimumVersion':1},{'name':'schedule.visible','minimumVersion':1}]
+            manifest['data']['stateSchema']={'type':'object','properties':{
+                'history':{'type':'array','maxItems':16,'items':{'type':'string','maxLength':40}},
+                'deadline':{'type':'integer','minimum':0,'maximum':1000000000}},'additionalProperties':False}
+            manifest['data']['configSchema']={'type':'object','properties':{
+                'actionRef':{'type':'object','properties':{'id':{'type':'string','maxLength':48,'pattern':'^[a-f0-9]{48}$'},'version':{'type':'integer','minimum':1,'maximum':1,'const':1}},'required':['id','version'],'additionalProperties':False}},'additionalProperties':False}
+            (project/'manifest.json').write_text(json.dumps(manifest))
+            (project/'settings.ui.json').write_text(json.dumps({'scene':'settings','root':{'type':'layout.column','children':[
+                {'type':'settings.action','label':'开场动作','value':{'bind':'config.actionRef'}}, {'type':'settings.save'}]}}))
+            (project/'rear.ui.json').write_text(json.dumps({'scene':'rear','root':{'type':'layout.column','children':[
+                {'type':'ui.icon','name':'trophy','label':'本场比分','tone':'success'},
+                {'type':'ui.list','items':{'bind':'state.history'},'maxItems':8,'visibleWhen':{'bind':'state.deadline','equals':0}},
+                {'type':'ui.deadlineText','value':{'bind':'state.deadline'}},
+                {'type':'ui.button','label':'开场','onPress':{'type':'registeredAction','ref':{'bind':'config.actionRef'}}}]}}))
+            run('check',project)
+            rear=json.loads((project/'rear.ui.json').read_text()); rear['root']['children'][1]['maxItems']=33
+            (project/'rear.ui.json').write_text(json.dumps(rear))
+            self.assertIn('maxItems',run('check',project,ok=False).stderr)
+            rear['root']['children'][1]['maxItems']=8
+            rear['root']['children'][3]['onPress']['ref']={'id':'a'*48,'version':2}
+            (project/'rear.ui.json').write_text(json.dumps(rear))
+            self.assertIn('registeredAction ref 无效',run('check',project,ok=False).stderr)
+            rear['root']['children'][3]['onPress']['ref']={'bind':'state.actionRef'}
+            (project/'rear.ui.json').write_text(json.dumps(rear))
+            self.assertIn('registeredAction ref 必须是登记opaque引用或config.*顶层绑定',run('check',project,ok=False).stderr)
+
+    def test_debug_reload_requires_same_author_id_version_code_and_data_version(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); project=root/'mod'; key=root/'author.pem'; installed=root/'installed.zip'; output=root/'reload.zip'
+            run('create','sample.reload','--out',project)
+            subprocess.run(['openssl','genpkey','-algorithm','RSA','-pkeyopt','rsa_keygen_bits:2048','-out',str(key)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            run('pack',project,'--key',key,'--out',installed)
+            (project/'rear.ui.json').write_text(json.dumps({'scene':'rear','root':{'type':'ui.text','value':'new'}}))
+            run('dev-reload',project,'--key',key,'--installed',installed,'--out',output)
+            self.assertTrue(output.is_file())
+            run('check',output)
+            project_manifest=json.loads((project/'manifest.json').read_text())
+            project_manifest['versionCode'] += 1; (project/'manifest.json').write_text(json.dumps(project_manifest))
+            self.assertIn('versionCode 必须与当前安装相同',run('dev-reload',project,'--key',key,'--installed',installed,'--out',output,ok=False).stderr)
+
     def test_templates_validate_without_runtime_for_info(self):
         with tempfile.TemporaryDirectory() as td:
             blank=Path(td)/'blank'; info=Path(td)/'info'
@@ -78,7 +170,7 @@ class ModToolTests(unittest.TestCase):
             (project/'manifest.json').write_text(json.dumps(manifest))
             self.assertIn('未知字段',run('check',project,ok=False).stderr)
             manifest.pop('contributions')
-            manifest['capabilities']['optional']=[{'name':'clock.snapshot','minimumVersion':1}]
+            manifest['capabilities']['optional']=[{'name':'network.http','minimumVersion':1}]
             (project/'manifest.json').write_text(json.dumps(manifest))
             self.assertIn('不认识能力',run('check',project,ok=False).stderr)
             manifest['capabilities']['optional']=[]

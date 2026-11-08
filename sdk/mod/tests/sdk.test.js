@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReducerSource, createReducerModule, defineMod, event, HOST_CONFIG_CHANGED_EVENT } from '../src/index.js';
+import { buildReducerSource, createReducerModule, defineMod, event, host, HOST_CONFIG_CHANGED_EVENT } from '../src/index.js';
+
+test('public schedule and registered action helpers create bounded host effects', () => {
+  assert.deepEqual(host.schedule.visible.register('clock.phase', 1000), {
+    type: 'schedule.visible.register', id: 'clock.phase', intervalMs: 1000,
+  });
+  assert.deepEqual(host.schedule.visible.cancel('clock.phase'), { type: 'schedule.visible.cancel', id: 'clock.phase' });
+  assert.deepEqual(host.schedule.visible.registerDeadline('timer.end', 10000), { type: 'schedule.visible.register', id: 'timer.end', deadlineElapsedRealtimeMs: 10000 });
+  const actionId = `0${'a'.repeat(47)}`;
+  assert.deepEqual(host.action.invoke({ id: actionId, version: 1 }), { type: 'action.invoke', ref: { id: actionId, version: 1 } });
+  assert.throws(() => host.schedule.visible.register('bad', 999), /intervalMs/);
+  assert.throws(() => host.schedule.visible.registerDeadline('bad', -1), /elapsedRealtime/);
+  assert.throws(() => host.action.invoke({ id: 'intent://unsafe', version: 1 }), /reference/);
+  assert.throws(() => host.action.invoke({ id: 'abc', version: 1 }), /reference/);
+  assert.throws(() => host.action.invoke({ id: 'A'.repeat(48), version: 1 }), /reference/);
+});
 
 test('builder emits the isolated runtime global ABI', () => {
   const source = buildReducerSource({

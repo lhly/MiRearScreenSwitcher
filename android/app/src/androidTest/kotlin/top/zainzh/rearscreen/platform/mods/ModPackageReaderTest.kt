@@ -522,6 +522,71 @@ class ModPackageReaderTest {
         return output.toByteArray()
     }
 
+    private fun signedActionArchive(ref: JSONObject, requireActionConfig: Boolean = false, actionIdPattern: String = "^[a-f0-9]{48}$"): ByteArray {
+        val raw = context.assets.open("platform/mods/generic-counter.zip").use { it.readBytes() }
+        val entries = linkedMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(raw)).use { zip ->
+            while (true) { val entry = zip.nextEntry ?: break; entries[entry.name] = zip.readBytes() }
+        }
+        val manifest = JSONObject(entries.getValue("manifest.json").toString(Charsets.UTF_8))
+        val actionRefSchema = JSONObject().put("type", "object")
+            .put("properties", JSONObject()
+                .put("id", JSONObject().put("type", "string").put("maxLength", 48).put("pattern", actionIdPattern))
+                .put("version", JSONObject().put("type", "integer").put("minimum", 1).put("maximum", 1).put("const", 1)))
+            .put("required", org.json.JSONArray().put("id").put("version")).put("additionalProperties", false)
+        val configSchema = manifest.getJSONObject("data").getJSONObject("configSchema")
+        configSchema.getJSONObject("properties").put("actionRef", actionRefSchema)
+        if (requireActionConfig) {
+            actionRefSchema.put("default", JSONObject().put("id", "a".repeat(48)).put("version", 1))
+            configSchema.put("required", org.json.JSONArray().put("actionRef"))
+        }
+        manifest.getJSONObject("capabilities").getJSONArray("required")
+            .put(JSONObject().put("name", "action.invoke").put("minimumVersion", 1))
+        entries["settings.ui.json"] = """{"scene":"settings","root":{"type":"layout.column","children":[{"type":"settings.action","label":"动作","value":{"bind":"config.actionRef"}},{"type":"settings.save"}]}}""".toByteArray()
+        entries["rear.ui.json"] = JSONObject().put("scene", "rear").put("root", JSONObject()
+            .put("type", "ui.button").put("label", "执行动作")
+            .put("onPress", JSONObject().put("type", "registeredAction").put("ref", ref))).toString().toByteArray()
+        val payloads = manifest.getJSONArray("payloads")
+        for (i in 0 until payloads.length()) {
+            val payload = payloads.getJSONObject(i); val bytes = entries.getValue(payload.getString("path"))
+            payload.put("bytes", bytes.size).put("sha256", java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') })
+        }
+        val pair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val fingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(pair.public.encoded)
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        manifest.getJSONObject("author").put("keyFingerprint", fingerprint)
+        val manifestBytes = manifest.toString().toByteArray(Charsets.UTF_8)
+        val signer = java.security.Signature.getInstance("SHA256withRSA").apply { initSign(pair.private); update(manifestBytes) }
+        val publicPem = "-----BEGIN PUBLIC KEY-----\n" + android.util.Base64.encodeToString(pair.public.encoded, android.util.Base64.NO_WRAP) + "\n-----END PUBLIC KEY-----\n"
+        entries["manifest.json"] = manifestBytes; entries["manifest.sig"] = signer.sign(); entries["author.pub"] = publicPem.toByteArray(Charsets.US_ASCII)
+        return ByteArrayOutputStream().also { output -> ZipOutputStream(output).use { zip -> entries.forEach { (name, bytes) -> zip.putNextEntry(java.util.zip.ZipEntry(name)); zip.write(bytes); zip.closeEntry() } } }.toByteArray()
+    }
+
+    @Test fun registeredActionPickerBindingRequiresOptionalOwnerOpaqueConfig() {
+        val accepted = ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("bind", "config.actionRef"))))
+        assertTrue(accepted.requiredCapabilities.any { it.name == "action.invoke" })
+        val stateBinding = assertThrows(ModPackageException::class.java) {
+            ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("bind", "state.actionRef"))))
+        }
+        assertEquals(ModPackageError.INVALID_UI, stateBinding.code)
+        val requiredConfig = assertThrows(ModPackageException::class.java) {
+            ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("bind", "config.actionRef"), requireActionConfig = true)))
+        }
+        assertEquals(ModPackageError.INVALID_UI, requiredConfig.code)
+        val unknownConfig = assertThrows(ModPackageException::class.java) {
+            ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("bind", "config.missingAction"))))
+        }
+        assertEquals(ModPackageError.INVALID_UI, unknownConfig.code)
+        val malformedOpaqueSchema = assertThrows(ModPackageException::class.java) {
+            ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("bind", "config.actionRef"), actionIdPattern = "^[a-z]+$")))
+        }
+        assertTrue(malformedOpaqueSchema.code in setOf(ModPackageError.INVALID_SCHEMA, ModPackageError.INVALID_UI))
+        val nonOpaqueLiteral = assertThrows(ModPackageException::class.java) {
+            ModPackageReader.read(ByteArrayInputStream(signedActionArchive(JSONObject().put("id", "action.start").put("version", 1))))
+        }
+        assertEquals(ModPackageError.INVALID_UI, nonOpaqueLiteral.code)
+    }
+
     @Test fun rearCastCapabilityIsRejectedByHostParser() {
         val error = assertThrows(ModPackageException::class.java) {
             ModPackageReader.read(ByteArrayInputStream(signedArchiveWithCapability("rear.cast")))

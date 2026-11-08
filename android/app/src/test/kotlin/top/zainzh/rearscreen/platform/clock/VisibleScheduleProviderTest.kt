@@ -257,6 +257,21 @@ class VisibleScheduleProviderTest {
         f.provider.close()
     }
 
+    @Test fun intervalTickReportsSkippedCadenceWithoutReplayingTheBacklog() {
+        val f = Fixture()
+        val lease = f.provider.open("mod", 12) { f.ticks += it }
+        lease.setVisible(true)
+        lease.set("pulse", intervalMs = 1_000)
+
+        f.advance(3_500)
+
+        assertEquals(1, f.ticks.size)
+        assertEquals(1_000L, f.ticks.single().scheduledElapsedRealtimeMs)
+        assertEquals(3_500L, f.ticks.single().observedElapsedRealtimeMs)
+        assertEquals(2, f.ticks.single().missedCount)
+        f.provider.close()
+    }
+
     private class Fixture(queuedExecutor: Boolean = false) {
         var now = 0L
         val ticks = mutableListOf<VisibleTick>()

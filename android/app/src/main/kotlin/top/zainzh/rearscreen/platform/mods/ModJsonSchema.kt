@@ -7,6 +7,8 @@ import kotlin.math.abs
 /** Bounded, deliberately small JSON Schema subset shared by model transactions and manifest checks. */
 internal object ModJsonSchema {
     private val schemaKey = Regex("^[A-Za-z][A-Za-z0-9_]{0,63}$")
+    private const val REGISTERED_ACTION_ID_PATTERN = "^[a-f0-9]{48}$"
+    private val registeredActionId = Regex(REGISTERED_ACTION_ID_PATTERN)
 
     fun validateDefinition(schema: JSONObject, field: String) {
         validateDefinitionNode(schema, field, 0)
@@ -49,6 +51,7 @@ internal object ModJsonSchema {
             }
             "string" -> {
                 require(value is String && value.length <= schema.optInt("maxLength", -1).takeIf { it >= 0 } ?: 4096) { "$field 字符串超长或类型错误" }
+                if (schema.has("pattern")) require(schema.optString("pattern") == REGISTERED_ACTION_ID_PATTERN && value.matches(registeredActionId)) { "$field opaque 动作引用格式无效" }
             }
             "boolean" -> require(value is Boolean) { "$field 必须为 boolean" }
             else -> error("$field schema 类型无效")
@@ -74,7 +77,7 @@ internal object ModJsonSchema {
 
     private fun validateDefinitionNode(schema: JSONObject, field: String, depth: Int) {
         require(depth <= 8) { "$field schema 嵌套超过 8 层" }
-        val allowed = setOf("type", "properties", "required", "additionalProperties", "items", "minimum", "maximum", "minItems", "maxItems", "maxLength", "enum", "const", "default")
+        val allowed = setOf("type", "properties", "required", "additionalProperties", "items", "minimum", "maximum", "minItems", "maxItems", "maxLength", "pattern", "enum", "const", "default")
         val it = schema.keys()
         while (it.hasNext()) require(it.next() in allowed) { "$field schema 含未知字段" }
         when (schema.optString("type")) {
@@ -85,7 +88,7 @@ internal object ModJsonSchema {
                 require(keys.all { schemaKey.matches(it) }) { "$field 字段名无效" }
                 val required = schema.optJSONArray("required")?.toStringSet().orEmpty()
                 require(required.size == (schema.optJSONArray("required")?.length() ?: 0) && required.all { it in keys }) { "$field.required 无效" }
-                if (field.startsWith("configSchema")) require(required.all { props.getJSONObject(it).has("default") }) { "$field.required 配置字段必须声明 default" }
+                if (field == "configSchema") require(required.all { props.getJSONObject(it).has("default") }) { "$field.required 配置字段必须声明 default" }
                 require(!schema.optBoolean("additionalProperties", false)) { "$field.additionalProperties 首版必须为 false" }
                 keys.forEach { validateDefinitionNode(props.getJSONObject(it), "$field.$it", depth + 1) }
             }
@@ -100,7 +103,10 @@ internal object ModJsonSchema {
                 val min = schema.getDouble("minimum"); val max = schema.getDouble("maximum")
                 require(min.isFinite() && max.isFinite() && min <= max && abs(min) <= 1e12 && abs(max) <= 1e12) { "$field 数值范围无效" }
             }
-            "string" -> require(schema.optInt("maxLength", -1) in 0..4096) { "$field.maxLength 必须为 0..4096" }
+            "string" -> {
+                require(schema.optInt("maxLength", -1) in 0..4096) { "$field.maxLength 必须为 0..4096" }
+                if (schema.has("pattern")) require(schema.optString("pattern") == REGISTERED_ACTION_ID_PATTERN) { "$field.pattern 不受支持" }
+            }
             "boolean" -> Unit
             else -> error("$field schema type 无效")
         }

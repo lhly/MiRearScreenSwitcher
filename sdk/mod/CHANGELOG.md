@@ -1,5 +1,14 @@
 # ReMRSS Mod SDK changes
 
+## 1.1.0 / RC3 — 2026-11-08
+
+- Add bounded native list, conditional visibility, formatting, icon, semantic tone/size and layout alignment nodes; align Host, CLI, JSON Schema and TypeScript contracts.
+- Add native elapsedRealtime `deadlineText`, clock context, visible schedule and registered-action effects/selectors. Schedule clocks use safe integers; hidden scenes stop ticking and do not replay missed intervals.
+- Match runtime event schemas to production payloads: `host.schedule.tick.causes` identifies interval/deadline, and effect results accept epoch-qualified action IDs.
+- Connect the settings action picker to optional top-level config fields and rear buttons; unset refs stay disabled, and only opaque owner registry IDs can reach the host callback.
+- Add a Debug-only same-author reload package flow and bounded single-Mod diagnostics; keep normal versionCode upgrades and dataVersion migrations on the standard import path.
+- Ship the kit sources with the ReMRSS v4.0.0-rc.3 preview.
+
 ## 1.0.5 candidate — 2026-11-06
 
 - Clarify `host.configChanged` refusals as per-Save outcomes; preserve committed model and logical observers while the host confirms old-worker shutdown and reloads the committed model into a new worker before retry.

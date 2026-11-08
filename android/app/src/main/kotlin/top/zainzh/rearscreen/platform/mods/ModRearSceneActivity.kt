@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.Display
 import android.view.View
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 import top.zainzh.rearscreen.AppPalette
 import top.zainzh.rearscreen.miuixContent
 import top.zainzh.rearscreen.platform.*
+import top.zainzh.rearscreen.platform.actions.ActionDispatchResult
+import top.zainzh.rearscreen.platform.actions.ActionError
+import top.zainzh.rearscreen.platform.actions.RegisteredActionRef
 import kotlin.math.roundToInt
 
 /** Ticket-routed, package-independent host shell for a verified Mod rear scene. */
@@ -46,6 +50,8 @@ class ModRearSceneActivity : ComponentActivity() {
     private var readyController: ModSceneReadyController? = null
     private var sceneReady by mutableStateOf(false)
     private var effectRequest by mutableStateOf<ModRearOpenEffect?>(null)
+    private var effectRequestCompletion: ((Boolean, String?) -> Unit)? = null
+    private var effectInFlightCompletion: ((Boolean, String?) -> Unit)? = null
     private var moduleSlotActive = false
     private var sessionId: String? = null
     private var generation: Long = 0
@@ -176,17 +182,32 @@ class ModRearSceneActivity : ComponentActivity() {
                     else if(activePackage.rearScene==null) Text("此 Mod 未声明背屏场景",color=AppPalette.secondary())
                     else ModNativeScene(activePackage, activePackage.rearScene, current.state, current.config, hostData, true,
                         onBack = { finish() },
-                        onEvent = { type -> broker.submitEvent(activePackage.id, type) },
+                        onEvent = { type ->
+                            if (!broker.submitUserEvent(activePackage.id, type)) {
+                                Toast.makeText(this@ModRearSceneActivity, "操作暂未提交：输入队列已满或场景正在切换，请稍后重试", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        visible = isSceneContentVisible(),
+                        onRegisteredAction = ::invokeRegisteredAction,
                         onSaveConfig = { config, complete -> broker.saveConfig(activePackage.id, config, mainExecutor, complete) })
                 }
             }
             val pendingEffect = effectRequest
-            WindowDialog(show = isSceneContentVisible() && pendingEffect != null, title = "Mod 请求打开背屏场景", onDismissRequest = { effectRequest = null }) {
+            WindowDialog(show = isSceneContentVisible() && pendingEffect != null, title = "Mod 请求打开背屏场景", onDismissRequest = ::cancelPendingEffect) {
                 pendingEffect?.let { effect ->
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("此 Effect 已在模型保存后发出。你确认后，宿主才会请求背屏服务。")
-                        TextButton("取消", { effectRequest = null }, minHeight = 48.dp)
-                        TextButton("确认打开", { effectRequest = null; requestEffect(effect) }, minHeight = 48.dp)
+                        TextButton("取消", ::cancelPendingEffect, minHeight = 48.dp)
+                        TextButton("确认打开", {
+                            effectRequest = null
+                            val completion = effectRequestCompletion
+                            effectInFlightCompletion = completion
+                            effectRequestCompletion = null
+                            requestEffect(effect) { accepted, code ->
+                                effectInFlightCompletion = null
+                                completion?.invoke(accepted, code)
+                            }
+                        }, minHeight = 48.dp)
                     }
                 }
             }
@@ -254,6 +275,10 @@ class ModRearSceneActivity : ComponentActivity() {
         stopHostData()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (id != null) effectConsumer?.let { ModHostEffectRouter.consumers.remove(id, it) }
+        effectRequestCompletion?.invoke(false, "E_SCENE_ACTIVITY_CLOSED")
+        effectInFlightCompletion?.invoke(false, "E_SCENE_ACTIVITY_CLOSED")
+        effectRequestCompletion = null
+        effectInFlightCompletion = null
         if (isCurrentInstance && isFinishing && launch != null && !coreClosed) {
             val route = launch!!
             core.displaySessions.closeScene(route.owner, route.sessionId)
@@ -289,8 +314,8 @@ class ModRearSceneActivity : ComponentActivity() {
         hostData = JSONObject()
     }
 
-    private fun requestEffect(effect: ModRearOpenEffect) {
-        val route = launch ?: return
+    private fun requestEffect(effect: ModRearOpenEffect, complete: (Boolean, String?) -> Unit = { _, _ -> }) {
+        val route = launch ?: run { complete(false, "E_STALE_SESSION"); return }
         val region = if (effect.region == "FULL") RearRegion.FULL else RearRegion.CAMERA_SAFE
         val requirements = route.request.requiredCapabilities.toMutableSet()
         if (region == RearRegion.FULL) requirements += CapabilityRequirement("rear.region", 1)
@@ -300,10 +325,64 @@ class ModRearSceneActivity : ComponentActivity() {
             keepVisible = effect.keepVisible,
             requiredCapabilities = requirements
         )
-        val token = core.issueSceneActivationAfterUserConfirmation(route.owner, request)
+        val token = runCatching { core.issueSceneActivationAfterUserConfirmation(route.owner, request) }
+            .getOrElse { complete(false, "E_ACTIVATION_REQUIRED"); return }
         lifecycleScope.launch(Dispatchers.IO) {
-            val result = core.displaySessions.openScene(route.owner, request, token, observer)
-            if (result is SceneOpenResult.Rejected) runOnUiThread { error = "无法打开背屏：${result.code}" }
+            val result = runCatching { core.displaySessions.openScene(route.owner, request, token, observer) }
+            runOnUiThread {
+                when (val value = result.getOrNull()) {
+                    is SceneOpenResult.Accepted -> complete(true, null)
+                    is SceneOpenResult.Rejected -> { error = "无法打开背屏：${value.code}"; complete(false, "E_${value.code.name}") }
+                    null -> { error = result.exceptionOrNull()?.message ?: "无法打开背屏"; complete(false, "E_SCENE_OPEN") }
+                }
+            }
+        }
+    }
+
+    private fun cancelPendingEffect() {
+        effectRequest = null
+        effectRequestCompletion?.invoke(false, "E_USER_CANCELLED")
+        effectRequestCompletion = null
+    }
+
+    /** Called only from the renderer's native button click callback; Mod JSON supplies an opaque ref only. */
+    private fun invokeRegisteredAction(ref: RegisteredActionRef) {
+        val route = launch ?: return
+        val active = pkg ?: return
+        if (!isSceneContentVisible() || isFinishing || isDestroyed) return
+        val declared = active.requiredCapabilities.any { it.name == "action.invoke" } ||
+            active.optionalCapabilities.any { it.name == "action.invoke" }
+        if (!declared) {
+            error = "此 Mod 未声明已登记动作能力"
+            return
+        }
+        val installed = ModPackageStore.installed(this, active.id)
+        if (installed == null || !installed.enabled || installed.authorFingerprint != active.authorFingerprint ||
+            "action.invoke" !in installed.grantedCapabilities) {
+            error = "此 Mod 未获已登记动作授权"
+            return
+        }
+        val currentOwner = core.modDataOwner(active.id)
+        if (currentOwner == null || currentOwner.principal !is SessionPrincipal.SignedMod ||
+            currentOwner.principal.modId != active.id || currentOwner.principal.authorFingerprint != active.authorFingerprint) {
+            error = "此 Mod 已停用或作者信任已撤销"
+            return
+        }
+        val activation = core.issueRegisteredActionActivationAfterHostClick(currentOwner, ref)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = core.invokeRegisteredAction(currentOwner, ref, activation)
+            runOnUiThread {
+                if (!isCurrentSceneInstance() || !isSceneContentVisible() || isFinishing || isDestroyed) return@runOnUiThread
+                error = when (result) {
+                    ActionDispatchResult.Accepted -> ""
+                    is ActionDispatchResult.Rejected -> when (result.error) {
+                        ActionError.REVOKED -> "此快捷操作已撤销"
+                        ActionError.TARGET_UNAVAILABLE -> "快捷操作目标已不可用或签名已变化"
+                        ActionError.BACKGROUND_RESTRICTED -> "操作已过期，请重新点击"
+                        else -> "无法执行快捷操作：${result.error}"
+                    }
+                }
+            }
         }
     }
 
@@ -407,25 +486,35 @@ class ModRearSceneActivity : ComponentActivity() {
         val modId = (route.owner.principal as? SessionPrincipal.SignedMod)?.modId ?: return
         if (!moduleSlotActive) {
             moduleSlotActive = true
-            broker.open(modId, mainExecutor, brokerListener)
+            broker.open(modId, mainExecutor, brokerListener, visible = true)
             if (effectConsumer == null) {
-                effectConsumer = ModHostEffectRouter.Consumer { _, _, effect ->
-                    runOnUiThread {
-                        if (!isCurrentSceneInstance() || !moduleSlotActive || !isSceneContentVisible() || isFinishing || isDestroyed) return@runOnUiThread
-                        effectRequest = effect
+                effectConsumer = object : ModHostEffectRouter.Consumer {
+                    override fun request(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect) {
+                        runOnUiThread { if (isCurrentSceneInstance() && moduleSlotActive && isSceneContentVisible() && !isFinishing && !isDestroyed) effectRequest = effect }
+                    }
+                    override fun requestWithResult(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect, complete: (Boolean, String?) -> Unit) {
+                        runOnUiThread {
+                            if (!isCurrentSceneInstance() || !moduleSlotActive || !isSceneContentVisible() || isFinishing || isDestroyed) {
+                                complete(false, "E_SCENE_NOT_VISIBLE")
+                                return@runOnUiThread
+                            }
+                            effectRequestCompletion?.invoke(false, "E_EFFECT_REPLACED")
+                            effectRequest = effect
+                            effectRequestCompletion = complete
+                        }
                     }
                 }
             }
             ModHostEffectRouter.consumers[modId] = requireNotNull(effectConsumer)
         }
+        broker.setObserverVisible(modId, brokerListener, true)
         startHostData()
     }
 
     private fun suspendVisibleConsumers() {
         stopHostData()
         val modId = (launch?.owner?.principal as? SessionPrincipal.SignedMod)?.modId
-        if (moduleSlotActive && modId != null) broker.closeObserver(modId, brokerListener)
-        moduleSlotActive = false
+        if (moduleSlotActive && modId != null) broker.setObserverVisible(modId, brokerListener, false)
         if (modId != null) effectConsumer?.let { ModHostEffectRouter.consumers.remove(modId, it) }
     }
 

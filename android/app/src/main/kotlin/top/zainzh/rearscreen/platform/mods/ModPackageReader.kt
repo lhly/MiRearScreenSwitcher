@@ -31,28 +31,35 @@ object ModPackageReader {
     private const val MAX_PUBLIC_KEY_BYTES = 4096
     private val idPattern = Regex("^[a-z0-9][a-z0-9_.-]{2,63}$")
     private val tokenPattern = Regex("^[a-z][A-Za-z0-9._-]{0,63}$")
+    private val configFieldPattern = Regex("^[A-Za-z][A-Za-z0-9_]{0,63}$")
+    private val opaqueActionId = Regex("^[a-f0-9]{48}$")
+    private const val opaqueActionIdPattern = "^[a-f0-9]{48}$"
     private val versionPattern = Regex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
     private val capabilities = mapOf(
         "rear.scene" to 1, "rear.scene.keep_visible" to 1, "data.battery" to 1, "data.systemMetrics" to 1,
-        "model.local" to 1, "ui.native" to 1, "ui.dialog" to 1
+        "model.local" to 1, "ui.native" to 1, "ui.dialog" to 1, "action.invoke" to 1, "schedule.visible" to 1, "clock.snapshot" to 1
     )
     private val nodeFields = mapOf(
-        "layout.column" to setOf("type", "children", "gap"),
-        "layout.row" to setOf("type", "children", "gap"),
-        "layout.box" to setOf("type", "children", "gap"),
-        "ui.text" to setOf("type", "value", "style"),
-        "ui.number" to setOf("type", "value", "style"),
-        "ui.button" to setOf("type", "label", "onPress", "enabled", "hint"),
-        "ui.image" to setOf("type", "asset", "alt"),
-        "ui.divider" to setOf("type"),
-        "ui.progress" to setOf("type", "value", "min", "max"),
-        "settings.row" to setOf("type", "label", "value", "hint", "onPress"),
-        "settings.input" to setOf("type", "label", "value", "hint", "placeholder"),
-        "settings.number" to setOf("type", "label", "value", "hint", "min", "max"),
-        "settings.toggle" to setOf("type", "label", "value", "hint"),
-        "settings.select" to setOf("type", "label", "value", "hint", "options"),
-        "settings.save" to setOf("type"), "settings.discard" to setOf("type"),
-        "ui.confirm" to setOf("type", "label", "title", "message", "onConfirm")
+        "layout.column" to setOf("type", "children", "gap", "horizontalAlignment", "verticalAlignment"),
+        "layout.row" to setOf("type", "children", "gap", "horizontalAlignment", "verticalAlignment"),
+        "layout.box" to setOf("type", "children", "gap", "horizontalAlignment", "verticalAlignment"),
+        "ui.text" to setOf("type", "value", "style", "format", "tone", "visibleWhen"),
+        "ui.number" to setOf("type", "value", "style", "format", "tone", "visibleWhen"),
+        "ui.list" to setOf("type", "items", "maxItems", "style", "emptyText", "format", "visibleWhen"),
+        "ui.icon" to setOf("type", "name", "label", "tone", "visibleWhen"),
+        "ui.deadlineText" to setOf("type", "value", "format", "visibleWhen"),
+        "ui.button" to setOf("type", "label", "onPress", "enabled", "hint", "visibleWhen"),
+        "ui.image" to setOf("type", "asset", "alt", "visibleWhen"),
+        "ui.divider" to setOf("type", "visibleWhen"),
+        "ui.progress" to setOf("type", "value", "min", "max", "visibleWhen"),
+        "settings.row" to setOf("type", "label", "value", "hint", "onPress", "visibleWhen"),
+        "settings.input" to setOf("type", "label", "value", "hint", "placeholder", "visibleWhen"),
+        "settings.action" to setOf("type", "label", "value", "hint", "visibleWhen"),
+        "settings.number" to setOf("type", "label", "value", "hint", "min", "max", "visibleWhen"),
+        "settings.toggle" to setOf("type", "label", "value", "hint", "visibleWhen"),
+        "settings.select" to setOf("type", "label", "value", "hint", "options", "visibleWhen"),
+        "settings.save" to setOf("type", "visibleWhen"), "settings.discard" to setOf("type", "visibleWhen"),
+        "ui.confirm" to setOf("type", "label", "title", "message", "onConfirm", "visibleWhen")
     )
 
     @Throws(ModPackageException::class)
@@ -273,7 +280,7 @@ object ModPackageReader {
                 require(count <= 128 && depth <= 8) { "UI 节点数或深度超过限制" }
                 val type = node.optString("type")
                 val allowed = nodeFields[type] ?: error("未知 UI 组件：$type")
-                if (type in setOf("settings.input", "settings.number", "settings.toggle", "settings.select")) hasConfigInputs = true
+                if (type in setOf("settings.input", "settings.number", "settings.toggle", "settings.select", "settings.action")) hasConfigInputs = true
                 if (type == "settings.save") hasSave = true
                 require(node.keys().asSequence().all { it in allowed }) { "$type 含未知字段" }
                 val required = when (type) {
@@ -281,9 +288,12 @@ object ModPackageReader {
                     "ui.text", "ui.number" -> setOf("value")
                     "ui.button" -> setOf("label", "onPress")
                     "ui.image" -> setOf("asset")
+                    "ui.list" -> setOf("items", "maxItems")
+                    "ui.icon" -> setOf("name", "label")
+                    "ui.deadlineText" -> setOf("value")
                     "ui.progress" -> setOf("value", "min", "max")
                     "settings.row" -> setOf("label")
-                    "settings.input" -> setOf("label", "value")
+                    "settings.input", "settings.action" -> setOf("label", "value")
                     "settings.number" -> setOf("label", "value", "min", "max")
                     "settings.toggle" -> setOf("label", "value")
                     "settings.select" -> setOf("label", "value", "options")
@@ -293,10 +303,51 @@ object ModPackageReader {
                 require(node.keys().asSequence().toSet().containsAll(required)) { "$type 缺少必需字段" }
                 if (node.has("gap")) require(node.getInt("gap") in 0..64) { "gap 超出 0..64" }
                 for (key in listOf("value")) if (node.has(key)) validateBinding(node.get(key), manifest, caps, type)
-                for (key in listOf("label", "hint", "placeholder", "title", "message")) if (node.has(key)) {
+                if (node.has("items")) {
+                    validateBinding(node.get("items"), manifest, caps, type)
+                    val path = node.getJSONObject("items").getString("bind")
+                    val itemSchema = ModJsonSchema.atPath(if (path.startsWith("state.")) manifest.stateSchema else manifest.configSchema, path.substringAfter('.'))
+                    require(itemSchema?.optString("type") == "array") { "ui.list.items 必须绑定 schema 中声明的数组" }
+                    require(itemSchema.optJSONObject("items")?.optString("type") in setOf("string", "integer", "number", "boolean")) { "ui.list 只接受标量数组" }
+                    require(node.getInt("maxItems") in 1..32) { "ui.list.maxItems 必须为 1..32" }
+                }
+                if (node.has("visibleWhen")) {
+                    val condition = node.getJSONObject("visibleWhen")
+                    requireKeys(condition, setOf("bind", "equals"), "visibleWhen")
+                    require(condition.has("bind") && condition.has("equals")) { "visibleWhen 需要 bind 和 equals" }
+                    validateBinding(JSONObject().put("bind", condition.getString("bind")), manifest, caps, type)
+                    require(condition.get("equals") !is JSONObject && condition.get("equals") !is JSONArray && condition.get("equals") != JSONObject.NULL) { "visibleWhen.equals 必须为标量" }
+                    val boundPath = condition.getString("bind")
+                    val boundSchema = when {
+                        boundPath.startsWith("state.") -> ModJsonSchema.atPath(manifest.stateSchema, boundPath.removePrefix("state."))
+                        boundPath.startsWith("config.") -> ModJsonSchema.atPath(manifest.configSchema, boundPath.removePrefix("config."))
+                        else -> null
+                    }
+                    if (boundSchema != null) {
+                        val boundType = boundSchema.optString("type")
+                        val expectedType = when (condition.get("equals")) { is Boolean -> "boolean"; is Number -> "number"; else -> "string" }
+                        require(boundType == expectedType || expectedType == "number" && boundType == "integer") { "visibleWhen.equals 类型与绑定不匹配" }
+                    }
+                }
+                if (type.startsWith("layout.")) {
+                    require(node.optString("horizontalAlignment", "start") in if (type == "layout.row") setOf("start", "center", "end", "spaceBetween") else setOf("start", "center", "end")) { "horizontalAlignment 无效" }
+                    require(node.optString("verticalAlignment", "center") in setOf("top", "center", "bottom")) { "verticalAlignment 无效" }
+                }
+                if (node.has("format")) require(node.getString("format") in setOf("text", "integer", "decimal", "percent", "duration")) { "未知 format" }
+                if (node.has("tone")) require(node.getString("tone") in setOf("primary", "secondary", "success", "warning", "error")) { "未知语义 tone" }
+                if (type == "ui.icon") require(node.getString("name") in setOf("add", "remove", "check", "close", "timer", "trophy", "info", "warning")) { "未知宿主图标" }
+                if (type == "ui.deadlineText") {
+                    require(node.optString("format", "duration") == "duration") { "ui.deadlineText 仅支持 duration" }
+                    val path = node.optJSONObject("value")?.optString("bind") ?: error("ui.deadlineText.value 必须绑定毫秒截止时间")
+                    require(path.startsWith("state.") || path.startsWith("config.")) { "ui.deadlineText 只能绑定 state/config 的 elapsedRealtime 毫秒截止值" }
+                    val schema = ModJsonSchema.atPath(if (path.startsWith("state.")) manifest.stateSchema else manifest.configSchema, path.substringAfter('.'))
+                    require(schema?.optString("type") == "integer") { "ui.deadlineText 必须绑定整数毫秒截止时间" }
+                    require("clock.snapshot" in caps) { "ui.deadlineText 需要声明 clock.snapshot 能力" }
+                }
+                for (key in listOf("label", "hint", "placeholder", "title", "message", "emptyText")) if (node.has(key)) {
                     val value = node.get(key); require(value is String && value.length <= if (key == "label") 120 else 240) { "$type.$key 类型或长度无效" }
                 }
-                if (type in setOf("settings.input", "settings.number", "settings.toggle", "settings.select")) {
+                if (type in setOf("settings.input", "settings.number", "settings.toggle", "settings.select", "settings.action")) {
                     val binding=node.optJSONObject("value")?.optString("bind") ?: ""
                     require(binding.startsWith("config.")) { "$type.value 必须绑定 config.*" }
                     val schema=ModJsonSchema.atPath(manifest.configSchema,binding.removePrefix("config.")) ?: error("配置字段未在 configSchema 声明")
@@ -304,13 +355,18 @@ object ModPackageReader {
                         "settings.input" -> setOf("string")
                         "settings.number" -> setOf("integer","number")
                         "settings.toggle" -> setOf("boolean")
+                        "settings.action" -> setOf("object")
                         else -> setOf("string","integer","number","boolean")
                     }
                     require(schema.optString("type") in expected) { "$type 与 config schema 类型不匹配" }
+                    if (type == "settings.action") {
+                        require("action.invoke" in caps) { "settings.action 需要声明 action.invoke 能力" }
+                        validateRegisteredActionConfig(manifest.configSchema, binding.removePrefix("config."))
+                    }
                 }
                 if (type == "ui.button" || type == "settings.row" && node.has("onPress") || type == "ui.confirm") {
                     val action = node.optJSONObject(if (type == "ui.confirm") "onConfirm" else "onPress") ?: error("action 无效")
-                    validateAction(action, caps, manifest.runtime)
+                    validateAction(action, caps, manifest.runtime, manifest)
                 }
                 if (type == "ui.image") {
                     val asset = safePath(node.getString("asset"))
@@ -333,7 +389,10 @@ object ModPackageReader {
                         require(values.add(option.get("value").toString())) { "select value 重复" }
                     }
                 }
-                if (node.has("style")) require(node.getString("style") in setOf("title", "body", "caption", "number", "displayNumber")) { "未知语义样式" }
+                if (node.has("style")) {
+                    val style = node.getString("style")
+                    require(if (type == "ui.list") style in setOf("body", "caption") else style in setOf("title", "body", "caption", "number", "displayNumber")) { "未知语义样式" }
+                }
                 if (type in setOf("layout.column", "layout.row", "layout.box")) {
                     val children = node.getJSONArray("children"); require(children.length() <= 128) { "容器子项过多" }
                     for (i in 0 until children.length()) walk(children.getJSONObject(i), depth + 1)
@@ -349,10 +408,42 @@ object ModPackageReader {
         return root
     }
 
-    private fun validateAction(action: JSONObject, caps: Set<String>, runtime: ModRuntimeKind) {
-        require(action.optString("type") == "event") { "当前只允许 reducer event action" }
-        requireKeys(action, setOf("type", "name"), "event action")
-        require(runtime == ModRuntimeKind.QUICKJS && tokenPattern.matches(action.getString("name"))) { "event action 需要 QuickJS reducer 和合法事件名" }
+    private fun validateAction(action: JSONObject, caps: Set<String>, runtime: ModRuntimeKind, manifest: ParsedManifest) {
+        when (action.optString("type")) {
+            "event" -> {
+                requireKeys(action, setOf("type", "name"), "event action")
+                require(runtime == ModRuntimeKind.QUICKJS && tokenPattern.matches(action.getString("name"))) { "event action 需要 QuickJS reducer 和合法事件名" }
+            }
+            "registeredAction" -> {
+                requireKeys(action, setOf("type", "ref"), "registered action")
+                require("action.invoke" in caps) { "registered action 需要声明 action.invoke 能力" }
+                val ref = action.getJSONObject("ref")
+                if (ref.keys().asSequence().toSet() == setOf("id", "version")) {
+                    val version = ref.opt("version")
+                    require(opaqueActionId.matches(ref.getString("id")) && version is Number && version.toDouble() == 1.0) { "registered action ref 无效或版本不支持" }
+                } else {
+                    requireKeys(ref, setOf("bind"), "registered action binding")
+                    val binding = ref.getString("bind")
+                    require(binding.startsWith("config.") && binding.substringAfter("config.").matches(configFieldPattern)) { "registered action 只支持 config.* 顶层字段绑定" }
+                    validateRegisteredActionConfig(manifest.configSchema, binding.removePrefix("config."))
+                }
+            }
+            else -> error("未知 action 类型")
+        }
+    }
+
+    private fun validateRegisteredActionConfig(configSchema: JSONObject, field: String) {
+        require(field.matches(configFieldPattern)) { "registered action config 字段必须是顶层字段" }
+        val required = configSchema.optJSONArray("required")?.toStringSet().orEmpty()
+        require(field !in required) { "registered action config 字段必须可选，以支持尚未选择动作" }
+        val schema = ModJsonSchema.atPath(configSchema, field) ?: error("registered action config 字段未声明")
+        val props = schema.optJSONObject("properties") ?: error("registered action configSchema 必须声明 id/version")
+        val schemaRequired = schema.optJSONArray("required")?.toStringSet().orEmpty()
+        require(schema.optString("type") == "object" && props.length() == 2 && props.has("id") && props.has("version") &&
+            schemaRequired == setOf("id", "version") && !schema.optBoolean("additionalProperties", false)) { "registered action configSchema 只允许必需的 id/version" }
+        val id = props.getJSONObject("id"); val version = props.getJSONObject("version")
+        require(id.optString("type") == "string" && id.optInt("maxLength", 0) == 48 && id.optString("pattern") == opaqueActionIdPattern &&
+            version.optString("type") == "integer" && version.optInt("const", -1) == 1) { "registered action configSchema 必须使用登记 opaque id 与 const 1 version" }
     }
 
     private fun validateBinding(value: Any, manifest: ParsedManifest, caps: Set<String>, nodeType: String) {
@@ -496,6 +587,7 @@ object ModPackageReader {
         val keys = obj.keys().asSequence().toSet()
         require(keys == expected) { "$field 字段缺失或包含未知字段" }
     }
+    private fun JSONArray.toStringSet(): Set<String> = (0 until length()).map { getString(it) }.toSet()
     private fun JSONObject.string(key: String, max: Int, minLength: Int = 0): String {
         val value = opt(key) as? String ?: fail(ModPackageError.INVALID_MANIFEST, "$key 必须为字符串")
         if (value.length !in minLength..max) fail(ModPackageError.INVALID_MANIFEST, "$key 长度无效")

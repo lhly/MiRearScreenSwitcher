@@ -1,6 +1,6 @@
 # Android SDK 接入指南
 
-这份指南覆盖 SDK `0.1.0` 的已交付接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据。它不代表 cast、通知、host action、clock 或 FULL/region 能力已开放。
+这份指南覆盖 SDK `0.2.0` 的已交付接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据，以及登记和逐次确认调用快捷操作。它不代表 cast、通知、clock 或 FULL/region 能力已开放。
 
 ## 1. 引用本地 AAR
 
@@ -240,6 +240,41 @@ override fun onStop() {
 
 在应用真正释放平台连接时才调用 `RearClient.close()`。它释放该 client epoch 的 sessions 与数据订阅；不要因为单个 Activity `onStop` 就关闭应用级 client。SDK callback/event 代表当前连接一代，断开或 client 关闭后应停止采用迟到结果。
 
+## 8. 使用用户登记的快捷操作
+
+快捷操作由用户从本机已安装应用或受支持的快捷操作提供器中登记。登记时，Host 保存显式目标组件、创建者签名和有界参数；SDK 只收到不可执行的 opaque ref，不会拿到任意 `Intent`、Shell 或 Root/Shizuku 接口。每个 publisher 只能使用自己登记的 ref。
+
+先从前台页面打开 Host picker 并读取 Activity result。Picker 会说明授权应用仅调用用户为它登记的快捷操作；取消时 result 中没有 ref。
+
+```kotlin
+private val actionPicker = registerForActivityResult(
+    ActivityResultContracts.StartIntentSenderForResult()
+) { result ->
+    val actionRef = RearRegisteredActionRef.fromActivityResult(result.data)
+    if (actionRef != null) saveSelectedAction(actionRef)
+}
+
+private fun chooseRegisteredAction() {
+    rear.requestRegisteredActionSelection { result ->
+        result.onSuccess { pending ->
+            actionPicker.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+        }.onFailure(::showError)
+    }
+}
+```
+
+调用时再次请求 Host 确认 PendingIntent，并在用户确认后由 Host 重新校验 ref 所属 publisher、撤销状态、目标可用性和当前签名。应用只在 `RearClient` 的事件回调中接收完成结果：`type == "registeredActionInvocation"`，其中 `accepted` 表示系统接受了显式 Activity 启动请求，不代表目标应用完成了后续业务。
+
+```kotlin
+rear.requestRegisteredActionInvocation(actionRef) { result ->
+    result.onSuccess { pending ->
+        actionPicker.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+    }.onFailure(::showError)
+}
+```
+
+旧版 Host 仍可使用旧 SDK 已有的 Scene 和数据接口；当 Host capability snapshot 不含 `action.invoke` 时，新动作入口返回 `E_UNSUPPORTED`，不影响客户端连接。
+
 ## 本版可用范围
 
-本版提供：rear info/能力查询；前台用户确认的独立 Scene；Ready、viewport、可见性、当前 presentation 与受约束的 keep-visible；battery 与 system metrics 的授权、查询和可见订阅。它不提供 cast session、应用自有 rear notification、host action、clock、FULL/region，也不嵌入 Root/Shizuku/QuickJS/Miuix/ROM实现。请按运行时 capability 与返回状态处理目标设备，不把未开放能力包装成可用接口。
+本版提供：rear info/能力查询；前台用户确认的独立 Scene；Ready、viewport、可见性、当前 presentation 与受约束的 keep-visible；battery 与 system metrics 的授权、查询和可见订阅；用户登记、publisher隔离并逐次确认的快捷操作。它不提供 cast session、应用自有 rear notification、clock、FULL/region，也不嵌入 Root/Shizuku/QuickJS/Miuix/ROM实现。请按运行时 capability 与返回状态处理目标设备，不把未开放能力包装成可用接口。

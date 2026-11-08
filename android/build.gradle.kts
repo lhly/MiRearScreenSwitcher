@@ -26,3 +26,5 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.buildDir)
 }
+
+apply(from = "../gradle/device-task-guard.gradle.kts")

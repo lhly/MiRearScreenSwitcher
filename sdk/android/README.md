@@ -1,6 +1,6 @@
 # ReMRSS Android SDK
 
-ReMRSS Android SDK `0.1.0` provides a narrow Binder client for rear-display discovery, independent rear Activities, and opt-in read-only platform data. It does not embed host UI or privileged backends. Start with the [developer integration guide](docs/INTEGRATION.md). The dual-screen scoreboard lives at `sdk/sample/` in the source repository; the delivery bundle places that same sample at `sample/`.
+ReMRSS Android SDK `0.2.0` provides a narrow Binder client for rear-display discovery, independent rear Activities, opt-in read-only platform data, and user-registered shortcut actions. It does not embed privileged backends. Start with the [developer integration guide](docs/INTEGRATION.md). The dual-screen scoreboard lives at `sdk/sample/` in the source repository; the delivery bundle places that same sample at `sample/`.
 
 ## Consume the local AAR
 
@@ -20,6 +20,6 @@ The SDK delivery bundle includes the ready-to-install preview at `sample/apk/rea
 
 ## Keep the contract narrow
 
-The client negotiates `remrss.platform/1` when it connects. Query the current contract and capability results rather than assuming a feature from the SDK version or device model. This release exposes rear info, Scene activation/presentation and `keepVisible`, plus consent-gated battery and system-metrics data. GPU utilization may be reported unavailable. FULL/region, cast sessions, app-published notifications, host actions, and clock APIs are not available in this SDK release.
+The client negotiates `remrss.platform/1` when it connects. Query the current contract and capability results rather than assuming a feature from the SDK version or device model. This release exposes rear info, Scene activation/presentation and `keepVisible`, consent-gated battery and system-metrics data, and publisher-owned registered actions. GPU utilization may be reported unavailable. FULL/region, cast sessions, app-published notifications, and clock APIs are not available in this SDK release.
 
 See [Developer integration guide](docs/INTEGRATION.md) for connection setup, capability/data queries, the Scene manifest and user-confirmation flow, Ready/viewport/visibility handling, two-screen state, and cleanup.

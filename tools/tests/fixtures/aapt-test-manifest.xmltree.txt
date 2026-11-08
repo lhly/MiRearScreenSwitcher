@@ -1,0 +1,12 @@
+N: android=http://schemas.android.com/apk/res/android
+  E: manifest (line=2)
+    A: package="top.zainzh.rearscreen.debug.test" (Raw: "top.zainzh.rearscreen.debug.test")
+    E: instrumentation (line=12)
+      A: android:label(0x01010001)="Tests for top.zainzh.rearscreen.debug" (Raw: "Tests for top.zainzh.rearscreen.debug")
+      A: android:name(0x01010003)="androidx.test.runner.AndroidJUnitRunner" (Raw: "androidx.test.runner.AndroidJUnitRunner")
+      A: android:targetPackage(0x01010021)="top.zainzh.rearscreen.debug" (Raw: "top.zainzh.rearscreen.debug")
+    E: application (line=28)
+      A: android:debuggable(0x0101000f)=(type 0x12)0xffffffff
+      E: activity (line=40)
+        A: android:name(0x01010003)="other.app.DecoyActivity" (Raw: "other.app.DecoyActivity")
+        A: android:targetPackage(0x01010021)="other.app.decoy" (Raw: "other.app.decoy")

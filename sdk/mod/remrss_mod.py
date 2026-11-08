@@ -15,7 +15,7 @@ TOKEN = re.compile(r"^[a-z][A-Za-z0-9._-]{0,63}$")
 SCHEMA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 CAPABILITY_NAMES = {
     "rear.scene": 1, "rear.scene.keep_visible": 1, "data.battery": 1, "data.systemMetrics": 1,
-"model.local": 1, "ui.native": 1, "ui.dialog": 1,
+"model.local": 1, "ui.native": 1, "ui.dialog": 1, "action.invoke": 1, "schedule.visible": 1, "clock.snapshot": 1,
 }
 DATA_BINDINGS = {
     "data.battery": {"battery.level", "battery.scale", "battery.charging"},
@@ -27,7 +27,7 @@ DATA_BINDINGS = {
 }
 MOD_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,63}$")
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
-KNOWN_NODES = {"layout.column", "layout.row", "layout.box", "ui.text", "ui.number", "ui.image", "ui.divider", "ui.progress", "ui.button", "settings.row", "settings.input", "settings.number", "settings.toggle", "settings.select", "settings.save", "settings.discard", "ui.confirm"}
+KNOWN_NODES = {"layout.column", "layout.row", "layout.box", "ui.text", "ui.number", "ui.list", "ui.icon", "ui.deadlineText", "ui.image", "ui.divider", "ui.progress", "ui.button", "settings.row", "settings.input", "settings.action", "settings.number", "settings.toggle", "settings.select", "settings.save", "settings.discard", "ui.confirm"}
 
 class ModError(ValueError): pass
 
@@ -83,6 +83,7 @@ def validate_schema(schema, value, field="$", depth=0):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not (-1e12 <= value <= 1e12): fail(f"{field} 应为有限 number")
     elif kind == "string":
         if not isinstance(value, str) or len(value) > int(schema.get("maxLength", 4096)): fail(f"{field} 应为有界 string")
+        if "pattern" in schema and (schema["pattern"] != r"^[a-f0-9]{48}$" or not re.fullmatch(r"[a-f0-9]{48}", value)): fail(f"{field} opaque 动作引用格式无效")
     elif kind == "boolean":
         if not isinstance(value, bool): fail(f"{field} 应为 boolean")
     else: fail(f"{field} schema 类型不支持：{kind}")
@@ -90,7 +91,7 @@ def validate_schema(schema, value, field="$", depth=0):
     if "const" in schema and value != schema["const"]: fail(f"{field} 与 const 不符")
 
 def validate_schema_definition(schema, field, depth=0):
-    if depth > 8 or not isinstance(schema, dict) or set(schema)-{"type","properties","required","additionalProperties","items","minimum","maximum","maxLength","minItems","maxItems","enum","const","default"}:
+    if depth > 8 or not isinstance(schema, dict) or set(schema)-{"type","properties","required","additionalProperties","items","minimum","maximum","maxLength","pattern","minItems","maxItems","enum","const","default"}:
         fail(f"{field} schema 深度或字段无效")
     kind=schema.get("type")
     if kind not in ("object","array","integer","number","string","boolean"): fail(f"{field} schema 类型无效")
@@ -99,7 +100,7 @@ def validate_schema_definition(schema, field, depth=0):
         if not isinstance(props,dict) or len(props)>64 or any(not SCHEMA_KEY.fullmatch(k) for k in props): fail(f"{field}.properties 最多 64 个合法字段")
         required=schema.get("required",[])
         if not isinstance(required,list) or len(required)>len(props) or any(not isinstance(k,str) or k not in props for k in required) or len(set(required))!=len(required): fail(f"{field}.required 无效")
-        if field.startswith("configSchema") and any("default" not in props[k] for k in required): fail(f"{field}.required 配置字段必须声明 default")
+        if field == "configSchema" and any("default" not in props[k] for k in required): fail(f"{field}.required 配置字段必须声明 default")
         if schema.get("additionalProperties",False) is not False: fail(f"{field}.additionalProperties 首版必须为 false")
         for name,child in props.items(): validate_schema_definition(child,f"{field}.{name}",depth+1)
     elif kind == "array":
@@ -113,6 +114,7 @@ def validate_schema_definition(schema, field, depth=0):
     elif kind == "string":
         size=schema.get("maxLength")
         if isinstance(size,bool) or not isinstance(size,int) or not 0<=size<=4096: fail(f"{field}.maxLength 必须为 0..4096")
+        if "pattern" in schema and schema["pattern"] != r"^[a-f0-9]{48}$": fail(f"{field}.pattern 不受支持")
     if "enum" in schema:
         choices=schema["enum"]
         if not isinstance(choices,list) or not 1<=len(choices)<=64 or len({json.dumps(x,sort_keys=True) for x in choices})!=len(choices): fail(f"{field}.enum 无效")
@@ -129,6 +131,19 @@ def schema_at_path(schema, path):
         if not isinstance(current,dict): return None
     return current
 
+def validate_registered_action_config(config_schema, field):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", field): fail("registered action config 字段必须是顶层字段")
+    if field in config_schema.get("required", []): fail("registered action config 字段必须可选，以支持尚未选择动作")
+    field_schema=schema_at_path(config_schema,field)
+    if not isinstance(field_schema,dict): fail("registered action config 字段未声明")
+    props=field_schema.get("properties",{})
+    required=field_schema.get("required",[])
+    if (field_schema.get("type")!="object" or set(props)!={"id","version"} or
+        set(required)!={"id","version"} or len(required)!=2 or field_schema.get("additionalProperties",False) is not False or
+        props["id"].get("type")!="string" or props["id"].get("maxLength")!=48 or props["id"].get("pattern")!=r"^[a-f0-9]{48}$" or
+        props["version"].get("type")!="integer" or props["version"].get("const")!=1):
+        fail("registered action configSchema 必须是可选的opaque id + const 1 version")
+
 def validate_ui(value, state_schema, config_schema, capabilities, runtime_kind):
     if not isinstance(value, dict) or set(value) != {"scene", "root"} or value["scene"] not in ("settings", "rear"):
         fail("UI 文件必须包含 scene=settings|rear 与 root")
@@ -142,31 +157,36 @@ def validate_ui(value, state_schema, config_schema, capabilities, runtime_kind):
         if not isinstance(node, dict) or not isinstance(node.get("type"), str): fail("UI node 必须是含 type 的 object")
         typ = node["type"]
         if typ not in KNOWN_NODES: fail(f"未知 UI 组件：{typ}")
-        if typ in {"settings.input","settings.number","settings.toggle","settings.select"}: has_config_inputs=True
+        if typ in {"settings.input","settings.action","settings.number","settings.toggle","settings.select"}: has_config_inputs=True
         if typ == "settings.save": has_save=True
         fields={
-            "layout.column": {"type","children","gap"}, "layout.row": {"type","children","gap"}, "layout.box": {"type","children","gap"},
-            "ui.text": {"type","value","style"}, "ui.number": {"type","value","style"},
-            "ui.button": {"type","label","onPress","enabled","hint"}, "ui.image": {"type","asset","alt"},
-            "ui.divider": {"type"}, "ui.progress": {"type","value","min","max"},
-            "settings.row": {"type","label","value","hint","onPress"},
-            "settings.input": {"type","label","value","hint","placeholder"},
-            "settings.number": {"type","label","value","hint","min","max"},
-            "settings.toggle": {"type","label","value","hint"},
-            "settings.select": {"type","label","value","hint","options"},
-            "settings.save": {"type"}, "settings.discard": {"type"},
-            "ui.confirm": {"type","label","title","message","onConfirm"},
+            "layout.column": {"type","children","gap","horizontalAlignment","verticalAlignment"}, "layout.row": {"type","children","gap","horizontalAlignment","verticalAlignment"}, "layout.box": {"type","children","gap","horizontalAlignment","verticalAlignment"},
+            "ui.text": {"type","value","style","format","tone","visibleWhen"}, "ui.number": {"type","value","style","format","tone","visibleWhen"},
+            "ui.list": {"type","items","maxItems","style","emptyText","format","visibleWhen"},
+            "ui.icon": {"type","name","label","tone","visibleWhen"},
+            "ui.deadlineText": {"type","value","format","visibleWhen"},
+            "ui.button": {"type","label","onPress","enabled","hint","visibleWhen"}, "ui.image": {"type","asset","alt","visibleWhen"},
+            "ui.divider": {"type","visibleWhen"}, "ui.progress": {"type","value","min","max","visibleWhen"},
+            "settings.row": {"type","label","value","hint","onPress","visibleWhen"},
+            "settings.input": {"type","label","value","hint","placeholder","visibleWhen"},
+            "settings.action": {"type","label","value","hint","visibleWhen"},
+            "settings.number": {"type","label","value","hint","min","max","visibleWhen"},
+            "settings.toggle": {"type","label","value","hint","visibleWhen"},
+            "settings.select": {"type","label","value","hint","options","visibleWhen"},
+            "settings.save": {"type","visibleWhen"}, "settings.discard": {"type","visibleWhen"},
+            "ui.confirm": {"type","label","title","message","onConfirm","visibleWhen"},
         }
         allowed=fields[typ]
         if set(node)-allowed: fail(f"{typ} 包含未支持字段：{sorted(set(node)-allowed)}")
         required={"layout.column":{"children"},"layout.row":{"children"},"layout.box":{"children"},
             "ui.text":{"value"},"ui.number":{"value"},"ui.button":{"label","onPress"},"ui.image":{"asset"},
+            "ui.list":{"items","maxItems"},"ui.icon":{"name","label"},"ui.deadlineText":{"value"},
             "ui.divider":set(),"ui.progress":{"value","min","max"},"settings.row":{"label"},
-            "settings.input":{"label","value"},"settings.number":{"label","value","min","max"},
+            "settings.input":{"label","value"},"settings.action":{"label","value"},"settings.number":{"label","value","min","max"},
             "settings.toggle":{"label","value"},"settings.select":{"label","value","options"},
             "ui.confirm":{"label","title","message","onConfirm"}, "settings.save":set(), "settings.discard":set()}[typ]
         if required-set(node): fail(f"{typ} 缺少字段：{sorted(required-set(node))}")
-        for key in ("value", "label", "hint", "placeholder", "bind", "title", "message"):
+        for key in ("value", "label", "hint", "placeholder", "bind", "title", "message", "emptyText"):
             v = node.get(key)
             if key == "value" and isinstance(v, dict):
                 if set(v) != {"bind"} or not isinstance(v["bind"], str): fail("value binding 只允许 {bind:path}")
@@ -186,12 +206,45 @@ def validate_ui(value, state_schema, config_schema, capabilities, runtime_kind):
                 pass
             elif v is not None and not isinstance(v, (str, int, float, bool)):
                 fail(f"{typ}.{key} 类型无效")
-        if typ in {"settings.input","settings.number","settings.toggle","settings.select"}:
+        if typ.startswith("layout."):
+            horizontal=node.get("horizontalAlignment", "start")
+            if horizontal not in (("start","center","end","spaceBetween") if typ=="layout.row" else ("start","center","end")) or node.get("verticalAlignment", "center") not in ("top","center","bottom"):
+                fail(f"{typ} 对齐值无效")
+        if "format" in node and node["format"] not in ("text","integer","decimal","percent","duration"): fail(f"{typ}.format 无效")
+        if "tone" in node and node["tone"] not in ("primary","secondary","success","warning","error"): fail(f"{typ}.tone 无效")
+        if "visibleWhen" in node:
+            condition=node["visibleWhen"]
+            if not isinstance(condition,dict) or set(condition)!={"bind","equals"} or isinstance(condition["equals"],(dict,list)) or condition["equals"] is None: fail("visibleWhen 无效")
+            path=condition["bind"]
+            if not isinstance(path,str) or not re.fullmatch(r"(?:state|config|data)\.[A-Za-z][A-Za-z0-9_.]*",path): fail("visibleWhen.bind 无效")
+            ns,field=path.split(".",1)
+            if ns=="state" and not schema_has_path(state_schema,field) or ns=="config" and not schema_has_path(config_schema,field): fail(f"visibleWhen binding 未在 schema 声明：{path}")
+            if ns=="data":
+                source=field.split(".",1)[0]; capability={"battery":"data.battery","systemMetrics":"data.systemMetrics"}.get(source)
+                if capability not in capabilities or field not in DATA_BINDINGS.get(capability,set()): fail(f"visibleWhen 数据绑定未声明：{path}")
+        if typ == "ui.list":
+            path=node["items"].get("bind") if isinstance(node["items"],dict) else None
+            if not isinstance(path,str) or not re.fullmatch(r"(?:state|config)\.[A-Za-z][A-Za-z0-9_.]*",path): fail("ui.list.items 必须绑定 state/config 数组")
+            ns,field=path.split(".",1); schema=schema_at_path(state_schema if ns=="state" else config_schema,field)
+            if not schema or schema.get("type")!="array" or schema.get("items",{}).get("type") not in ("string","integer","number","boolean"): fail("ui.list.items 必须绑定标量数组")
+            if isinstance(node["maxItems"],bool) or not isinstance(node["maxItems"],int) or not 1<=node["maxItems"]<=32: fail("ui.list.maxItems 必须为 1..32")
+        if typ == "ui.icon" and node["name"] not in ("add","remove","check","close","timer","trophy","info","warning"): fail("ui.icon.name 未知")
+        if typ == "ui.deadlineText":
+            path=node.get("value",{}).get("bind") if isinstance(node.get("value"),dict) else None
+            if not isinstance(path,str) or not path.startswith(("state.","config.")): fail("ui.deadlineText.value 必须绑定 elapsedRealtime 毫秒截止值")
+            ns,field=path.split(".",1); schema=schema_at_path(state_schema if ns=="state" else config_schema,field)
+            if not schema or schema.get("type")!="integer" or node.get("format","duration")!="duration": fail("ui.deadlineText 只接受整数毫秒 duration 绑定")
+            if "clock.snapshot" not in capabilities: fail("ui.deadlineText 需要声明 clock.snapshot 能力")
+        if "style" in node and typ=="ui.list" and node["style"] not in ("body","caption"): fail("ui.list.style 只接受 body/caption")
+        if typ in {"settings.input","settings.action","settings.number","settings.toggle","settings.select"}:
             value=node.get("value")
             if not isinstance(value,dict) or not value.get("bind","").startswith("config."): fail(f"{typ}.value 必须绑定 config.*")
             field_schema=schema_at_path(config_schema,value["bind"].removeprefix("config."))
-            expected_types={"settings.input":{"string"},"settings.number":{"integer","number"},"settings.toggle":{"boolean"},"settings.select":{"string","integer","number","boolean"}}[typ]
+            expected_types={"settings.input":{"string"},"settings.action":{"object"},"settings.number":{"integer","number"},"settings.toggle":{"boolean"},"settings.select":{"string","integer","number","boolean"}}[typ]
             if field_schema is None or field_schema.get("type") not in expected_types: fail(f"{typ} 与 config schema 类型不匹配")
+            if typ == "settings.action":
+                validate_registered_action_config(config_schema,value["bind"].removeprefix("config."))
+                if "action.invoke" not in capabilities: fail("settings.action 需要声明 action.invoke 能力")
         if typ in {"ui.progress","settings.number"}:
             lo=node["min"]; hi=node["max"]
             if isinstance(lo,bool) or isinstance(hi,bool) or not isinstance(lo,(int,float)) or not isinstance(hi,(int,float)) or not lo<hi: fail(f"{typ} 范围无效")
@@ -213,9 +266,18 @@ def validate_ui(value, state_schema, config_schema, capabilities, runtime_kind):
         if typ in ("ui.button","settings.row","ui.confirm") and "onPress" in node or typ=="ui.confirm":
             action=node.get("onPress",node.get("onConfirm"))
             if not isinstance(action,dict): fail(f"{typ} action 无效")
-            if action.get("type")!="event" or set(action)!={"type","name"} or not TOKEN.fullmatch(str(action["name"])):
-                fail(f"{typ} 当前只接受 reducer event 引用")
-            if runtime_kind!="quickjs": fail("event action 需要 runtime.kind=quickjs")
+            if action.get("type")=="event":
+                if set(action)!={"type","name"} or not TOKEN.fullmatch(str(action["name"])): fail(f"{typ} event action 无效")
+                if runtime_kind!="quickjs": fail("event action 需要 runtime.kind=quickjs")
+            elif action.get("type")=="registeredAction":
+                if set(action)!={"type","ref"} or "action.invoke" not in capabilities: fail("registeredAction 需要 action.invoke 能力")
+                ref=action.get("ref")
+                if isinstance(ref,dict) and set(ref)=={"id","version"}:
+                    if not isinstance(ref.get("id"),str) or not re.fullmatch(r"[a-f0-9]{48}",ref["id"]) or isinstance(ref.get("version"),bool) or ref.get("version")!=1: fail("registeredAction ref 无效")
+                elif isinstance(ref,dict) and set(ref)=={"bind"} and isinstance(ref.get("bind"),str) and ref["bind"].startswith("config."):
+                    validate_registered_action_config(config_schema,ref["bind"].removeprefix("config."))
+                else: fail("registeredAction ref 必须是登记opaque引用或config.*顶层绑定")
+            else: fail(f"{typ} action 类型未知")
         if typ == "ui.image":
             asset = safe_path(node.get("asset", ""))
             if not asset.startswith("assets/"): fail("image.asset 必须位于 assets/")
@@ -224,6 +286,29 @@ def validate_ui(value, state_schema, config_schema, capabilities, runtime_kind):
     visit(value["root"], 1)
     if value["scene"] == "settings" and has_config_inputs and not has_save: fail("设置表单包含草稿字段时必须提供 settings.save")
     if value["scene"] == "rear" and has_save: fail("settings.save 只能出现在设置场景")
+
+def validate_effect_intent(effect, capabilities, field):
+    if not isinstance(effect,dict) or not isinstance(effect.get("type"),str): fail(f"{field} effect 无效")
+    kind=effect["type"]
+    if kind=="action.invoke":
+        if set(effect)!={"type","ref"} or "action.invoke" not in capabilities: fail(f"{field} action.invoke 必须声明该能力且只含 ref")
+        ref=effect["ref"]
+        if not isinstance(ref,dict) or set(ref)!={"id","version"} or not isinstance(ref.get("id"),str) or not re.fullmatch(r"[a-f0-9]{48}",ref["id"]) or isinstance(ref.get("version"),bool) or ref["version"]!=1: fail(f"{field} action.invoke ref 无效")
+    elif kind=="schedule.visible.register":
+        if "schedule.visible" not in capabilities or set(effect)-{"type","id","intervalMs","deadlineElapsedRealtimeMs"} or set(effect)<{"type","id"}: fail(f"{field} schedule register 必须声明 schedule.visible 并使用有界字段")
+        if not isinstance(effect["id"],str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",effect["id"]): fail(f"{field} schedule id 无效")
+        interval=effect.get("intervalMs"); deadline=effect.get("deadlineElapsedRealtimeMs")
+        if interval is None and deadline is None: fail(f"{field} schedule 至少需要 intervalMs 或 elapsedRealtime deadline")
+        if interval is not None and (isinstance(interval,bool) or not isinstance(interval,int) or not 1000 <= interval <= 9007199254740991): fail(f"{field} schedule intervalMs 必须是至少 1000 的安全整数")
+        if deadline is not None and (isinstance(deadline,bool) or not isinstance(deadline,int) or not 0 <= deadline <= 9007199254740991): fail(f"{field} elapsedRealtime deadline 必须为非负安全整数")
+    elif kind=="schedule.visible.cancel":
+        if "schedule.visible" not in capabilities or set(effect)!={"type","id"} or not isinstance(effect["id"],str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",effect["id"]): fail(f"{field} schedule cancel 无效或未声明能力")
+    elif kind=="rear.open":
+        if "rear.scene" not in capabilities or set(effect)-{"type","id","scene","region","keepVisible"} or not {"type","scene","region","keepVisible"}.issubset(effect): fail(f"{field} rear.open 字段无效或未声明 rear.scene")
+        if effect["scene"]!="rear" or effect["region"]!="CAMERA_SAFE" or not isinstance(effect["keepVisible"],bool): fail(f"{field} rear.open 参数不受支持")
+        if "id" in effect and (not isinstance(effect["id"],str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",effect["id"])): fail(f"{field} rear.open id 无效")
+        if effect["keepVisible"] and "rear.scene.keep_visible" not in capabilities: fail(f"{field} rear.open keepVisible 需要声明 rear.scene.keep_visible")
+    else: fail(f"{field} effect 类型未支持：{kind}")
 
 def validate_manifest(m, entries=None):
     expected = {"format", "formatVersion", "id", "name", "version", "versionCode", "author", "platform", "minimumAndroidApi", "capabilities", "permissions", "scenes", "runtime", "data", "payloads"}
@@ -515,6 +600,7 @@ def run_tests(root: Path):
     config_changes_path=root/"tests"/"config-changes.json"
     try:
         manifest=check_project(root)
+        capabilities={item["name"] for item in manifest["capabilities"]["required"]+manifest["capabilities"]["optional"]}
         config_schema=manifest["data"]["configSchema"]
         state_schema=manifest["data"]["stateSchema"]
         cases=strict_json(cases_path.read_text(encoding="utf-8")) if cases_path.exists() else []
@@ -570,7 +656,9 @@ def run_tests(root: Path):
                 validate_schema(state_schema,expected["state"],field+".expected.state")
                 validate_schema(config_schema,expected["config"],field+".expected.config")
                 if expected["config"] != test["config"]: fail(f"{field}.expected.config 必须等于用户提交的新 config；reduce 不能重写 config")
-                if "effects" in expected and (not isinstance(expected["effects"],list) or len(expected["effects"])>8 or any(not isinstance(effect,dict) for effect in expected["effects"])): fail(f"{field}.expected.effects 必须为最多 8 个 effect object；宿主授权与激活仍需单独验证")
+                if "effects" in expected:
+                    if not isinstance(expected["effects"],list) or len(expected["effects"])>8: fail(f"{field}.expected.effects 必须为最多 8 个 effect object；宿主授权与激活仍需单独验证")
+                    for effect_index,effect in enumerate(expected["effects"]): validate_effect_intent(effect,capabilities,f"{field}.expected.effects[{effect_index}]")
             else:
                 if not isinstance(test["expectError"],str) or not test["expectError"]: fail(f"{field}.expectError 必须为非空错误文本")
     except Exception as e: fail(f"测试用例 JSON 无效：{e}")
@@ -578,13 +666,13 @@ def run_tests(root: Path):
 const source=fs.readFileSync(process.argv[2],'utf8');
 const cases=JSON.parse(fs.readFileSync(process.argv[3],'utf8')); const migrations=JSON.parse(fs.readFileSync(process.argv[4],'utf8'));
 const configChanges=JSON.parse(fs.readFileSync(process.argv[5],'utf8'));
-const context=vm.createContext({}); vm.runInContext(source,context,{timeout:1000});
+const context=vm.createContext({}); context.__env={clock:{wallTimeMs:1700000000000,elapsedRealtimeMs:90000,timezoneId:'UTC',bootId:null}}; vm.runInContext(source,context,{timeout:1000});
 context.__cases=cases; context.__migrations=migrations; context.__configChanges=configChanges; context.__defaultConfig=JSON.parse(fs.readFileSync(process.argv[6],'utf8'));
-vm.runInContext(`const api=globalThis.__remrss; if(!api||typeof api.init!=='function'||typeof api.reduce!=='function') throw new Error('main.js must define globalThis.__remrss={init,reduce}');
-if(globalThis.__cases.length===0){const state=api.init({config:globalThis.__defaultConfig,env:{}});if(!state||typeof state!=='object'||Array.isArray(state))throw new Error('init must return object state');}
-for(const test of globalThis.__cases){const config=JSON.parse(JSON.stringify(test.config));const initialized=api.init({config,env:{}});if(!initialized||typeof initialized!=='object'||Array.isArray(initialized))throw new Error(test.name+': init must return object state');let current=JSON.parse(JSON.stringify(test.initial??initialized));for(const event of test.events??[]){const result=api.reduce({state:current,config,env:{},event});if(!result||!('state'in result))throw new Error(test.name+': reduce must return {state}');current=result.state;}if(JSON.stringify(current)!==JSON.stringify(test.expected))throw new Error(test.name+': expected '+JSON.stringify(test.expected)+', got '+JSON.stringify(current));}
-for(const test of globalThis.__migrations){if(typeof api.migrate!=='function')throw new Error('dataVersion update requires migrate');const result=api.migrate({state:test.state,config:test.config,fromVersion:test.fromVersion,toVersion:test.toVersion,env:{}});if(!result||Object.keys(result).sort().join(',')!=='config,state'||'effects'in result)throw new Error(test.name+': migrate must return only {state,config}; effects are forbidden');if(test.state!==null&&result.state===null)throw new Error(test.name+': migrate cannot discard an initialized state');if(JSON.stringify(result.state)!==JSON.stringify(test.expected.state)||JSON.stringify(result.config)!==JSON.stringify(test.expected.config))throw new Error(test.name+': migration result mismatch');}
-for(const test of globalThis.__configChanges){const input={state:JSON.parse(JSON.stringify(test.state)),config:JSON.parse(JSON.stringify(test.config)),previousConfig:JSON.parse(JSON.stringify(test.previousConfig)),event:{type:'host.configChanged',payload:{},eventId:'sdk-config-change',revision:7,logicalSessionId:'sdk-test'},env:{}};let result;let failure;try{result=api.reduce(input);}catch(error){failure=String(error&&error.message||error);}if(test.expectError){if(!failure||!failure.includes(test.expectError))throw new Error(test.name+': expected reducer error containing '+test.expectError+', got '+failure);continue;}if(failure)throw new Error(test.name+': reducer failed: '+failure);if(!result||typeof result!=='object'||!('state'in result)||Object.keys(result).some(key=>!['state','effects'].includes(key)))throw new Error(test.name+': reduce must return {state,effects?} without extra fields');if('effects'in result&&(!Array.isArray(result.effects)||result.effects.length>8||result.effects.some(effect=>!effect||typeof effect!=='object'||Array.isArray(effect))))throw new Error(test.name+': Effects must be a bounded array of objects');if(!result.state||typeof result.state!=='object'||Array.isArray(result.state))throw new Error(test.name+': state must be an object');const canonical=value=>JSON.stringify(value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,JSON.parse(canonical(value[key]))])):Array.isArray(value)?value.map(item=>JSON.parse(canonical(item))):value);if(canonical(result.state)!==canonical(test.expected.state)||canonical(input.config)!==canonical(test.expected.config)||canonical(result.effects??[])!==canonical(test.expected.effects??[]))throw new Error(test.name+': config-change result mismatch');}`,context,{timeout:1000});
+vm.runInContext(`const api=globalThis.__remrss; const env=globalThis.__env; if(!api||typeof api.init!=='function'||typeof api.reduce!=='function') throw new Error('main.js must define globalThis.__remrss={init,reduce}');
+if(globalThis.__cases.length===0){const state=api.init({config:globalThis.__defaultConfig,env});if(!state||typeof state!=='object'||Array.isArray(state))throw new Error('init must return object state');}
+for(const test of globalThis.__cases){const config=JSON.parse(JSON.stringify(test.config));const initialized=api.init({config,env});if(!initialized||typeof initialized!=='object'||Array.isArray(initialized))throw new Error(test.name+': init must return object state');let current=JSON.parse(JSON.stringify(test.initial??initialized));for(const event of test.events??[]){const result=api.reduce({state:current,config,env,event});if(!result||!('state'in result))throw new Error(test.name+': reduce must return {state}');current=result.state;}if(JSON.stringify(current)!==JSON.stringify(test.expected))throw new Error(test.name+': expected '+JSON.stringify(test.expected)+', got '+JSON.stringify(current));}
+for(const test of globalThis.__migrations){if(typeof api.migrate!=='function')throw new Error('dataVersion update requires migrate');const result=api.migrate({state:test.state,config:test.config,fromVersion:test.fromVersion,toVersion:test.toVersion,env});if(!result||Object.keys(result).sort().join(',')!=='config,state'||'effects'in result)throw new Error(test.name+': migrate must return only {state,config}; effects are forbidden');if(test.state!==null&&result.state===null)throw new Error(test.name+': migrate cannot discard an initialized state');if(JSON.stringify(result.state)!==JSON.stringify(test.expected.state)||JSON.stringify(result.config)!==JSON.stringify(test.expected.config))throw new Error(test.name+': migration result mismatch');}
+for(const test of globalThis.__configChanges){const input={state:JSON.parse(JSON.stringify(test.state)),config:JSON.parse(JSON.stringify(test.config)),previousConfig:JSON.parse(JSON.stringify(test.previousConfig)),event:{type:'host.configChanged',payload:{},eventId:'sdk-config-change',revision:7,logicalSessionId:'sdk-test'},env};let result;let failure;try{result=api.reduce(input);}catch(error){failure=String(error&&error.message||error);}if(test.expectError){if(!failure||!failure.includes(test.expectError))throw new Error(test.name+': expected reducer error containing '+test.expectError+', got '+failure);continue;}if(failure)throw new Error(test.name+': reducer failed: '+failure);if(!result||typeof result!=='object'||!('state'in result)||Object.keys(result).some(key=>!['state','effects'].includes(key)))throw new Error(test.name+': reduce must return {state,effects?} without extra fields');if('effects'in result&&(!Array.isArray(result.effects)||result.effects.length>8||result.effects.some(effect=>!effect||typeof effect!=='object'||Array.isArray(effect))))throw new Error(test.name+': Effects must be a bounded array of objects');if(!result.state||typeof result.state!=='object'||Array.isArray(result.state))throw new Error(test.name+': state must be an object');const canonical=value=>JSON.stringify(value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,JSON.parse(canonical(value[key]))])):Array.isArray(value)?value.map(item=>JSON.parse(canonical(item))):value);if(canonical(result.state)!==canonical(test.expected.state)||canonical(input.config)!==canonical(test.expected.config)||canonical(result.effects??[])!==canonical(test.expected.effects??[]))throw new Error(test.name+': config-change result mismatch');}`,context,{timeout:1000});
 console.log(`PASS: init/reduce ABI, ${cases.length} reducer case(s), ${migrations.length} migration case(s), ${configChanges.length} config-change case(s) (Node author-side check only)`);
 '''
     with tempfile.TemporaryDirectory(prefix="remrss-mod-test-") as td:
@@ -607,6 +695,28 @@ def preview_project(root: Path):
     print(f"UI 与资源预检通过：{root.resolve()}（{m['id']}）")
     print("实际视觉预览：将签名 ZIP 导入 ReMRSS 后，打开该 Mod 卡片的“本机预览”；它复用宿主 Compose/Miuix renderer，不申请背屏租约，也不执行业务 reducer。")
 
+def dev_reload_package(root: Path, key: Path, installed: Path, output: Path):
+    installed_manifest, _ = verify_zip(installed)
+    check_project(root)
+    with tempfile.TemporaryDirectory(prefix="remrss-mod-reload-") as td:
+        candidate = Path(td) / "candidate.zip"
+        pack_project(root, key, candidate)
+        candidate_manifest, _ = verify_zip(candidate)
+        comparisons = (
+            ("id", installed_manifest["id"], candidate_manifest["id"]),
+            ("作者指纹", installed_manifest["author"]["keyFingerprint"], candidate_manifest["author"]["keyFingerprint"]),
+            ("versionCode", installed_manifest["versionCode"], candidate_manifest["versionCode"]),
+            ("dataVersion", installed_manifest["data"]["dataVersion"], candidate_manifest["data"]["dataVersion"]),
+        )
+        for label, previous, current in comparisons:
+            if previous != current:
+                fail(f"Debug reload 的 {label} 必须与当前安装相同（当前 {previous}，候选 {current}）；正常升级请递增 versionCode 并走 Mod 管理导入/迁移")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        tmp = output.with_name(output.name + ".tmp")
+        shutil.copyfile(candidate, tmp); tmp.replace(output)
+    print(f"已生成同作者 Debug reload 包：{output.resolve()}")
+    print("请在 Debug 构建的“Mod 开发重载”入口选择此 ZIP；此操作不走正常升级或数据迁移。")
+
 def main():
     parser=argparse.ArgumentParser(prog="remrss",description="ReMRSS ZIP Mod author tools")
     sub=parser.add_subparsers(dest="cmd",required=True)
@@ -615,6 +725,8 @@ def main():
     tst=sub.add_parser("test"); tst.add_argument("project",type=Path)
     prv=sub.add_parser("preview"); prv.add_argument("project",type=Path)
     pack=sub.add_parser("pack"); pack.add_argument("project",type=Path); pack.add_argument("--key",required=True,type=Path); pack.add_argument("--out",type=Path)
+    dev=sub.add_parser("dev-reload",help="生成同作者 Debug 重载 ZIP（需提供当前已签名 ZIP）")
+    dev.add_argument("project",type=Path); dev.add_argument("--key",required=True,type=Path); dev.add_argument("--installed",required=True,type=Path); dev.add_argument("--out",type=Path)
     args=parser.parse_args()
     try:
         if args.cmd=="create":
@@ -628,6 +740,11 @@ def main():
         elif args.cmd=="pack":
             if not args.key.is_file(): fail(f"找不到作者私钥：{args.key}")
             output=args.out or args.project.with_suffix(".zip"); pack_project(args.project,args.key,output); print(f"Packed and verified {output.resolve()}")
+        elif args.cmd=="dev-reload":
+            if not args.key.is_file(): fail(f"找不到作者私钥：{args.key}")
+            if not args.installed.is_file(): fail(f"找不到当前已签名 ZIP：{args.installed}")
+            output=args.out or args.project.with_name(args.project.name+"-debug-reload.zip")
+            dev_reload_package(args.project,args.key,args.installed,output)
         return 0
     except ModError as e:
         print(f"remrss: {e}",file=sys.stderr); return 2

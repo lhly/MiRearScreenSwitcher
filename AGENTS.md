@@ -25,3 +25,9 @@
 - 服务悬浮控件可以保留原生 WindowManager，但须沿用 ReMRSS 中性主题和语义配色、随深浅色更新；录屏悬浮层不再使用旧粉色渐变。
 - Compose、Activity 宿主、背屏通知及浮层共用 theme_colors.xml 深浅色资源；背屏通知保留用户纯黑模式，充电绿色、录屏红色和品牌蓝色图标为明确的语义/品牌例外。
 - 系统磁贴使用单色线性矢量；禁止新建重复密度旧位图或恢复粉紫通知背景、玻璃闪电绘制。
+
+## 设备安全边界
+
+- 全部 Android 设备执行（包括模拟器）由 root 独占；Luna 只可编辑源码、构建/编译、运行 JVM 与 fake-device 测试，Sol 只读审查。未经 root 明确安排不得访问设备或 AVD。
+- 禁止裸 `adb`、直接运行 `connected*AndroidTest`、`deviceCheck`、`install*` 或 `uninstall*` Gradle 任务；设备操作必须经 `tools/guarded_device.py` 显式绑定 root 提供的私有 ADB server endpoint 与唯一 serial。
+- 受限入口只接受私有 loopback server，拒绝默认端口 5037 和 `127.0.0.1:15001`；每次设备操作前核对唯一 ready 目标及身份。不得通过宽泛任务筛选或注入串号绕过。

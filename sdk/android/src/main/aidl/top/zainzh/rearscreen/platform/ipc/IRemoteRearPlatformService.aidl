@@ -29,4 +29,8 @@ interface IRemoteRearPlatformService {
             IRemoteRearPlatformCallback callback);
     /** Read-only hardware and capability snapshot; dimensions are physical px, not window dp. */
     String queryRearInfo(String callerPackageName);
+    PendingIntent requestRegisteredActionSelection(String callerPackageName,
+            IRemoteRearPlatformCallback callback);
+    PendingIntent requestRegisteredActionInvocation(String callerPackageName, String refId, int refVersion,
+            IRemoteRearPlatformCallback callback);
 }

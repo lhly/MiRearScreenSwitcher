@@ -7,6 +7,32 @@ const TOKEN = /^[a-z][A-Za-z0-9._-]{0,63}$/;
 
 /** Host-origin event emitted by an accepted settings Save; reducers cannot send it. */
 export const HOST_CONFIG_CHANGED_EVENT = 'host.configChanged';
+const EFFECT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+const REGISTERED_ACTION_ID = /^[a-f0-9]{48}$/;
+export const host = Object.freeze({
+  schedule: Object.freeze({
+    visible: Object.freeze({
+      register(id, intervalMs) {
+        if (typeof id !== 'string' || !EFFECT_ID.test(id) || !Number.isSafeInteger(intervalMs) || intervalMs < 1000) throw new TypeError('Visible schedule needs a valid id and intervalMs >= 1000');
+        return Object.freeze({ type: 'schedule.visible.register', id, intervalMs });
+      },
+      registerDeadline(id, deadlineElapsedRealtimeMs) {
+        if (typeof id !== 'string' || !EFFECT_ID.test(id) || !Number.isSafeInteger(deadlineElapsedRealtimeMs) || deadlineElapsedRealtimeMs < 0) throw new TypeError('Visible deadline needs a valid id and non-negative elapsedRealtime deadline');
+        return Object.freeze({ type: 'schedule.visible.register', id, deadlineElapsedRealtimeMs });
+      },
+      cancel(id) {
+        if (typeof id !== 'string' || !EFFECT_ID.test(id)) throw new TypeError('Visible schedule needs a valid id');
+        return Object.freeze({ type: 'schedule.visible.cancel', id });
+      },
+    }),
+  }),
+  action: Object.freeze({
+    invoke(ref) {
+      if (!ref || typeof ref.id !== 'string' || !REGISTERED_ACTION_ID.test(ref.id) || ref.version !== 1) throw new TypeError('Invalid registered action reference');
+      return Object.freeze({ type: 'action.invoke', ref: Object.freeze({ id: ref.id, version: 1 }) });
+    },
+  }),
+});
 
 /** Build only the public, declarative Mod descriptor; package signing is done by remrss pack. */
 export function defineMod(descriptor) {

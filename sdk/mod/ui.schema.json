@@ -4,26 +4,816 @@
   "title": "ReMRSS native Mod scene v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scene", "root"],
-  "properties": {"scene": {"enum": ["settings", "rear"]}, "root": {"$ref": "#/$defs/node"}},
+  "required": [
+    "scene",
+    "root"
+  ],
+  "properties": {
+    "scene": {
+      "enum": [
+        "settings",
+        "rear"
+      ]
+    },
+    "root": {
+      "$ref": "#/$defs/node"
+    }
+  },
   "$defs": {
-    "binding": {"type": "object", "additionalProperties": false, "required": ["bind"], "properties": {"bind": {"type": "string", "pattern": "^(state|config|data)\\.[A-Za-z][A-Za-z0-9_.]*$"}}},
-    "eventAction": {"type": "object", "additionalProperties": false, "required": ["type", "name"], "properties": {"type": {"const": "event"}, "name": {"type": "string", "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"}}},
-    "options": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["label", "value"], "properties": {"label": {"type": "string", "maxLength": 80}, "value": {"type": ["string", "number", "boolean"]}}}},
-    "node": {"oneOf": [
-      {"type": "object", "additionalProperties": false, "required": ["type", "children"], "properties": {"type": {"enum": ["layout.column", "layout.row", "layout.box"]}, "children": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/node"}}, "gap": {"type": "integer", "minimum": 0, "maximum": 64}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": {"type": {"enum": ["ui.text", "ui.number"]}, "value": {"oneOf": [{"type": ["string", "number", "boolean"]}, {"$ref": "#/$defs/binding"}]}, "style": {"enum": ["title", "body", "caption", "number", "displayNumber"]}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "onPress"], "properties": {"type": {"const": "ui.button"}, "label": {"type": "string", "maxLength": 120}, "onPress": {"$ref": "#/$defs/eventAction"}, "enabled": {"type": "boolean"}, "hint": {"type": "string", "maxLength": 120}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "asset"], "properties": {"type": {"const": "ui.image"}, "asset": {"type": "string", "pattern": "^assets/[A-Za-z0-9._/-]+$"}, "alt": {"type": "string", "maxLength": 120}}},
-      {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "ui.divider"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "value", "min", "max"], "properties": {"type": {"const": "ui.progress"}, "value": {"oneOf": [{"type": ["number", "integer"]}, {"$ref": "#/$defs/binding"}]}, "min": {"type": "number"}, "max": {"type": "number"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label"], "properties": {"type": {"const": "settings.row"}, "label": {"type": "string", "maxLength": 120}, "value": {"$ref": "#/$defs/binding"}, "hint": {"type": "string", "maxLength": 120}, "onPress": {"$ref": "#/$defs/eventAction"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "value"], "properties": {"type": {"const": "settings.input"}, "label": {"type": "string", "maxLength": 120}, "value": {"$ref": "#/$defs/binding"}, "hint": {"type": "string", "maxLength": 120}, "placeholder": {"type": "string", "maxLength": 120}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "value", "min", "max"], "properties": {"type": {"const": "settings.number"}, "label": {"type": "string", "maxLength": 120}, "value": {"$ref": "#/$defs/binding"}, "hint": {"type": "string", "maxLength": 120}, "min": {"type": "integer"}, "max": {"type": "integer"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "value"], "properties": {"type": {"const": "settings.toggle"}, "label": {"type": "string", "maxLength": 120}, "value": {"$ref": "#/$defs/binding"}, "hint": {"type": "string", "maxLength": 120}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "value", "options"], "properties": {"type": {"const": "settings.select"}, "label": {"type": "string", "maxLength": 120}, "value": {"$ref": "#/$defs/binding"}, "hint": {"type": "string", "maxLength": 120}, "options": {"$ref": "#/$defs/options"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type", "label", "title", "message", "onConfirm"], "properties": {"type": {"const": "ui.confirm"}, "label": {"type": "string", "maxLength": 120}, "title": {"type": "string", "maxLength": 120}, "message": {"type": "string", "maxLength": 240}, "onConfirm": {"$ref": "#/$defs/eventAction"}}},
-      {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"enum": ["settings.save", "settings.discard"]}}}
-    ]}
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind"
+      ],
+      "properties": {
+        "bind": {
+          "type": "string",
+          "pattern": "^(state|config|data)\\.[A-Za-z][A-Za-z0-9_.]*$"
+        }
+      }
+    },
+    "eventAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name"
+          ],
+          "properties": {
+            "type": {
+              "const": "event"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "ref"
+          ],
+          "properties": {
+            "type": {
+              "const": "registeredAction"
+            },
+            "ref": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{48}$"
+                    },
+                    "version": {
+                      "const": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bind"
+                  ],
+                  "properties": {
+                    "bind": {
+                      "type": "string",
+                      "pattern": "^config\\.[A-Za-z][A-Za-z0-9_]{0,63}$"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "options": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "value": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        }
+      }
+    },
+    "node": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "children"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "layout.column",
+                "layout.row",
+                "layout.box"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "$ref": "#/$defs/node"
+              }
+            },
+            "gap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 64
+            },
+            "horizontalAlignment": {
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "spaceBetween"
+              ]
+            },
+            "verticalAlignment": {
+              "enum": [
+                "top",
+                "center",
+                "bottom"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "ui.text",
+                "ui.number"
+              ]
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/binding"
+                }
+              ]
+            },
+            "style": {
+              "enum": [
+                "title",
+                "body",
+                "caption",
+                "number",
+                "displayNumber"
+              ]
+            },
+            "format": {
+              "enum": [
+                "text",
+                "integer",
+                "decimal",
+                "percent",
+                "duration"
+              ]
+            },
+            "tone": {
+              "enum": [
+                "primary",
+                "secondary",
+                "success",
+                "warning",
+                "error"
+              ]
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "onPress"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.button"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "onPress": {
+              "$ref": "#/$defs/eventAction"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "asset"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.image"
+            },
+            "asset": {
+              "type": "string",
+              "pattern": "^assets/[A-Za-z0-9._/-]+$"
+            },
+            "alt": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.divider"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value",
+            "min",
+            "max"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.progress"
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "type": [
+                    "number",
+                    "integer"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/binding"
+                }
+              ]
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.row"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "onPress": {
+              "$ref": "#/$defs/eventAction"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.input"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "placeholder": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "value",
+            "min",
+            "max"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.number"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.toggle"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "value",
+            "options"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.select"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "options": {
+              "$ref": "#/$defs/options"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "title",
+            "message",
+            "onConfirm"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.confirm"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 240
+            },
+            "onConfirm": {
+              "$ref": "#/$defs/eventAction"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "settings.save",
+                "settings.discard"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "items",
+            "maxItems"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.list"
+            },
+            "items": {
+              "$ref": "#/$defs/binding"
+            },
+            "maxItems": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            },
+            "style": {
+              "enum": [
+                "body",
+                "caption"
+              ]
+            },
+            "emptyText": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "format": {
+              "enum": [
+                "text",
+                "integer",
+                "decimal",
+                "percent",
+                "duration"
+              ]
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "label"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.icon"
+            },
+            "name": {
+              "enum": [
+                "add",
+                "remove",
+                "check",
+                "close",
+                "timer",
+                "trophy",
+                "info",
+                "warning"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "tone": {
+              "enum": [
+                "primary",
+                "secondary",
+                "success",
+                "warning",
+                "error"
+              ]
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.deadlineText"
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "format": {
+              "const": "duration"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "items",
+            "maxItems"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.list"
+            },
+            "items": {
+              "$ref": "#/$defs/binding"
+            },
+            "maxItems": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            },
+            "style": {
+              "enum": [
+                "body",
+                "caption"
+              ]
+            },
+            "emptyText": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "format": {
+              "enum": [
+                "text",
+                "integer",
+                "decimal",
+                "percent",
+                "duration"
+              ]
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "label"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.icon"
+            },
+            "name": {
+              "enum": [
+                "add",
+                "remove",
+                "check",
+                "close",
+                "timer",
+                "trophy",
+                "info",
+                "warning"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "tone": {
+              "enum": [
+                "primary",
+                "secondary",
+                "success",
+                "warning",
+                "error"
+              ]
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "ui.deadlineText"
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "format": {
+              "const": "duration"
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "settings.action"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "value": {
+              "$ref": "#/$defs/binding"
+            },
+            "hint": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "visibleWhen": {
+              "$ref": "#/$defs/visibleWhen"
+            }
+          }
+        }
+      ]
+    },
+    "visibleWhen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind",
+        "equals"
+      ],
+      "properties": {
+        "bind": {
+          "$ref": "#/$defs/binding/properties/bind"
+        },
+        "equals": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    }
   }
 }

@@ -1,96 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <queries><package android:name="${applicationId}.test" /></queries>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <activity android:name=".RearSceneM0PrimaryActivity" android:exported="true"
-            android:taskAffinity="${applicationId}.m0.primary" android:excludeFromRecents="true"
+        <activity
+            android:name=".NativeModuleRendererTestHostActivity"
+            android:exported="false"
             android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".RearSceneM0RearActivity" android:exported="true"
-            android:taskAffinity="${applicationId}.m0.rear" android:excludeFromRecents="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|density|fontScale|uiMode"
-            android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".RootProbeHostActivity" android:exported="true" android:permission="android.permission.DUMP"
-            android:showWhenLocked="true" android:turnScreenOn="true" android:excludeFromRecents="true"
-            android:taskAffinity="${applicationId}.root.probe" android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".RearCameraGapCalibrationActivity" android:exported="true" android:permission="android.permission.DUMP"
-            android:excludeFromRecents="true" android:launchMode="singleInstance" android:showWhenLocked="true"
-            android:taskAffinity="${applicationId}.camera.gap.calibration" android:theme="@style/MiuixHostTheme">
-            <meta-data android:name="miui.rear.policy" android:value="miui" />
-        </activity>
-        <activity android:name=".RearInfoSettingsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".RearInfoPowerActivity" android:exported="true" android:permission="android.permission.DUMP"
-            android:excludeFromRecents="true" android:launchMode="singleInstance" android:showWhenLocked="true"
-            android:taskAffinity="${applicationId}.rear.power" android:theme="@style/MiuixHostTheme">
-            <meta-data android:name="miui.rear.policy" android:value="miui" />
-        </activity>
-        <activity android:name=".RearInfoActivity" android:exported="true" android:permission="android.permission.DUMP"
-            android:excludeFromRecents="true" android:launchMode="singleInstance"
-            android:taskAffinity="${applicationId}.rear.info" android:theme="@style/MiuixHostTheme">
-            <meta-data android:name="miui.rear.policy" android:value="miui" />
-        </activity>
-        <activity android:name=".NativeModuleRendererTestHostActivity" android:exported="false"
-            android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".FixtureRestrictedLayoutActivity" android:exported="true"
-            android:permission="android.permission.DUMP" android:screenOrientation="portrait" android:resizeableActivity="false"
-            android:excludeFromRecents="true" android:taskAffinity="${applicationId}.restricted.fixture"
-            android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".FixtureLandscapeMigrationActivity" android:exported="true"
-            android:permission="android.permission.DUMP" android:screenOrientation="landscape" android:resizeableActivity="false"
-            android:excludeFromRecents="true" android:taskAffinity="${applicationId}.landscape.fixture"
-            android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".FixtureRearScreenshotActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".InputProxyPrototypeActivity" android:exported="true"
-            android:permission="android.permission.DUMP" android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".FixtureInputActivity" android:exported="true"
-            android:permission="android.permission.DUMP" android:excludeFromRecents="true"
-            android:theme="@style/MiuixHostTheme" android:showWhenLocked="true" android:turnScreenOn="true" />
-        <activity android:name=".FixtureNotificationActivity" android:exported="false" tools:targetApi="27"
-            android:excludeFromRecents="true" android:launchMode="singleInstance"
-            android:taskAffinity="${applicationId}.notification.fixture" android:theme="@style/Theme.Transparent"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
-            android:showWhenLocked="true" android:turnScreenOn="true" android:hardwareAccelerated="true" />
-        <activity android:name=".FixtureCastNotificationActivity" android:exported="false"
-            android:theme="@style/MiuixHostTheme" />
-        <!-- Local instrumentation fixture only; absent from every release APK. -->
-        <activity android:name=".FixtureUpdateActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
-        <activity android:name=".FixtureChargingActivity" android:exported="false" tools:targetApi="27"
-            android:excludeFromRecents="true" android:launchMode="singleInstance"
-            android:taskAffinity="${applicationId}.charging.fixture" android:theme="@style/Theme.Transparent"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
-            android:showWhenLocked="true" android:turnScreenOn="true" android:hardwareAccelerated="true" />
-        <activity android:name=".ModuleRearActivity" android:exported="true" android:permission="android.permission.DUMP"
-            android:excludeFromRecents="true" android:launchMode="singleTask" android:taskAffinity="${applicationId}.module.rear"
-            android:showWhenLocked="true" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale" android:theme="@style/MiuixHostTheme">
-            <meta-data android:name="miui.rear.policy" android:value="1" />
-        </activity>
-        <activity android:name=".NativeModuleLaunchActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@style/Theme.Transparent" android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|fontScale|density|locale|layoutDirection" />
-        <receiver android:name=".timer.StageTimerAlarmReceiver" android:exported="false" />
-        <receiver android:name=".timer.ModuleRuntimeReceiver" android:exported="false">
-            <intent-filter><action android:name="top.zainzh.rearscreen.MODULE_CHANGED" /></intent-filter>
-        </receiver>
-        <receiver android:name=".timer.StageTimerSystemReceiver" android:exported="true">
+        <activity
+            android:name=".platform.mods.ModDebugReloadActivity"
+            android:exported="true"
+            android:label="Mod 开发重载"
+            android:theme="@style/MiuixHostTheme">
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </receiver>
+        </activity>
     </application>
-    <instrumentation android:name="top.zainzh.rearscreen.InputProxyProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RootIpcProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.VirtualMagnetProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearCastModeProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearCastViewportProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.DensitySettingsProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearPresentationProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.LayoutCompatibilityProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.LandscapeCastProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.CompatibilityCleanupInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.FormalSearchUiInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearInfoProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearInfoPowerProbe" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearCameraGapProbeInstrumentation" android:targetPackage="${applicationId}" />
-    <instrumentation android:name="top.zainzh.rearscreen.RearWeatherProbeInstrumentation" android:targetPackage="${applicationId}" />
 </manifest>

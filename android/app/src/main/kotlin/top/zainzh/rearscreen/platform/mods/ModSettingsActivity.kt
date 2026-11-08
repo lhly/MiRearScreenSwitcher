@@ -33,6 +33,10 @@ import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.Executor
 
+internal fun modInstallSuccessNotice(name: String, replacing: Boolean, enabled: Boolean): String =
+    if (replacing) "已更新 $name；原有配置与数据已保留，当前仍为${if (enabled) "启用" else "停用"}状态。"
+    else "已安装 $name；默认保持停用，请先审核设置与能力。"
+
 private sealed interface ModDestructiveAction {
     data class RevokeAuthor(val mod: InstalledMod, val affectedMods: Int) : ModDestructiveAction
     data class Uninstall(val mod: InstalledMod) : ModDestructiveAction
@@ -192,7 +196,7 @@ class ModSettingsActivity : ComponentActivity() {
                 if (!closeUnconfirmed) ModBrokerProvider.get(this@ModSettingsActivity).finishPackageReplacement(old.id, result.isSuccess)
             }
             working = false; pending = null; stagedArchive = null
-            result.onSuccess { reload(); notice = "已安装 ${it.name}；默认保持停用，请先审核设置与能力。" }
+            result.onSuccess { reload(); notice = modInstallSuccessNotice(it.name, old != null, it.enabled) }
                 .onFailure { error = it.message ?: "安装失败，旧版本和本地数据保持不变" }
         }
     }

@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteDatabase
 import org.json.JSONObject
 import org.json.JSONArray
 import top.zainzh.rearscreen.platform.RearCapabilityCore
+import top.zainzh.rearscreen.BuildConfig
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -221,6 +222,58 @@ object ModPackageStore {
             verified.dataVersion, old?.enabled ?: false, verified.requiredCapabilities,
             verified.optionalCapabilities.filter { it.name in decision.acceptedCapabilities },
             (verified.requiredCapabilities+verified.optionalCapabilities.filter { it.name in decision.acceptedCapabilities }).map { it.name }.toSet())
+    }
+
+    /** Debug-only same-author, same-data-version package replacement. It never migrates or edits model data. */
+    @Synchronized internal fun debugReload(
+        context: Context,
+        archive: ByteArray,
+        storage: ModPackageStoreTestSession.Storage? = null
+    ): InstalledMod {
+        check(BuildConfig.DEBUG) { "Mod 开发重载仅在 Debug 构建可用" }
+        val verified = ModPackageReader.read(archive.inputStream())
+        val database = db(context, storage).writableDatabase
+        val old = readInstallRow(database, verified.id) ?: throw IllegalStateException("开发重载要求目标 Mod 已安装")
+        require(old.authorFingerprint == verified.authorFingerprint) { "开发重载必须使用当前 Mod 的同一作者签名" }
+        val oldPackage = File(old.packagePath).inputStream().use(ModPackageReader::read)
+        require(oldPackage.id == verified.id && oldPackage.authorFingerprint == verified.authorFingerprint) { "已安装包身份无效" }
+        require(oldPackage.versionCode == verified.versionCode) { "开发重载必须保持 versionCode 不变；正常更新请使用单调递增的 versionCode" }
+        require(oldPackage.dataVersion == verified.dataVersion) { "开发重载不得改变 dataVersion；数据升级请走正常导入和迁移" }
+        require(isAuthorTrusted(context, verified.authorFingerprint, storage)) { "作者信任已撤销，不能开发重载" }
+        val grants = grants(database, verified.id)
+        require(verified.requiredCapabilities.all { it.name in grants }) { "开发重载新增了未授权的必需能力；请走正常导入审核" }
+        val currentModel = readModel(database, verified.id) ?: throw IllegalStateException("已安装 Mod 模型缺失")
+        validateModel(verified, currentModel.state, currentModel.config)
+
+        val packageRoot = File(root(context, storage), verified.id)
+        if (!packageRoot.exists() && !packageRoot.mkdirs()) throw IOException("无法创建 Mod 目录")
+        val candidate = File(packageRoot, ".${UUID.randomUUID()}.debug-candidate")
+        writeSynced(candidate, archive)
+        val active = File(packageRoot, "${verified.versionCode}-${UUID.randomUUID()}.zip")
+        try {
+            if (!candidate.renameTo(active)) throw IOException("无法原子落盘开发包")
+            database.beginTransaction()
+            try {
+                val current = readInstallRow(database, verified.id)
+                require(current != null && current.versionCode == old.versionCode && current.authorFingerprint == old.authorFingerprint && current.packagePath == old.packagePath) { "并发操作已改变活动 Mod" }
+                val values = ContentValues().apply {
+                    put("name", verified.name); put("version", verified.version); put("version_code", verified.versionCode)
+                    put("data_version", verified.dataVersion); put("package_path", active.absolutePath)
+                    put("manifest_json", verified.signedManifest.toString(Charsets.UTF_8))
+                }
+                require(database.update("installed_mods", values, "mod_id=?", arrayOf(verified.id)) == 1) { "开发重载目标已移除" }
+                val retained = grants.intersect((verified.requiredCapabilities + verified.optionalCapabilities).map { it.name }.toSet())
+                database.delete("mod_capability_grants", "mod_id=?", arrayOf(verified.id))
+                (verified.requiredCapabilities + verified.optionalCapabilities.filter { it.name in retained }).forEach { cap ->
+                    database.execSQL("INSERT INTO mod_capability_grants(mod_id,capability_name,version) VALUES(?,?,?)", arrayOf<Any?>(verified.id, cap.name, cap.minimumVersion))
+                }
+                database.setTransactionSuccessful()
+            } finally { database.endTransaction() }
+        } catch (e: Exception) {
+            active.delete(); candidate.delete(); throw e
+        }
+        old.packagePath.takeIf { it != active.absolutePath }?.let { File(it).delete() }
+        return list(context, storage).first { it.id == verified.id }
     }
 
     @Synchronized internal fun setEnabled(context: Context, id: String, enabled: Boolean, storage: ModPackageStoreTestSession.Storage? = null): InstalledMod {

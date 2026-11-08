@@ -6,7 +6,15 @@ import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import top.zainzh.rearscreen.platform.runtime.IsolatedModRuntimeClient
+import top.zainzh.rearscreen.platform.clock.AndroidClockSnapshotSource
+import top.zainzh.rearscreen.platform.clock.ClockSnapshotSource
+import top.zainzh.rearscreen.platform.clock.ExecutorOneShotScheduler
+import top.zainzh.rearscreen.platform.clock.VisibleScheduleLease
+import top.zainzh.rearscreen.platform.clock.VisibleScheduleProvider
+import top.zainzh.rearscreen.platform.clock.VisibleTick
+import top.zainzh.rearscreen.platform.clock.VisibleTickCause
 import java.util.ArrayDeque
+import java.io.Closeable
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executor
@@ -19,17 +27,42 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-/** Only effects with a real host implementation are admitted. Dispatch happens after model commit. */
+/** Host effects are validated before the model commit and dispatched only after it succeeds. */
+sealed interface ModHostEffect {
+    val id: String
+    val requiresUserActivation: Boolean
+}
+
 data class ModRearOpenEffect(
+    override val id: String,
     val scene: String,
     val region: String,
     val keepVisible: Boolean,
-    /** Opening a rear scene needs an activation from a current user gesture. */
-    val requiresUserActivation: Boolean = true,
-)
+    override val requiresUserActivation: Boolean = true,
+) : ModHostEffect
+
+data class ModVisibleScheduleEffect(
+    override val id: String,
+    val key: String,
+    val intervalMs: Long?,
+    val deadlineElapsedRealtimeMs: Long?,
+    val cancel: Boolean = false,
+    override val requiresUserActivation: Boolean = false,
+) : ModHostEffect
+
+data class ModRegisteredActionEffect(
+    override val id: String,
+    val ref: top.zainzh.rearscreen.platform.actions.RegisteredActionRef,
+    override val requiresUserActivation: Boolean = true,
+) : ModHostEffect
 
 fun interface ModEffectDispatcher {
     fun requestRearScene(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect)
+    fun requestRearSceneWithResult(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect, complete: (Boolean, String?) -> Unit) {
+        runCatching { requestRearScene(mod, eventId, effect) }
+            .onSuccess { complete(true, null) }
+            .onFailure { complete(false, "E_EFFECT_DISPATCH") }
+    }
 }
 
 interface ModBrokerListener {
@@ -39,12 +72,63 @@ interface ModBrokerListener {
     fun onEffectRequested(modId: String, eventId: String)
 }
 
-sealed interface ModBrokerCommand {
-    data class Event(val eventId: String, val type: String, val payload: JSONObject) : ModBrokerCommand
-    data class Config(val eventId: String, val config: JSONObject, val callbackExecutor: Executor, val complete: (Boolean, String?) -> Unit) : ModBrokerCommand
+internal sealed interface ModBrokerCommand {
+    data class Event(
+        val eventId: String,
+        val type: String,
+        val payload: JSONObject,
+        /** Host-only evidence from a native button callback; never serialized to the worker. */
+        val activation: ModUserGesture? = null,
+        val effectChain: ModEffectChainBudget = ModEffectChainBudget(),
+    ) : ModBrokerCommand
+    data class Config(val eventId: String, val config: JSONObject, val callbackExecutor: Executor, val complete: (Boolean, String?) -> Unit,
+        val effectChain: ModEffectChainBudget = ModEffectChainBudget()) : ModBrokerCommand
 }
 
-private data class ModObserverOpenRequest(val token: Long, val executor: Executor)
+internal class ModEffectChainBudget {
+    private val lock = Any()
+    private var eventCount = 1
+    private var cpuNanos = 0L
+    private var hasEffects = false
+    fun markEffectIssued() = synchronized(lock) { hasEffects = true }
+    fun hasEffects(): Boolean = synchronized(lock) { hasEffects }
+    fun addResultEvent(): Boolean = synchronized(lock) {
+        if (eventCount >= MAX_EVENTS) false else { eventCount++; true }
+    }
+    fun addCpu(nanos: Long): Boolean = synchronized(lock) {
+        if (nanos > 0) cpuNanos = if (Long.MAX_VALUE - cpuNanos < nanos) Long.MAX_VALUE else cpuNanos + nanos
+        cpuNanos <= MAX_CPU_NANOS
+    }
+    fun withinCpuBudget(): Boolean = synchronized(lock) { cpuNanos <= MAX_CPU_NANOS }
+    companion object { const val MAX_EVENTS = 16; const val MAX_CPU_NANOS = 100_000_000L }
+}
+
+internal class ModEffectRateLimiter(
+    private val burst: Double = 16.0,
+    private val callsPerSecond: Double = 10.0,
+) {
+    private var tokens = burst
+    private var lastElapsedRealtimeMs: Long? = null
+    @Synchronized fun tryAcquire(nowMs: Long): Boolean {
+        val last = lastElapsedRealtimeMs
+        if (last != null && nowMs < last) return false
+        if (last != null) tokens = minOf(burst, tokens + (nowMs - last) * callsPerSecond / 1_000.0)
+        lastElapsedRealtimeMs = nowMs
+        if (tokens < 1.0) return false
+        tokens -= 1.0
+        return true
+    }
+}
+
+internal class ModUserGesture(val modId: String, val epoch: Long, val issuedAtElapsedRealtimeMs: Long) {
+    private val consumed = AtomicInteger(0)
+    fun consume(modId: String, epoch: Long, nowMs: Long): Boolean =
+        this.modId == modId && this.epoch == epoch && nowMs >= issuedAtElapsedRealtimeMs &&
+            nowMs - issuedAtElapsedRealtimeMs < top.zainzh.rearscreen.platform.actions.RegisteredActionActivationAuthority.TTL_MS &&
+            consumed.compareAndSet(0, 1)
+}
+
+private data class ModObserverOpenRequest(val token: Long, val executor: Executor, val visible: Boolean)
 
 /**
  * One process-level broker owns one serial queue per Mod. Runtime epochs are disposable;
@@ -54,6 +138,7 @@ class ModEventBroker(
     context: Context,
     private val effectDispatcher: ModEffectDispatcher,
     private val eventCapacity: Int = 32,
+    private val clockSource: ClockSnapshotSource = AndroidClockSnapshotSource(),
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     /** Non-null only in instrumentation. Production callers always use the credential-protected store. */
@@ -62,6 +147,15 @@ class ModEventBroker(
     private val threadNumber = AtomicInteger()
     private val eventExecutor = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(256), namedFactory("remrss-mod-host"), ThreadPoolExecutor.AbortPolicy())
     private val runtimeCallbacks = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(64), namedFactory("remrss-mod-runtime-callback"), ThreadPoolExecutor.AbortPolicy())
+    private val scheduleProvider = VisibleScheduleProvider(
+        elapsedRealtime = SystemClock::elapsedRealtime,
+        scheduler = ExecutorOneShotScheduler(),
+        callbackExecutor = eventExecutor,
+        onCallbackFailure = { ownerId, epoch, error ->
+            execute { slots[ownerId]?.takeIf { it.acceptsEpoch(epoch) }?.let { failSlot(it, "E_SCHEDULE_DISPATCH", error.message ?: "schedule callback failed") } }
+        }
+    )
+    private val viewSnapshotScheduler = ExecutorOneShotScheduler()
     private val slots = ConcurrentHashMap<String, Slot>()
     private val pendingRuntimeCloses = ConcurrentHashMap.newKeySet<CompletableFuture<Void>>()
     private val observerRequestIds = AtomicLong()
@@ -69,6 +163,12 @@ class ModEventBroker(
     private val replacementGate = Any()
     private val replacementReservations = ConcurrentHashMap.newKeySet<String>()
     private val closed = AtomicInteger(0)
+
+    internal fun scheduleOwnerCountForTesting(): Int = scheduleProvider.ownerCountForTesting()
+    internal fun scheduleHasDeadlineForTesting(modId: String, key: String): Boolean =
+        slots[modId]?.scheduleSpecs?.get(key)?.deadlineElapsedRealtimeMs != null
+    internal fun scheduleHasIntervalForTesting(modId: String, key: String): Boolean =
+        slots[modId]?.scheduleSpecs?.get(key)?.intervalMs != null
 
     private class Slot(
         val mod: InstalledMod,
@@ -92,6 +192,13 @@ class ModEventBroker(
         var replacementCallback: Pair<Executor, (Boolean, String?) -> Unit>? = null,
         var inFlight: String? = null,
         var model: ModPersistedModel? = null,
+        var scheduleLease: VisibleScheduleLease? = null,
+        val scheduleSpecs: LinkedHashMap<String, ModVisibleScheduleEffect> = LinkedHashMap(),
+        val visibleObservers: MutableSet<ModBrokerListener> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap()),
+        val effectRateLimiter: ModEffectRateLimiter = ModEffectRateLimiter(),
+        var lastModelSnapshotElapsedMs: Long = 0L,
+        var pendingModelSnapshot: Pair<String?, ModPersistedModel>? = null,
+        var modelSnapshotTimer: Closeable? = null,
     ) {
         private val runtimeEpoch = ModRuntimeEpochGate(initialEpoch)
         val epoch: Long get() = runtimeEpoch.current
@@ -100,14 +207,14 @@ class ModEventBroker(
     }
 
     /** Activate a package for a visible host scene. `init` runs only if the durable state is absent. */
-    fun open(modId: String, listenerExecutor: Executor, listener: ModBrokerListener) {
+    fun open(modId: String, listenerExecutor: Executor, listener: ModBrokerListener, visible: Boolean = false) {
         synchronized(replacementGate) {
           if (modId in replacementReservations) {
               notify(listenerExecutor, listener, modId, "E_PACKAGE_UPDATING", "Mod 正在更新")
               return
           }
           if (closed.get() != 0) return
-          val request = ModObserverOpenRequest(observerRequestIds.incrementAndGet(), listenerExecutor)
+          val request = ModObserverOpenRequest(observerRequestIds.incrementAndGet(), listenerExecutor, visible)
           observerRequests.computeIfAbsent(modId) { ConcurrentHashMap() }[listener] = request
           execute { activateObserver(modId, listener, request) }
         }
@@ -122,6 +229,8 @@ class ModEventBroker(
                 return
             }
             slot.observers[listener] = request.executor
+            if (request.visible) slot.visibleObservers.add(listener) else slot.visibleObservers.remove(listener)
+            updateScheduleVisibility(slot)
             if (slot.closeWhenIdle) {
                 slot.closeWhenIdle = false
                 slot.paused = false
@@ -138,7 +247,9 @@ class ModEventBroker(
             val pkg = ModPackageStore.find(appContext, modId, testStoreStorage) ?: error("Mod 包签名或内容无效")
             val slot = Slot(installed, pkg, epochs.incrementAndGet())
             slot.observers[listener] = request.executor
+            if (request.visible) slot.visibleObservers.add(listener)
             slots[modId] = slot
+            if (request.visible) openScheduleLease(slot)
             if (pkg.runtime == ModRuntimeKind.NONE) {
                 slot.model = ModPackageStore.model(appContext, modId, testStoreStorage) ?: error("Mod 本地模型缺失")
                 slot.ready = true
@@ -158,6 +269,8 @@ class ModEventBroker(
         execute {
             val slot = slots[modId] ?: return@execute
             slot.observers.remove(listener)
+            slot.visibleObservers.remove(listener)
+            updateScheduleVisibility(slot)
             if (slot.observers.isEmpty() && (!slot.paused || slot.runtimeRecoveryInProgress)) {
                 slot.paused = true
                 slot.closeWhenIdle = true
@@ -213,6 +326,7 @@ class ModEventBroker(
                     }
                     slot.replacementRequested = true
                     slot.paused = true
+                    closeScheduleLease(slot)
                     slot.replacementCallback = callbackExecutor to complete
                     notifyObservers(slot) { it.onError(modId, "E_PACKAGE_UPDATING", "Mod 正在更新，已接受的操作正在保存") }
                     drain(slot)
@@ -269,6 +383,77 @@ class ModEventBroker(
         return enqueue(slot, ModBrokerCommand.Event(UUID.randomUUID().toString(), type, JSONObject(payload.toString())))
     }
 
+    /** Only native Activity click handlers call this; activation stays on the host-side command. */
+    fun submitUserEvent(modId: String, type: String, payload: JSONObject = JSONObject()): Boolean {
+        val slot = slots[modId] ?: return false
+        if (slot.visibleObservers.isEmpty() || type.isBlank() || type == HOST_CONFIG_CHANGED_EVENT || payload.toString().toByteArray(Charsets.UTF_8).size > 16 * 1024) return false
+        val eventId = UUID.randomUUID().toString()
+        val gesture = ModUserGesture(modId, slot.epoch, SystemClock.elapsedRealtime())
+        return enqueue(slot, ModBrokerCommand.Event(eventId, type, JSONObject(payload.toString()), gesture))
+    }
+
+    /** The Activity supplies visibility only after checking its actual rear-window state. */
+    fun setObserverVisible(modId: String, listener: ModBrokerListener, visible: Boolean) {
+        execute {
+            val slot = slots[modId] ?: return@execute
+            if (listener !in slot.observers) return@execute
+            if (visible) slot.visibleObservers.add(listener) else slot.visibleObservers.remove(listener)
+            updateScheduleVisibility(slot)
+        }
+    }
+
+    private fun openScheduleLease(slot: Slot) {
+        if (slot.scheduleLease?.epoch == slot.epoch) return
+        slot.scheduleLease?.close()
+        val epoch = slot.epoch
+        slot.scheduleLease = scheduleProvider.open(slot.mod.id, epoch) { tick -> onScheduleTick(slot.mod.id, epoch, tick) }
+        slot.scheduleLease?.setVisible(slot.visibleObservers.isNotEmpty())
+        slot.scheduleSpecs.values.forEach { spec -> slot.scheduleLease?.set(spec.key, spec.intervalMs, spec.deadlineElapsedRealtimeMs) }
+    }
+
+    private fun closeScheduleLease(slot: Slot) {
+        slot.scheduleLease?.close()
+        slot.scheduleLease = null
+    }
+
+    private fun updateScheduleVisibility(slot: Slot) {
+        if (slot.visibleObservers.isNotEmpty()) {
+            openScheduleLease(slot)
+            slot.scheduleLease?.setVisible(true)
+        } else slot.scheduleLease?.setVisible(false)
+    }
+
+    private fun onScheduleTick(modId: String, epoch: Long, tick: VisibleTick) {
+        val slot = slots[modId] ?: return
+        val lease = slot.scheduleLease ?: return
+        if (!slot.acceptsEpoch(epoch) || slot.visibleObservers.isEmpty() || !lease.tryAccept(tick)) return
+        // An elapsed-realtime deadline is a one-shot leg. Consume it on acceptance so
+        // worker recovery/reopen cannot replay an already delivered deadline.
+        if (VisibleTickCause.DEADLINE in tick.causes) {
+            val spec = slot.scheduleSpecs[tick.key]
+            if (spec != null && spec.deadlineElapsedRealtimeMs != null) {
+                if (spec.intervalMs == null) slot.scheduleSpecs.remove(tick.key)
+                else slot.scheduleSpecs[tick.key] = spec.copy(deadlineElapsedRealtimeMs = null)
+                slot.scheduleSpecs[tick.key]?.let { lease.set(it.key, it.intervalMs, null) } ?: lease.remove(tick.key)
+            }
+        }
+        val causes = JSONArray().apply { tick.causes.sortedBy { it.name }.forEach { put(it.name.lowercase()) } }
+        val actualElapsedRealtimeMs = clockSource.snapshot().elapsedRealtimeMs
+        if (!enqueue(slot, ModBrokerCommand.Event(UUID.randomUUID().toString(), HOST_SCHEDULE_TICK_EVENT,
+                JSONObject().put("id", tick.key).put("scheduledElapsedRealtimeMs", tick.scheduledElapsedRealtimeMs)
+                    .put("actualElapsedRealtimeMs", actualElapsedRealtimeMs).put("missedCount", tick.missedCount).put("causes", causes)))) {
+            notifyObservers(slot) { it.onError(modId, "E_SCHEDULE_QUEUE", "可见调度事件队列已满，此次tick未提交；请降低频率或简化reducer") }
+        }
+    }
+
+    private fun clockEnvironment(): JSONObject {
+        val snapshot = clockSource.snapshot()
+        return JSONObject().put("wallTimeMs", snapshot.wallTimeMs)
+            .put("elapsedRealtimeMs", snapshot.elapsedRealtimeMs)
+            .put("timezoneId", snapshot.timezoneId)
+            .put("bootId", snapshot.bootId ?: JSONObject.NULL)
+    }
+
     /** Settings are drafts in the renderer; a single model/config transaction occurs on Save. */
     fun saveConfig(modId: String, config: JSONObject, callbackExecutor: Executor, complete: (Boolean, String?) -> Unit) {
         val completed = AtomicInteger(0)
@@ -299,6 +484,7 @@ class ModEventBroker(
         val completion = CompletableFuture<Unit>()
         execute {
             slots.remove(modId)?.let { slot ->
+                closeScheduleLease(slot)
                 slot.failed = true
                 notifyObservers(slot) { it.onError(modId, code, reason) }
                 slot.runtime?.let(::closeRuntimeAsync); slot.runtime = null
@@ -314,6 +500,7 @@ class ModEventBroker(
     fun invalidate(modId: String, code: String = "E_MOD_REVOKED", reason: String = "Mod 权限已撤销") {
         execute {
             slots.remove(modId)?.let { slot ->
+                closeScheduleLease(slot)
                 slot.failed = true
                 notifyObservers(slot) { it.onError(modId, code, reason) }
                 slot.runtime?.let(::closeRuntimeAsync); slot.runtime = null
@@ -372,8 +559,9 @@ class ModEventBroker(
             if (model.state == null) {
                 if (slot.runtimeRecoveryInProgress) return failSlot(slot, "E_INVALID_STATE", "恢复时已提交模型缺少 state，拒绝重新初始化")
                 slot.inFlight = "init"
-                slot.runtime?.init(JSONObject().put("config", model.config).put("env", JSONObject()).put("dataVersion", model.dataVersion).toString())
+                slot.runtime?.init(JSONObject().put("config", model.config).put("env", JSONObject().put("clock", clockEnvironment())).put("dataVersion", model.dataVersion).toString())
             } else {
+                if (slot.visibleObservers.isNotEmpty() && slot.scheduleSpecs.isNotEmpty()) openScheduleLease(slot)
                 slot.ready = true
                 if (slot.runtimeRecoveryInProgress) {
                     slot.runtimeRecoveryInProgress = false
@@ -401,6 +589,12 @@ class ModEventBroker(
         if (operation != "reduce") return failSlot(slot, "E_RUNTIME_RESULT", "unexpected runtime operation: $operation")
         val result = runtimeObject(raw, operation) ?: return failSlot(slot, "E_RUNTIME_RESULT", "reduce 必须返回 JSON object")
         val command = slot.commands.firstOrNull() ?: return failSlot(slot, "E_INVALID_STATE", "reducer 回包没有匹配输入")
+        val runtimeCpuNanos = slot.runtime?.lastExecutionCpuTimeNanos() ?: -1L
+        val commandChain = when (command) {
+            is ModBrokerCommand.Event -> command.effectChain
+            is ModBrokerCommand.Config -> command.effectChain
+        }
+        if (runtimeCpuNanos > 0) commandChain.addCpu(runtimeCpuNanos)
         // Engine failures arrive via typed onEngineError. A script payload, even
         // one with {ok:false, code:"E_SCRIPT"}, is data and cannot impersonate it.
         if (!result.has("state") || result.opt("state") !is JSONObject || result.keys().asSequence().any { it !in setOf("state", "effects") }) {
@@ -441,11 +635,16 @@ class ModEventBroker(
             if (command is ModBrokerCommand.Config) {
                 deliver(slot, command.callbackExecutor) { command.complete(true, null) }
             }
-            notifyObservers(slot) { it.onModelCommitted(slot.mod.id, eventId, model) }
-            parsedEffects.forEach { effect ->
+            notifyModelCommitted(slot, eventId, model)
+            val eventChain = commandChain
+            val effectChainCpuExceeded = !eventChain.withinCpuBudget()
+            if (effectChainCpuExceeded && (eventChain.hasEffects() || parsedEffects.isNotEmpty())) {
+                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_CPU_LIMIT", "Effect 因果链累计 CPU 超过 100 ms；已提交模型保留，本次及后续 Effect 不再派发") }
+            }
+            val gesture = (command as? ModBrokerCommand.Event)?.activation
+            if (!effectChainCpuExceeded) parsedEffects.forEach { effect ->
                 notifyObservers(slot) { it.onEffectRequested(slot.mod.id, eventId) }
-                runCatching { effectDispatcher.requestRearScene(slot.mod, eventId, effect) }
-                    .onFailure { error -> notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_DISPATCH", error.message ?: "Effect 执行失败") } }
+                dispatchEffect(slot, eventId, effect, gesture, eventChain)
             }
             drain(slot)
         } catch (e: Exception) { failSlot(slot, "E_STORAGE_FAILED", e.message ?: "模型事务失败") }
@@ -490,6 +689,7 @@ class ModEventBroker(
 
         // Invalidate every old-epoch result now, then wait for confirmed destruction,
         // unbind and global-slot release before binding a fresh worker.
+        closeScheduleLease(slot)
         slot.advanceEpoch(epochs.incrementAndGet())
         closeRuntimeAsync(runtime).whenComplete { _, failure ->
             execute {
@@ -541,17 +741,144 @@ class ModEventBroker(
         drain(slot)
     }
 
-    private fun parseEffect(slot: Slot, value: JSONObject): ModRearOpenEffect {
-        require(value.optString("type") == "rear.open") { "当前只支持 rear.open Effect" }
-        require(value.keys().asSequence().toSet() == setOf("type", "scene", "region", "keepVisible")) { "rear.open 字段无效" }
-        require(value.getString("scene") == "rear") { "Mod 只能打开自身声明的 rear scene" }
-        require(value.getString("region") in setOf("CAMERA_SAFE", "FULL")) { "rear.open region 无效" }
-        require(value.get("keepVisible") is Boolean) { "rear.open keepVisible 必须为 boolean" }
-        val needed = mutableSetOf("rear.scene")
-        if (value.getString("region") == "FULL") needed += "rear.region"
-        if (value.getBoolean("keepVisible")) needed += "rear.scene.keep_visible"
-        require(needed.all { it in slot.mod.grantedCapabilities }) { "rear.open 缺少能力授权：${(needed-slot.mod.grantedCapabilities).joinToString()}" }
-        return ModRearOpenEffect("rear", value.getString("region"), value.getBoolean("keepVisible"))
+    private fun parseEffect(slot: Slot, value: JSONObject): ModHostEffect {
+        val type = value.optString("type")
+        return when (type) {
+            "rear.open" -> {
+                require(value.keys().asSequence().toSet() in setOf(setOf("type", "scene", "region", "keepVisible"), setOf("id", "type", "scene", "region", "keepVisible"))) { "rear.open 字段无效" }
+                require(value.getString("scene") == "rear") { "Mod 只能打开自身声明的 rear scene" }
+                require(value.getString("region") in setOf("CAMERA_SAFE", "FULL")) { "rear.open region 无效" }
+                require(value.get("keepVisible") is Boolean) { "rear.open keepVisible 必须为 boolean" }
+                val needed = mutableSetOf("rear.scene")
+                if (value.getString("region") == "FULL") needed += "rear.region"
+                if (value.getBoolean("keepVisible")) needed += "rear.scene.keep_visible"
+                val declared = (slot.pkg.requiredCapabilities + slot.pkg.optionalCapabilities).map { it.name }.toSet()
+                require(needed.all { it in declared }) { "Mod manifest 未声明所需能力：${(needed-declared).joinToString()}" }
+                require(needed.all { it in slot.mod.grantedCapabilities }) { "rear.open 缺少能力授权：${(needed-slot.mod.grantedCapabilities).joinToString()}" }
+                ModRearOpenEffect(value.optString("id").ifBlank { UUID.randomUUID().toString() }, "rear", value.getString("region"), value.getBoolean("keepVisible"))
+            }
+            "schedule.visible.register", "schedule.visible.cancel" -> {
+                val declared = (slot.pkg.requiredCapabilities + slot.pkg.optionalCapabilities).any { it.name == "schedule.visible" }
+                require(declared) { "Mod manifest 未声明 schedule.visible" }
+                require("schedule.visible" in slot.mod.grantedCapabilities) { "Mod 未获 schedule.visible 授权" }
+                val cancel = type.endsWith("cancel")
+                val fields = value.keys().asSequence().toSet()
+                val allowed = if (cancel) fields == setOf("id", "type") else
+                    fields.containsAll(setOf("id", "type")) && fields.all { it in setOf("id", "type", "intervalMs", "deadlineElapsedRealtimeMs") }
+                require(allowed) { "visible schedule 字段无效" }
+                val id = value.getString("id")
+                require(id.matches(Regex("[A-Za-z0-9_.-]{1,64}"))) { "visible schedule id 无效" }
+                fun safeInteger(field: String): Long {
+                    val raw = value.get(field)
+                    require(raw is Number) { "$field 必须为安全整数" }
+                    val number = raw.toDouble()
+                    require(number.isFinite() && number % 1.0 == 0.0 && number in 0.0..9_007_199_254_740_991.0) {
+                        "$field 必须为非负安全整数"
+                    }
+                    return raw.toLong()
+                }
+                val interval = if (cancel || !value.has("intervalMs")) null else safeInteger("intervalMs")
+                val deadline = if (cancel || !value.has("deadlineElapsedRealtimeMs")) null else safeInteger("deadlineElapsedRealtimeMs")
+                require(cancel || interval != null || deadline != null) { "至少提供 intervalMs 或 deadlineElapsedRealtimeMs" }
+                // `id` in the author API is a stable schedule key. Effect-result IDs
+                // are unique per invocation and must not alias that key.
+                ModVisibleScheduleEffect(UUID.randomUUID().toString(), id, interval, deadline, cancel)
+            }
+            "action.invoke" -> {
+                require(value.keys().asSequence().toSet() == setOf("type", "ref")) { "action.invoke 字段无效" }
+                val declared = slot.pkg.requiredCapabilities.any { it.name == "action.invoke" } ||
+                    slot.pkg.optionalCapabilities.any { it.name == "action.invoke" }
+                require(declared) { "Mod manifest 未声明 action.invoke" }
+                require("action.invoke" in slot.mod.grantedCapabilities) { "Mod 未获 action.invoke 授权" }
+                val refJson = value.getJSONObject("ref")
+                require(refJson.keys().asSequence().toSet() == setOf("id", "version")) { "registered action ref 字段无效" }
+                val ref = top.zainzh.rearscreen.platform.actions.RegisteredActionRef(refJson.getString("id"), refJson.getInt("version"))
+                val owner = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).modDataOwner(slot.mod.id)
+                    ?: throw IllegalArgumentException("Mod owner 不可用")
+                val registry = top.zainzh.rearscreen.platform.actions.PlatformRegisteredActionRegistry.get(appContext)
+                val resolved = registry.resolve(owner, ref)
+                require(resolved is top.zainzh.rearscreen.platform.actions.ActionResolveResult.Resolved) {
+                    "registered action ref 不存在、已撤销、目标无效或不属于此 Mod"
+                }
+                ModRegisteredActionEffect("${slot.epoch}:${UUID.randomUUID()}", ref)
+            }
+            else -> throw IllegalArgumentException("不支持的 Mod Effect：$type")
+        }
+    }
+
+    private fun dispatchEffect(
+        slot: Slot,
+        eventId: String,
+        effect: ModHostEffect,
+        gesture: ModUserGesture?,
+        effectChain: ModEffectChainBudget,
+    ) {
+        val completed = AtomicInteger(0)
+        fun complete(status: String, code: String? = null) {
+            if (!completed.compareAndSet(0, 1)) return
+            if (!effectChain.withinCpuBudget()) {
+                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_CPU_LIMIT", "Effect 因果链累计 CPU 超过 100 ms") }
+                return
+            }
+            if (!effectChain.addResultEvent()) {
+                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_LIMIT", "Effect 因果链超过 16 个事件") }
+                return
+            }
+            val payload = JSONObject().put("effectId", effect.id).put("requestEventId", eventId).put("status", status)
+            if (code != null) payload.put("code", code)
+            if (slots[slot.mod.id] === slot && slot.acceptsEpoch(slot.epoch)) {
+                if (!enqueue(slot, ModBrokerCommand.Event(UUID.randomUUID().toString(), HOST_EFFECT_RESULT_EVENT, payload, effectChain = effectChain)))
+                    notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_RESULT_QUEUE", "Effect 结果事件队列已满，操作状态未能回送") }
+            }
+        }
+        effectChain.markEffectIssued()
+        if (!slot.effectRateLimiter.tryAcquire(SystemClock.elapsedRealtime())) {
+            complete("rejected", "E_LIMIT_EXCEEDED")
+            return
+        }
+        when (effect) {
+            is ModVisibleScheduleEffect -> runCatching {
+                if (slot.scheduleLease == null) openScheduleLease(slot)
+                val lease = slot.scheduleLease ?: error("visible schedule lease 不可用")
+                if (effect.cancel) {
+                    lease.remove(effect.key)
+                    slot.scheduleSpecs.remove(effect.key)
+                } else {
+                    lease.set(effect.key, effect.intervalMs, effect.deadlineElapsedRealtimeMs)
+                    slot.scheduleSpecs[effect.key] = effect
+                }
+            }.onSuccess { complete("accepted") }
+                .onFailure { complete("rejected", "E_SCHEDULE_INVALID") }
+            is ModRearOpenEffect -> effectDispatcher.requestRearSceneWithResult(slot.mod, eventId, effect) { accepted, code ->
+                complete(if (accepted) "accepted" else "rejected", code)
+            }
+            is ModRegisteredActionEffect -> {
+                val now = SystemClock.elapsedRealtime()
+                if (gesture == null || !gesture.consume(slot.mod.id, slot.epoch, now)) {
+                    complete("rejected", "E_ACTIVATION_REQUIRED")
+                } else runCatching {
+                    val installed = ModPackageStore.installed(appContext, slot.mod.id, testStoreStorage)
+                        ?: throw SecurityException("E_MOD_REVOKED")
+                    require(installed.enabled && installed.authorFingerprint == slot.pkg.authorFingerprint) { "E_MOD_REVOKED" }
+                    val declared = slot.pkg.requiredCapabilities.any { it.name == "action.invoke" } ||
+                        slot.pkg.optionalCapabilities.any { it.name == "action.invoke" }
+                    require(declared && "action.invoke" in installed.grantedCapabilities) { "E_CAPABILITY_DENIED" }
+                    val owner = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).modDataOwner(slot.mod.id)
+                        ?: throw SecurityException("E_MOD_REVOKED")
+                    val activation = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext)
+                        .issueRegisteredActionActivationAfterHostClick(owner, effect.ref, gesture.issuedAtElapsedRealtimeMs)
+                    top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).invokeRegisteredAction(owner, effect.ref, activation)
+                }.onSuccess { result ->
+                    when (result) {
+                        top.zainzh.rearscreen.platform.actions.ActionDispatchResult.Accepted -> complete("accepted")
+                        is top.zainzh.rearscreen.platform.actions.ActionDispatchResult.Rejected -> complete("rejected", "E_ACTION_${result.error.name}")
+                    }
+                }.onFailure { failure ->
+                    val detail = failure.message?.takeIf { it in setOf("E_MOD_REVOKED", "E_CAPABILITY_DENIED") }
+                    complete("rejected", detail ?: "E_ACTION_INVOKE")
+                }
+            }
+        }
     }
 
     private fun drain(slot: Slot) {
@@ -576,7 +903,7 @@ class ModEventBroker(
                                 .put("logicalSessionId", slot.mod.logicalSessionId)
                             val context = JSONObject().put("state", state).put("config", JSONObject(command.config.toString()))
                                 .put("previousConfig", JSONObject(before.config.toString())).put("event", event)
-                                .put("env", JSONObject()).put("revision", before.revision)
+                                .put("env", JSONObject().put("clock", clockEnvironment())).put("revision", before.revision)
                             slot.inFlight = "reduce:${command.eventId}"
                             slot.runtime?.reduce(context.toString()) ?: return failSlot(slot, "E_WORKER_DIED", "isolated worker is not connected")
                             return
@@ -585,7 +912,7 @@ class ModEventBroker(
                         val model = ModPackageStore.commitModel(appContext, slot.mod.id, before.revision, before.state, command.config, testStoreStorage)
                         slot.model = model; slot.commands.removeFirst(); slot.queued.decrementAndGet()
                         deliver(slot, command.callbackExecutor) { command.complete(true, null) }
-                        notifyObservers(slot) { it.onModelCommitted(slot.mod.id, command.eventId, model) }
+                        notifyModelCommitted(slot, command.eventId, model)
                     } catch (e: Exception) {
                         slot.commands.removeFirst(); slot.queued.decrementAndGet()
                         deliver(slot, command.callbackExecutor) { command.complete(false, e.message ?: "配置写入失败") }
@@ -598,7 +925,7 @@ class ModEventBroker(
                     val event = JSONObject().put("type", command.type).put("payload", command.payload)
                         .put("eventId", command.eventId).put("revision", current.revision).put("logicalSessionId", slot.mod.logicalSessionId)
                     val context = JSONObject().put("state", current.state).put("config", current.config).put("event", event)
-                        .put("env", JSONObject()).put("revision", current.revision)
+                        .put("env", JSONObject().put("clock", clockEnvironment())).put("revision", current.revision)
                     slot.inFlight = "reduce:${command.eventId}"
                     slot.runtime?.reduce(context.toString()) ?: run { failSlot(slot, "E_WORKER_DIED", "isolated worker is not connected") }
                     return
@@ -636,6 +963,7 @@ class ModEventBroker(
 
     private fun failSlot(slot: Slot, code: String, message: String) {
         if (slot.failed) return
+        closeScheduleLease(slot)
         slot.failed = true; slot.ready = false; slot.runtime?.let(::closeRuntimeAsync); slot.runtime = null
         slots.remove(slot.mod.id, slot)
         completeRecoveredConfigFailure(slot, "$code: $message")
@@ -689,6 +1017,7 @@ class ModEventBroker(
         if (!slot.closeWhenIdle || slot.teardownStarted || slot.commands.isNotEmpty() || slot.inFlight != null) return
         val runtime = slot.runtime
         if (runtime == null) {
+            closeScheduleLease(slot)
             slots.remove(slot.mod.id, slot)
             slot.failed = true
             slot.closeAfterDrainCompletion.complete(null)
@@ -705,6 +1034,7 @@ class ModEventBroker(
                     return@whenComplete
                 }
                 slot.runtime = null
+                closeScheduleLease(slot)
                 slots.remove(slot.mod.id, slot)
                 slot.failed = true
                 val reopen = slot.pendingOpenObservers.toList()
@@ -735,6 +1065,33 @@ class ModEventBroker(
         slot.observers.toList().forEach { (listener, executor) -> deliver(slot, executor) { callback(listener) } }
     }
 
+    /** Durable reducers keep every input; only redundant visible render snapshots coalesce. */
+    private fun notifyModelCommitted(slot: Slot, eventId: String?, model: ModPersistedModel) {
+        val now = SystemClock.elapsedRealtime()
+        val waitMs = (MODEL_SNAPSHOT_INTERVAL_MS - (now - slot.lastModelSnapshotElapsedMs)).coerceAtLeast(0L)
+        if (waitMs == 0L) {
+            slot.lastModelSnapshotElapsedMs = now
+            slot.pendingModelSnapshot = null
+            slot.modelSnapshotTimer?.close(); slot.modelSnapshotTimer = null
+            notifyObservers(slot) { it.onModelCommitted(slot.mod.id, eventId, model) }
+            return
+        }
+        slot.pendingModelSnapshot = eventId to model
+        if (slot.modelSnapshotTimer != null) return
+        slot.modelSnapshotTimer = viewSnapshotScheduler.schedule(waitMs) {
+            execute {
+                if (slots[slot.mod.id] !== slot || slot.failed) return@execute
+                val pending = slot.pendingModelSnapshot
+                slot.pendingModelSnapshot = null
+                slot.modelSnapshotTimer = null
+                if (pending != null) {
+                    slot.lastModelSnapshotElapsedMs = SystemClock.elapsedRealtime()
+                    notifyObservers(slot) { it.onModelCommitted(slot.mod.id, pending.first, pending.second) }
+                }
+            }
+        }
+    }
+
     private fun isCurrent(slot: Slot, epoch: Long) = slots[slot.mod.id] === slot && slot.acceptsEpoch(epoch) && !slot.failed
     private fun runtimeObject(raw: String, operation: String): JSONObject? = runCatching { ModPackageReader.parseRuntimeObject(raw, "runtime.$operation") }.getOrNull()
     private fun deliver(slot: Slot, executor: Executor, block: () -> Unit) { runCatching { executor.execute(block) } }
@@ -747,6 +1104,9 @@ class ModEventBroker(
     companion object {
         /** Reserved host-origin event; authors receive it only after an explicit Save. */
         const val HOST_CONFIG_CHANGED_EVENT = "host.configChanged"
+        const val HOST_SCHEDULE_TICK_EVENT = "host.schedule.tick"
+        const val HOST_EFFECT_RESULT_EVENT = "host.effectResult"
+        const val MODEL_SNAPSHOT_INTERVAL_MS = 100L
     }
 
     private fun namedFactory(prefix: String) = ThreadFactory { task -> Thread(task, "$prefix-${threadNumber.incrementAndGet()}").apply { isDaemon = true } }
@@ -756,6 +1116,7 @@ class ModEventBroker(
         eventExecutor.execute {
             val runtimes = slots.values.toList().mapNotNull { slot ->
                 slot.failed = true
+                closeScheduleLease(slot)
                 // A Config whose reducer was rejected is deliberately removed from
                 // commands while its old worker is closing. Broker shutdown must
                 // still settle that Save exactly once; the close-completion path
@@ -766,6 +1127,8 @@ class ModEventBroker(
             }
             slots.clear()
             observerRequests.clear()
+            scheduleProvider.close()
+            viewSnapshotScheduler.close()
             // Runtime listeners use this executor and can still deliver callbacks
             // while closeAsync is waiting for native destruction/unbind. Drain and
             // stop it only after every client confirms that lifecycle boundary.

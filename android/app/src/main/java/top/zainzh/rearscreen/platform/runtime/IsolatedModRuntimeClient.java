@@ -454,7 +454,7 @@ public final class IsolatedModRuntimeClient implements AutoCloseable {
     }
 
     /** Last engine-thread CPU consumption in nanoseconds; -1 until the first native operation completes. */
-    long lastExecutionCpuTimeNanos() { return lastExecutionCpuTimeNanos; }
+    public long lastExecutionCpuTimeNanos() { return lastExecutionCpuTimeNanos; }
 
     private static String payloadJson(Object payload) {
         if (payload == JSONObject.NULL) return "null";

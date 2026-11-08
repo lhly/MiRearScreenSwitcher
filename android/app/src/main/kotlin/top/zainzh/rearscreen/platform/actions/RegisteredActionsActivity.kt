@@ -93,7 +93,7 @@ class RegisteredActionsActivity : ComponentActivity() {
                     item(key = "registered_actions_controls") {
                         AppCard {
                             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.registered_actions_intro), color = AppPalette.secondary())
+                                Text(selectionIntro(), color = AppPalette.secondary())
                                 TextButton(
                                     stringResource(R.string.registered_actions_add_app),
                                     { if (!working) chooseApp() },
@@ -280,6 +280,19 @@ class RegisteredActionsActivity : ComponentActivity() {
     private fun select(ref: RegisteredActionRef) {
         setResult(RESULT_OK, Intent().putExtra(EXTRA_SELECTED_REF_ID, ref.id).putExtra(EXTRA_SELECTED_REF_VERSION, ref.version))
         finish()
+    }
+
+    private fun selectionIntro(): String {
+        if (!selectionMode) return getString(R.string.registered_actions_intro)
+        val current = owner ?: return getString(R.string.registered_actions_intro)
+        val publisher = when (val principal = current.principal) {
+            is SessionPrincipal.SignedMod -> "此 Mod"
+            is SessionPrincipal.AndroidClient -> runCatching {
+                packageManager.getApplicationLabel(packageManager.getApplicationInfo(principal.packageName, 0)).toString()
+            }.getOrDefault(principal.packageName)
+            is SessionPrincipal.HostFeature -> "此功能"
+        }
+        return "选择快捷操作即允许 $publisher 调用这项操作。目标应用或签名发生变化时，宿主会拒绝执行。"
     }
 
     private fun actionErrorText(error: ActionError): String = when (error) {

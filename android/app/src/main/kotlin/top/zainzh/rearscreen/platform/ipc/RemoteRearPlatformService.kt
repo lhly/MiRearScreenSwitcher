@@ -18,6 +18,12 @@ import top.zainzh.rearscreen.platform.data.DataSnapshot
 import top.zainzh.rearscreen.platform.data.DataValue
 import top.zainzh.rearscreen.SceneActivationConfirmationActivity
 import top.zainzh.rearscreen.DataAccessConfirmationActivity
+import top.zainzh.rearscreen.platform.actions.PlatformRegisteredActionRegistry
+import top.zainzh.rearscreen.platform.actions.RegisteredActionRef
+import top.zainzh.rearscreen.platform.actions.ActionResolveResult
+import top.zainzh.rearscreen.platform.actions.RegisteredActionActivation
+import top.zainzh.rearscreen.platform.actions.RegisteredActionsActivity
+import top.zainzh.rearscreen.platform.actions.RegisteredActionInvocationActivity
 import java.io.Closeable
 import java.security.MessageDigest
 import java.util.IdentityHashMap
@@ -45,6 +51,13 @@ class RemoteRearPlatformService : Service() {
         val nonce: String, val owner: SessionOwner, val fields: Set<DataField>,
         val connection: ClientConnection, val expiresAt: Long
     )
+    private data class PendingActionInvocation(
+        val nonce: String,
+        val owner: SessionOwner,
+        val ref: RegisteredActionRef,
+        val connection: ClientConnection,
+        val expiresAt: Long,
+    )
     private class DataSubscription(val connection: ClientConnection) {
         private val lease = DataSubscriptionLease<DataSnapshot>()
         fun deliver(snapshot: DataSnapshot, emit: (DataSnapshot) -> Unit) = lease.deliver(snapshot, emit)
@@ -69,7 +82,9 @@ class RemoteRearPlatformService : Service() {
                     granted.containsAll(setOf(DataField.BATTERY_LEVEL_PERCENT, DataField.BATTERY_CHARGING))),
                 CapabilityState("data.systemMetrics", 1, CapabilityAvailability.AVAILABLE,
                     granted.containsAll(setOf(DataField.SYSTEM_CPU_UTILIZATION_PERCENT, DataField.SYSTEM_MEMORY_AVAILABLE_BYTES,
-                        DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported")
+                        DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported"),
+                CapabilityState("action.invoke", 1, CapabilityAvailability.AVAILABLE,
+                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked })
             )
             return encodeCapabilities(snapshot.copy(capabilities = snapshot.capabilities + dataCaps)).toString()
         }
@@ -84,7 +99,9 @@ class RemoteRearPlatformService : Service() {
                     granted.containsAll(setOf(DataField.BATTERY_LEVEL_PERCENT, DataField.BATTERY_CHARGING))),
                 CapabilityState("data.systemMetrics", 1, CapabilityAvailability.AVAILABLE,
                     granted.containsAll(setOf(DataField.SYSTEM_CPU_UTILIZATION_PERCENT, DataField.SYSTEM_MEMORY_AVAILABLE_BYTES,
-                        DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported")
+                        DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported"),
+                CapabilityState("action.invoke", 1, CapabilityAvailability.AVAILABLE,
+                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked })
             ))
             val displayId = runCatching { top.zainzh.rearscreen.RearDisplay.id() }.getOrDefault(-1)
             val displayManager = getSystemService(DISPLAY_SERVICE) as? DisplayManager
@@ -132,6 +149,7 @@ class RemoteRearPlatformService : Service() {
                 client.dead = true
                 pendingActivations.entries.removeAll { it.value.connection === client }
                 pendingDataConsents.entries.removeAll { it.value.connection === client }
+                pendingActionInvocations.entries.removeAll { it.value.connection === client }
                 sessions.entries.removeAll { (_, value) -> value === client }
                 connections.remove(client.binder, client)
             }
@@ -353,6 +371,56 @@ class RemoteRearPlatformService : Service() {
                 errorResult("E_SERVICE_UNAVAILABLE")
             }
         }
+
+        override fun requestRegisteredActionSelection(
+            callerPackageName: String,
+            callback: IRemoteRearPlatformCallback,
+        ): PendingIntent {
+            val client = clientConnection(callerPackageName, Binder.getCallingUid(), callback)
+            val intent = RegisteredActionsActivity.createIntent(this@RemoteRearPlatformService, client.owner, selectAction = true)
+                .addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            return PendingIntent.getActivity(
+                this@RemoteRearPlatformService,
+                nextPendingIntentRequestCode.incrementAndGet().toInt(),
+                intent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+
+        override fun requestRegisteredActionInvocation(
+            callerPackageName: String,
+            refId: String,
+            refVersion: Int,
+            callback: IRemoteRearPlatformCallback,
+        ): PendingIntent {
+            val client = clientConnection(callerPackageName, Binder.getCallingUid(), callback)
+            require(refId.matches(PlatformRegisteredActionRegistry.OPAQUE_ID_PATTERN) && refVersion == PlatformRegisteredActionRegistry.ACTION_REF_VERSION) {
+                "E_INVALID_STATE: invalid registered action ref"
+            }
+            val ref = RegisteredActionRef(refId, refVersion)
+            val registry = PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService)
+            if (registry.resolve(client.owner, ref) !is ActionResolveResult.Resolved)
+                throw SecurityException("E_CAPABILITY_DENIED: action ref is unavailable to this publisher")
+            val now = SystemClock.elapsedRealtime()
+            val nonce = newOpaqueId()
+            synchronized(pendingActionInvocations) {
+                pendingActionInvocations.entries.removeAll { it.value.expiresAt <= now || it.value.connection.dead }
+                if (pendingActionInvocations.values.count { it.connection === client } >= MAX_PENDING_ACTION_INVOCATIONS_PER_CLIENT)
+                    throw IllegalStateException("E_LIMIT_EXCEEDED: too many pending action confirmations")
+                pendingActionInvocations[nonce] = PendingActionInvocation(
+                    nonce, client.owner, ref, client, now + ACTION_INVOCATION_TTL_MS
+                )
+            }
+            val intent = Intent(this@RemoteRearPlatformService, RegisteredActionInvocationActivity::class.java)
+                .putExtra(EXTRA_ACTION_INVOCATION_NONCE, nonce)
+                .addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            return PendingIntent.getActivity(
+                this@RemoteRearPlatformService,
+                nextPendingIntentRequestCode.incrementAndGet().toInt(),
+                intent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
     }
 
     override fun onCreate() {
@@ -365,6 +433,7 @@ class RemoteRearPlatformService : Service() {
     override fun onDestroy() {
         pendingActivations.clear()
         pendingDataConsents.clear()
+        pendingActionInvocations.clear()
         val active = synchronized(connections) { connections.values.distinctBy { it.owner }.toList().also { connections.clear() } }
         active.forEach {
             core().displaySessions.closeOwnerSessions(it.owner, SceneCloseReason.HOST_DIED)
@@ -391,6 +460,12 @@ class RemoteRearPlatformService : Service() {
         val digest = signingDigest(packageName)
         return SessionOwner(uid, packageName, digest, SessionPrincipal.AndroidClient(uid, packageName, digest, epoch))
     }
+
+    private fun isCurrentClientIdentity(client: ClientConnection): Boolean = runCatching {
+        !client.dead && client.owner.transportPackageName in
+            (packageManager.getPackagesForUid(client.owner.transportUid)?.toSet().orEmpty()) &&
+            signingDigest(client.owner.transportPackageName) == client.owner.transportSigningCertificateDigest
+    }.getOrDefault(false)
 
     private fun clientConnection(packageName: String, uid: Int, callback: IRemoteRearPlatformCallback): ClientConnection {
         val digest = callerOwner(packageName, uid, 0L).transportSigningCertificateDigest
@@ -559,8 +634,11 @@ class RemoteRearPlatformService : Service() {
     companion object {
         const val EXTRA_ACTIVATION_NONCE = "remrss_scene_activation_nonce"
         const val EXTRA_DATA_CONSENT_NONCE = "remrss_data_consent_nonce"
+        const val EXTRA_ACTION_INVOCATION_NONCE = "remrss_registered_action_invocation_nonce"
         const val ACTIVATION_INTENT_TTL_MS = 60_000L
         const val DATA_CONSENT_TTL_MS = 60_000L
+        const val ACTION_INVOCATION_TTL_MS = 60_000L
+        const val MAX_PENDING_ACTION_INVOCATIONS_PER_CLIENT = 16
         private const val MAX_REQUEST_JSON_LENGTH = 4096
         private const val MAX_WINDOW_JSON_LENGTH = 8192
         private const val MAX_REQUIREMENTS = 16
@@ -569,11 +647,12 @@ class RemoteRearPlatformService : Service() {
         private val nextPendingIntentRequestCode = AtomicLong(0)
         private val pendingActivations = ConcurrentHashMap<String, PendingActivation>()
         private val pendingDataConsents = ConcurrentHashMap<String, PendingDataConsent>()
+        private val pendingActionInvocations = ConcurrentHashMap<String, PendingActionInvocation>()
         @Volatile private var activeService: RemoteRearPlatformService? = null
 
         internal fun activationDetails(nonce: String): Triple<String, String, Boolean>? = activeService?.let { service ->
             val pending = pendingActivations[nonce] ?: return@let null
-            if (SystemClock.elapsedRealtime() >= pending.expiresAt || pending.connection.dead) return@let null
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || !service.isCurrentClientIdentity(pending.connection)) return@let null
             val label = runCatching { service.packageManager.getApplicationLabel(service.packageManager.getApplicationInfo(pending.owner.transportPackageName, 0)).toString() }
                 .getOrDefault(pending.owner.transportPackageName)
             val activity = runCatching { service.packageManager.getActivityInfo(pending.request.component, 0).loadLabel(service.packageManager).toString() }
@@ -584,7 +663,7 @@ class RemoteRearPlatformService : Service() {
         internal fun completeActivation(nonce: String, allow: Boolean) {
             val service = activeService ?: return
             val pending = pendingActivations.remove(nonce) ?: return
-            if (SystemClock.elapsedRealtime() >= pending.expiresAt || pending.connection.dead) {
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || !service.isCurrentClientIdentity(pending.connection)) {
                 service.send(pending.connection, JSONObject().put("type", "error").put("code", "E_STALE_SESSION"))
                 return
             }
@@ -655,6 +734,50 @@ class RemoteRearPlatformService : Service() {
             service.core().updateSdkDataConsent(pending.owner, pending.fields, granted)
             service.send(pending.connection, JSONObject().put("type", "dataAuthorization")
                 .put("granted", granted.sortedBy { it.name }.joinToString(",")))
+        }
+
+        internal data class ActionInvocationPrompt(val appLabel: String, val actionLabel: String, val targetLabel: String)
+
+        internal fun actionInvocationPrompt(nonce: String): ActionInvocationPrompt? = activeService?.let { service ->
+            val pending = pendingActionInvocations[nonce] ?: return@let null
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || pending.connection.dead) return@let null
+            val action = PlatformRegisteredActionRegistry.get(service).listForOwner(pending.owner)
+                .firstOrNull { it.ref == pending.ref && it.available } ?: return@let null
+            val appLabel = runCatching { service.packageManager.getApplicationLabel(
+                service.packageManager.getApplicationInfo(pending.owner.transportPackageName, 0)).toString() }
+                .getOrDefault(pending.owner.transportPackageName)
+            ActionInvocationPrompt(appLabel, action.label, action.targetLabel)
+        }
+
+        /** Called only by the positive click in the host-owned confirmation Activity. */
+        internal fun completeActionInvocation(nonce: String, allow: Boolean) {
+            val service = activeService ?: return
+            val pending = pendingActionInvocations.remove(nonce) ?: return
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || pending.connection.dead) {
+                service.send(pending.connection, JSONObject().put("type", "registeredActionInvocation").put("code", "E_STALE_SESSION"))
+                return
+            }
+            if (!allow) {
+                service.send(pending.connection, JSONObject().put("type", "registeredActionInvocation").put("code", "E_USER_CANCELLED"))
+                return
+            }
+            // Mint only after this host Activity's explicit positive click; never expose the token over Binder.
+            val activation = service.core().issueRegisteredActionActivationAfterHostClick(pending.owner, pending.ref)
+            runCatching {
+                service.worker.execute {
+                    if (!service.isCurrentClientIdentity(pending.connection)) {
+                        service.send(pending.connection, JSONObject().put("type", "registeredActionInvocation").put("code", "E_STALE_SESSION"))
+                        return@execute
+                    }
+                    val result = service.core().invokeRegisteredAction(pending.owner, pending.ref, activation)
+                    service.send(pending.connection, JSONObject().put("type", "registeredActionInvocation")
+                        .put("refId", pending.ref.id).put("refVersion", pending.ref.version)
+                        .put("accepted", result == top.zainzh.rearscreen.platform.actions.ActionDispatchResult.Accepted)
+                        .put("code", (result as? top.zainzh.rearscreen.platform.actions.ActionDispatchResult.Rejected)?.error?.name))
+                }
+            }.onFailure {
+                service.send(pending.connection, JSONObject().put("type", "registeredActionInvocation").put("code", "E_SERVICE_UNAVAILABLE"))
+            }
         }
 
         private fun newOpaqueId(): String = java.util.UUID.randomUUID().toString().replace("-", "")

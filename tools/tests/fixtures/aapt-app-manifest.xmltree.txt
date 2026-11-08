@@ -1,0 +1,5 @@
+N: android=http://schemas.android.com/apk/res/android
+  E: manifest (line=2)
+    A: package="top.zainzh.rearscreen.debug" (Raw: "top.zainzh.rearscreen.debug")
+    E: application (line=28)
+      A: android:debuggable(0x0101000f)=(type 0x12)0xffffffff

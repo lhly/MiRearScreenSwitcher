@@ -53,6 +53,10 @@ data class VisibleTick(
     val visibilityGeneration: Long,
     val observedElapsedRealtimeMs: Long,
     val causes: Set<VisibleTickCause>,
+    /** The first due instant represented by this merged tick; always elapsedRealtime. */
+    val scheduledElapsedRealtimeMs: Long = observedElapsedRealtimeMs,
+    /** Number of elapsed periodic opportunities skipped; never replayed as separate ticks. */
+    val missedCount: Int = 0,
 )
 
 /** A visible lease belongs to one stable Mod ID and one worker epoch. */
@@ -77,6 +81,7 @@ class VisibleScheduleProvider(
     private val callbackExecutor: Executor,
     private val onCallbackFailure: (ownerId: String, epoch: Long, error: Throwable) -> Unit,
 ) : Closeable {
+    internal fun ownerCountForTesting(): Int = synchronized(lock) { owners.size }
     private data class Entry(
         val key: String,
         var intervalMs: Long?,
@@ -254,20 +259,27 @@ class VisibleScheduleProvider(
             owners.values.filter { it.visible && !it.closed }.forEach { owner ->
                 owner.entries.values.forEach { entry ->
                     val causes = linkedSetOf<VisibleTickCause>()
+                    var scheduledAt: Long? = null
+                    var missedCount = 0
                     if (entry.nextIntervalAt?.let { it <= now } == true) {
                         causes += VisibleTickCause.INTERVAL
+                        val dueAt = entry.nextIntervalAt!!
+                        scheduledAt = dueAt
+                        missedCount = ((now - dueAt) / entry.intervalMs!!).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                         // Do not replay missed intervals; next cadence begins from current time.
                         entry.nextIntervalAt = now + entry.intervalMs!!
                     }
                     if (!entry.deadlineConsumed && entry.deadlineAt?.let { it <= now } == true) {
                         causes += VisibleTickCause.DEADLINE
+                        val deadlineAt = entry.deadlineAt!!
+                        scheduledAt = minOf(scheduledAt ?: deadlineAt, deadlineAt)
                         // Consume before leaving the lock/calling consumer: reentry cannot loop.
                         entry.deadlineConsumed = true
                         entry.deadlineAt = null
                     }
                     if (causes.isNotEmpty()) queueTickLocked(owner, entry, VisibleTick(
                         owner.id, owner.epoch, entry.key, entry.generation,
-                        owner.visibilityGeneration, now, causes
+                        owner.visibilityGeneration, now, causes, scheduledAt ?: now, missedCount
                     ))?.let(jobs::add)
                 }
             }
@@ -296,6 +308,8 @@ class VisibleScheduleProvider(
                 visibilityGeneration = tick.visibilityGeneration,
                 observedElapsedRealtimeMs = tick.observedElapsedRealtimeMs,
                 causes = existing.causes + tick.causes,
+                scheduledElapsedRealtimeMs = minOf(existing.scheduledElapsedRealtimeMs, tick.scheduledElapsedRealtimeMs),
+                missedCount = (existing.missedCount.toLong() + tick.missedCount).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             )
         }
         if (slot.draining) return null
