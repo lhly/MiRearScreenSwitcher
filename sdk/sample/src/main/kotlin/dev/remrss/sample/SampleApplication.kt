@@ -7,7 +7,6 @@ import dev.remrss.platform.sdk.RearClient
 import dev.remrss.platform.sdk.RearPlatformEvent
 import dev.remrss.platform.sdk.RearScenePresentation
 import dev.remrss.platform.sdk.RearScenePresentationGate
-import dev.remrss.platform.sdk.RearScenePresentationRequestEpoch
 import dev.remrss.platform.sdk.RearSceneRequest
 import java.io.Closeable
 
@@ -16,7 +15,7 @@ class SampleApplication : Application() {
     private val status = SampleStatus("Connecting to ReMRSS…")
     val readyGate = TicketReadyGate()
     @Volatile var lease: SampleLease? = null
-    @Volatile var keepVisibleForNextScene: Boolean = true
+    @Volatile var keepVisibleForNextScene: Boolean = false
     @Volatile var sceneVisibleNow: Boolean = false
     val lastStatus: String get() = status.current()
     lateinit var client: RearClient
@@ -26,7 +25,7 @@ class SampleApplication : Application() {
     private val visibilityLock = Any()
     private val visibilityObservers = linkedSetOf<(Boolean) -> Unit>()
     @Volatile private var sceneVisible = false
-    private val presentationRequestEpoch = RearScenePresentationRequestEpoch()
+    private val presentationSafetyGate = SamplePresentationSafetyGate()
 
     fun score(): Int = scoreboard.current()
     fun addPoint(): Int = scoreboard.addPoint()
@@ -71,15 +70,29 @@ class SampleApplication : Application() {
                 // Restored event re-queries the current Core snapshot before changing UI state.
                 lease?.let(::reconcileScenePresentation)
                 if (event.type == "suspended") publishStatus("Rear scene suspended: ${event.data.optString("reason", "COVERED")}")
-            } else if (event.type == "backendLost" && lease?.sessionId == event.sessionId) {
-                publishStatus("Rear scene backend lost")
+            } else if (event.type == "backendLost" && lease?.let {
+                    it.sessionId == event.sessionId && it.generation == event.generation
+                } == true) {
+                requireCurrentScenePresentation("Rear scene backend lost")
             } else if (event.type == "error") {
                 publishStatus("Request failed: ${event.data.optString("code", "E_UNKNOWN")}")
             } else if (event.type == "backendDisconnected") {
-                publishStatus("ReMRSS connection lost")
+                if (!client.isConnected) requireCurrentScenePresentation("ReMRSS connection lost")
             }
         }
-        client.connect { result -> publishStatus(if (result.isSuccess) "Connected to ReMRSS" else "Connection failed: ${result.exceptionOrNull()?.message}") }
+        connect()
+    }
+
+    fun connect(callback: (Result<Unit>) -> Unit = {}) {
+        client.connect { result ->
+            if (result.isSuccess) {
+                publishStatus("Connected to ReMRSS")
+                lease?.takeIf { it.isReady }?.let(::reconcileScenePresentation)
+            } else {
+                publishStatus("Connection failed: ${result.exceptionOrNull()?.message}")
+            }
+            callback(result)
+        }
     }
 
     fun observeStatus(observer: (String) -> Unit): java.io.Closeable = status.observe(observer)
@@ -92,30 +105,41 @@ class SampleApplication : Application() {
     }
 
     private fun publishSceneVisibility(visible: Boolean) {
-        val changed = sceneVisible != visible
-        sceneVisible = visible
-        sceneVisibleNow = visible
-        if (changed) Log.i(TAG_PRESENTATION, "core_presentation visible=$visible revision=${lease?.presentationRevision() ?: 0L}")
         val observers = synchronized(visibilityLock) { visibilityObservers.toList() }
-        observers.forEach { runCatching { it(visible) } }
+        val safeVisible = presentationSafetyGate.publishVisibility(visible, observers)
+        val changed = sceneVisible != safeVisible
+        sceneVisible = safeVisible
+        sceneVisibleNow = safeVisible
+        if (changed) Log.i(TAG_PRESENTATION, "core_presentation visible=$safeVisible revision=${lease?.presentationRevision() ?: 0L}")
     }
 
     fun reconcileScenePresentation(current: SampleLease, stillCurrent: () -> Boolean = { true }) {
-        val requestEpoch = presentationRequestEpoch.begin()
+        val requestEpoch = presentationSafetyGate.beginQuery(client.isConnected) ?: return
         client.queryScenePresentation(current.sessionId, current.generation) { result ->
-            if (!presentationRequestEpoch.isCurrent(requestEpoch) || !stillCurrent()) return@queryScenePresentation
+            if (!presentationSafetyGate.isCurrent(requestEpoch) || !stillCurrent()) return@queryScenePresentation
             val snapshot = result.getOrNull() ?: run {
                 Log.w(TAG_PRESENTATION, "query_failed error=${result.exceptionOrNull()?.javaClass?.simpleName ?: "unavailable"}")
                 return@queryScenePresentation
             }
-            val accepted = synchronized(leaseLock) {
-                lease === current && current.applyPresentation(snapshot)
+            val leaseIsCurrent = synchronized(leaseLock) { lease === current }
+            val snapshotAccepted = leaseIsCurrent && current.applyPresentation(snapshot)
+            if (presentationSafetyGate.acceptCurrentSnapshot(
+                    requestEpoch,
+                    leaseIsCurrent = leaseIsCurrent,
+                    snapshotAccepted = snapshotAccepted
+                )) {
+                publishSceneVisibility(current.presentationVisible())
             }
-            if (accepted) publishSceneVisibility(current.presentationVisible())
         }
     }
 
-    fun invalidatePresentationQueries() { presentationRequestEpoch.invalidate() }
+    fun invalidatePresentationQueries() { presentationSafetyGate.invalidateQueries() }
+
+    private fun requireCurrentScenePresentation(status: String) {
+        presentationSafetyGate.requireCurrentSnapshot()
+        publishSceneVisibility(false)
+        publishStatus(status)
+    }
 
     fun open(activity: android.app.Activity, onStatus: (String) -> Unit, keepVisible: Boolean = keepVisibleForNextScene) {
         keepVisibleForNextScene = keepVisible
@@ -126,7 +150,7 @@ class SampleApplication : Application() {
                 onStatus(lastStatus)
             }
         }
-        if (client.isConnected) launch() else client.connect { result ->
+        if (client.isConnected) launch() else connect { result ->
             if (result.isSuccess) launch() else {
                 publishStatus("Connection failed: ${result.exceptionOrNull()?.message}")
                 onStatus(lastStatus)

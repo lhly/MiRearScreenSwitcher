@@ -5,7 +5,7 @@
     <application android:name=".SampleApplication" android:label="Rear SDK Sample" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <meta-data android:name="miui.rear.policy" android:value="1" />
         <activity android:name=".RearSceneActivity" android:exported="true" android:excludeFromRecents="true"
-            android:taskAffinity="${applicationId}.rear" android:launchMode="standard" android:showWhenLocked="true"
+            android:taskAffinity="${applicationId}.rear" android:launchMode="standard" android:allowTaskReparenting="false" android:showWhenLocked="true"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale">
             <meta-data android:name="miui.rear.policy" android:value="1" />
         </activity>

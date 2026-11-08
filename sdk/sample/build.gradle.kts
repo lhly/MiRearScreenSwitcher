@@ -6,7 +6,7 @@ android {
     namespace = "dev.remrss.sample"
     compileSdk = 37
     buildFeatures { buildConfig = true }
-    val rootValidation = providers.gradleProperty("mrssRootValidation").orNull == "true"
+    val hostPackage = providers.gradleProperty("remrssHostPackage").orElse("top.zainzh.rearscreen").get()
     defaultConfig {
         applicationId = "dev.remrss.sample"
         minSdk = 24
@@ -16,13 +16,12 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            val hostPackage = if (rootValidation) "top.zainzh.rearscreen.rootdebug" else "top.zainzh.rearscreen.debug"
             buildConfigField("String", "REM_RSS_HOST_PACKAGE", "\"$hostPackage\"")
             manifestPlaceholders["remrssHostPackage"] = hostPackage
         }
         getByName("release") {
-            buildConfigField("String", "REM_RSS_HOST_PACKAGE", "\"top.zainzh.rearscreen\"")
-            manifestPlaceholders["remrssHostPackage"] = "top.zainzh.rearscreen"
+            buildConfigField("String", "REM_RSS_HOST_PACKAGE", "\"$hostPackage\"")
+            manifestPlaceholders["remrssHostPackage"] = hostPackage
             // The independent SDK consumer never receives the Host's private Release key.
             signingConfig = signingConfigs.getByName("debug")
         }

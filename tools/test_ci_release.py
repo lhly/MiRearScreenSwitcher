@@ -26,6 +26,50 @@ class ReleaseChecks(unittest.TestCase):
         publish_env = publish_step.split('        env:\n', 1)[1].split('        run:\n', 1)[0]
         self.assertIn('          GH_REPO: ${{ github.repository }}', publish_env)
 
+    def test_rc2_sdk_bundle_is_checksummed_and_published(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/release.yml').read_text(encoding='utf-8')
+        self.assertIn('sdk_name: ${{ steps.sdk.outputs.sdk_name }}', workflow)
+        self.assertIn('python3 tools/package_android_sdk.py', workflow)
+        self.assertIn('--aar build/platform-sdk/outputs/aar/platform-sdk-release.aar', workflow)
+        self.assertIn('cp build/platform-sdk/outputs/aar/platform-sdk-release.aar', workflow)
+        self.assertIn('sdk/sample/standalone/app/libs/platform-sdk-release.aar', workflow)
+        self.assertIn('cp -R sdk/sample/src/main/. sdk/sample/standalone/app/src/main/', workflow)
+        self.assertIn('--sample-apk sdk/sample/standalone/app/build/outputs/apk/debug/app-debug.apk', workflow)
+        self.assertIn('--host-release-compile-verified --host-apk-produced', workflow)
+        self.assertNotIn('--output "$sdk_bundle" --host-compile-verified', workflow)
+        self.assertIn('(cd dist && sha256sum "$sdk_name" >> SHA256SUMS)', workflow)
+        release_job = workflow.split('\n  release:\n', 1)[1].split('\n  update-version:\n', 1)[0]
+        publish_step = release_job.split('      - name: Publish APK and checksum file\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('SDK_NAME: ${{ needs.build.outputs.sdk_name }}', publish_step)
+        self.assertIn('"$SDK_NAME" SHA256SUMS LICENSE NOTICE --clobber', publish_step)
+        self.assertIn('"$APK_NAME" "$SDK_NAME" SHA256SUMS LICENSE NOTICE', publish_step)
+
+    def test_sdk_checksum_uses_names_relative_to_release_directory(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/release.yml').read_text(encoding='utf-8')
+        self.assertIn('(cd dist && sha256sum "$sdk_name" >> SHA256SUMS)', workflow)
+        release_job = workflow.split('\n  release:\n', 1)[1].split('\n  update-version:\n', 1)[0]
+        publish_step = release_job.split('      - name: Publish APK and checksum file\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('        working-directory: dist', publish_step)
+        self.assertIn('sha256sum --check SHA256SUMS', publish_step)
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory) / 'dist'
+            dist.mkdir()
+            for name, content in [('ReMRSS-v4.0.0-rc.2.apk', b'host apk'),
+                                  ('LICENSE', b'license'), ('NOTICE', b'notice'),
+                                  ('remrss-platform-sdk-0.1.0.zip', b'sdk zip')]:
+                (dist / name).write_bytes(content)
+            with (dist / 'SHA256SUMS').open('wb') as sums:
+                subprocess.run(['sha256sum', 'ReMRSS-v4.0.0-rc.2.apk', 'LICENSE', 'NOTICE'],
+                               cwd=dist, check=True, stdout=sums)
+                subprocess.run(['sha256sum', 'remrss-platform-sdk-0.1.0.zip'],
+                               cwd=dist, check=True, stdout=sums)
+            checked = subprocess.run(['sha256sum', '--check', 'SHA256SUMS'], cwd=dist,
+                                     check=True, capture_output=True, text=True)
+            self.assertEqual(len(checked.stdout.splitlines()), 4)
+            self.assertIn('remrss-platform-sdk-0.1.0.zip: OK', checked.stdout)
+
     def check_legal_assets(self, license_content=b'complete GPL text', notice_content=b'upstream and maintainer credits', signature=None,
                            package_name='top.zainzh.rearscreen', notes_tag='v3.3.2', notes_markdown=None):
         with tempfile.TemporaryDirectory() as directory:

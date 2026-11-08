@@ -21,7 +21,34 @@ import java.io.Closeable
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
+
+/** Stable error codes returned by the SDK's connection and foreground gates. */
+object RearSdkErrorCode {
+    const val CLIENT_CLOSED = "E_CLIENT_CLOSED"
+    const val NOT_CONNECTED = "E_NOT_CONNECTED"
+    const val SERVICE_UNAVAILABLE = "E_SERVICE_UNAVAILABLE"
+    const val SERVICE_DISCONNECTED = "E_SERVICE_DISCONNECTED"
+    const val CONTRACT_INCOMPATIBLE = "E_CONTRACT_INCOMPATIBLE"
+    const val BINDING_DIED = "E_BINDING_DIED"
+    const val FOREGROUND_REQUIRED = "E_FOREGROUND_REQUIRED"
+}
+
+/** SDK package metadata and the host wire contract accepted by this SDK release. */
+object RearPlatformSdk {
+    @JvmField val SDK_VERSION: String = BuildConfig.SDK_VERSION
+    const val HOST_CONTRACT_VERSION = "remrss.platform/1"
+}
+
+internal object RearContractNegotiation {
+    fun failureCode(contract: String?): String? = when {
+        contract == null -> RearSdkErrorCode.SERVICE_UNAVAILABLE
+        contract != RearPlatformSdk.HOST_CONTRACT_VERSION -> RearSdkErrorCode.CONTRACT_INCOMPATIBLE
+        else -> null
+    }
+}
 
 /** An app-owned binding. Keep one instance in Application scope while its sessions are active. */
 class RearClient private constructor(
@@ -40,82 +67,201 @@ class RearClient private constructor(
     private val callerPackage = context.packageName
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "rear-sdk-client").apply { isDaemon = true } }
     private val closed = AtomicBoolean(false)
-    @Volatile private var remote: IRemoteRearPlatformService? = null
-    private val connectionLock = Any()
-    private val connectionWaiters = ArrayList<(Result<Unit>) -> Unit>()
-    private var bound = false
+    private val resultDispatcher = ClientResultDispatcher(eventExecutor) { closed.get() }
+    private val epochIds = AtomicLong(0L)
+    private val connectionStateVersion = AtomicLong(0L)
+    private val currentEpoch = AtomicReference<ClientEpoch?>(null)
+    private val eventDispatcher = ClientEventDispatcher(eventExecutor, { closed.get() }) { epoch -> currentEpoch.get() === epoch }
+    private val operationQueue = ClientOperationQueue(
+        worker,
+        resultDispatcher,
+        { closed.get() },
+        { epoch -> currentEpoch.get() === epoch },
+        { epoch -> releaseEpochAsync(epoch as ClientEpoch) }
+    )
+    @Volatile var contractVersion: String? = null
+        private set
+    private val connectionGate = ConnectionHandshakeGate<IBinder>(RearPlatformSdk.HOST_CONTRACT_VERSION)
+    @Volatile private var activeBinding: BindingHandle? = null
     private val dataLock = Any()
     private val dataHandlers = ConcurrentHashMap<String, (RearDataSnapshot) -> Unit>()
     private val closedDataIds = ConcurrentHashMap.newKeySet<String>()
     private val pendingData = LinkedHashMap<String, RearDataSnapshot>()
-    val isConnected: Boolean get() = remote != null
-    private val callback = object : IRemoteRearPlatformCallback.Stub() {
-        override fun onEvent(eventJson: String) {
-            val event = runCatching { RearPlatformEvent.fromJson(eventJson) }.getOrElse {
-                RearPlatformEvent("error", data = JSONObject().put("code", "E_INVALID_STATE").put("message", it.message))
-            }
-            eventExecutor.execute {
-                if (closed.get()) return@execute
-                if (event.type == "data") {
-                    val id = event.data.optString("subscriptionId")
-                    val snapshot = runCatching { RearDataSnapshot.fromJson(event.data.toString()) }.getOrNull()
-                    if (id.isNotEmpty() && snapshot != null && id !in closedDataIds) {
-                        val handler = dataHandlers[id]
-                        if (handler != null) handler(snapshot) else synchronized(dataLock) { pendingData[id] = snapshot }
-                    }
-                }
-                onEvent(event)
-            }
+    val isConnected: Boolean get() = currentEpoch.get() != null
+
+    private inner class ClientEpoch(
+        val id: Long,
+        val bindAttemptId: Long,
+        val binder: IBinder,
+        val service: IRemoteRearPlatformService
+    ) {
+        val callback: IRemoteRearPlatformCallback = object : IRemoteRearPlatformCallback.Stub() {
+            override fun onEvent(eventJson: String) = handleEvent(this@ClientEpoch, eventJson)
         }
     }
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            remote = IRemoteRearPlatformService.Stub.asInterface(service)
-            val waiters = synchronized(connectionLock) { connectionWaiters.toList().also { connectionWaiters.clear() } }
-            waiters.forEach { it(Result.success(Unit)) }
+
+    private class BindingHandle(val attemptId: Long, val connection: ServiceConnection) {
+        val unbound = AtomicBoolean(false)
+    }
+
+    private fun newServiceConnection(attemptId: Long): ServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) = handleServiceConnected(attemptId, service)
+        override fun onServiceDisconnected(name: ComponentName) = handleServiceDisconnected(attemptId, name)
+        override fun onBindingDied(name: ComponentName) = invalidateBinding(attemptId, RearSdkErrorCode.BINDING_DIED)
+        override fun onNullBinding(name: ComponentName) = invalidateBinding(attemptId, RearSdkErrorCode.SERVICE_UNAVAILABLE)
+    }
+
+    private fun handleEvent(epoch: ClientEpoch, eventJson: String) {
+        if (closed.get() || currentEpoch.get() !== epoch) return
+        val event = runCatching { RearPlatformEvent.fromJson(eventJson) }.getOrElse {
+            RearPlatformEvent("error", data = JSONObject().put("code", "E_INVALID_STATE").put("message", it.message))
         }
-        override fun onServiceDisconnected(name: ComponentName) {
-            remote = null
-            eventExecutor.execute { if (!closed.get()) onEvent(RearPlatformEvent("backendDisconnected")) }
+        eventDispatcher.dispatch(epoch) {
+            if (event.type == "data") {
+                val id = event.data.optString("subscriptionId")
+                val snapshot = runCatching { RearDataSnapshot.fromJson(event.data.toString()) }.getOrNull()
+                if (id.isNotEmpty() && snapshot != null && id !in closedDataIds) {
+                    val handler = dataHandlers[id]
+                    if (handler != null) runCatching { handler(snapshot) }
+                    else synchronized(dataLock) {
+                        if (!closed.get() && currentEpoch.get() === epoch && id !in closedDataIds) pendingData[id] = snapshot
+                    }
+                }
+            }
+            runCatching { onEvent(event) }
         }
-        override fun onBindingDied(name: ComponentName) = invalidateBinding("E_BINDING_DIED")
-        override fun onNullBinding(name: ComponentName) {
-            invalidateBinding("E_SERVICE_UNAVAILABLE")
+    }
+
+    private fun handleServiceConnected(attemptId: Long, binder: IBinder) {
+        val candidate: IRemoteRearPlatformService = IRemoteRearPlatformService.Stub.asInterface(binder)
+        var replacedEpoch: ClientEpoch? = null
+        val acceptedBinding = connectionGate.serviceConnected(attemptId, binder) {
+                currentEpoch.get()?.takeIf { it.bindAttemptId == attemptId }?.let { previous ->
+                    replacedEpoch = previous
+                    currentEpoch.compareAndSet(previous, null)
+                    contractVersion = null
+                    connectionStateVersion.incrementAndGet()
+                }
+            }
+        if (!acceptedBinding) return
+        replacedEpoch?.let(::releaseEpochAsync)
+        try {
+            worker.execute {
+                val result: Result<String> = runCatching { candidate.getContractVersion() }
+                val contract: String? = result.getOrNull()
+                val transition: ConnectionHandshakeGate.Transition = connectionGate.handshakeCompleted(
+                    attemptId, binder, contract,
+                    publish = {
+                        val epoch = ClientEpoch(epochIds.incrementAndGet(), attemptId, binder, candidate)
+                        currentEpoch.set(epoch)
+                        contractVersion = contract
+                        connectionStateVersion.incrementAndGet()
+                    },
+                    clear = { currentEpoch.set(null); contractVersion = null }
+                ) ?: return@execute
+                if (RearContractNegotiation.failureCode(contract) != null && transition.wasBound) {
+                    activeBinding?.takeIf { it.attemptId == attemptId }?.let(::unbindService)
+                }
+                transition.completion?.let { completion ->
+                    val expectedEpoch = currentEpoch.get()
+                    completeConnectionWaiters(completion) { expectedEpoch != null && currentEpoch.get() === expectedEpoch }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            activeBinding?.takeIf { it.attemptId == attemptId }?.let(::unbindService)
+        }
+    }
+
+    private fun handleServiceDisconnected(attemptId: Long, name: ComponentName) {
+        var retiredEpoch: ClientEpoch? = null
+        val transition = connectionGate.disconnected(attemptId) {
+            currentEpoch.get()?.takeIf { it.bindAttemptId == attemptId }?.let { current ->
+                retiredEpoch = current
+                currentEpoch.compareAndSet(current, null)
+            }
+            contractVersion = null
+        }
+        retiredEpoch?.let(::releaseEpochAsync)
+        transition?.completion?.let(::completeConnectionWaiters)
+        if (transition != null) {
+            val stateVersion = connectionStateVersion.incrementAndGet()
+            eventExecutor.execute {
+                if (!closed.get() && connectionStateVersion.get() == stateVersion && currentEpoch.get() == null)
+                    runCatching { onEvent(RearPlatformEvent("backendDisconnected")) }
+            }
         }
     }
 
     /** A dead/null binding will not reconnect by itself; release it so a later connect() can retry. */
-    private fun invalidateBinding(code: String) {
-        val (wasBound, waiters) = synchronized(connectionLock) {
-            remote = null
-            val wasBound = bound
-            bound = false
-            wasBound to connectionWaiters.toList().also { connectionWaiters.clear() }
+    private fun invalidateBinding(attemptId: Long, code: String) {
+        var retiredEpoch: ClientEpoch? = null
+        val transition = connectionGate.bindingFailed(attemptId, code) {
+            retiredEpoch = currentEpoch.getAndSet(null)
+            contractVersion = null
+        } ?: return
+        retiredEpoch?.let(::releaseEpochAsync)
+        if (transition.wasBound) activeBinding?.takeIf { it.attemptId == attemptId }?.let(::unbindService)
+        activeBinding?.takeIf { it.attemptId == attemptId }?.let { activeBinding = null }
+        transition.completion?.let(::completeConnectionWaiters)
+        val stateVersion = connectionStateVersion.incrementAndGet()
+        eventExecutor.execute {
+            if (!closed.get() && connectionStateVersion.get() == stateVersion && currentEpoch.get() == null)
+                runCatching { onEvent(RearPlatformEvent("backendDisconnected", data = JSONObject().put("code", code))) }
         }
-        if (wasBound) runCatching { appContext.unbindService(connection) }
-        waiters.forEach { it(Result.failure(IllegalStateException(code))) }
-        eventExecutor.execute { if (!closed.get()) onEvent(RearPlatformEvent("backendDisconnected", data = JSONObject().put("code", code))) }
+    }
+
+    private fun unbindService(binding: BindingHandle) {
+        if (!binding.unbound.compareAndSet(false, true)) return
+        Handler(Looper.getMainLooper()).post {
+            try { appContext.unbindService(binding.connection) } catch (_: RuntimeException) { /* Already unbound or service process died. */ }
+            if (activeBinding === binding) activeBinding = null
+        }
+    }
+
+    /** Uses the retired epoch's exact service/callback pair and never blocks the caller. */
+    private fun releaseEpochAsync(epoch: ClientEpoch) {
+        Thread({ runCatching { epoch.service.releaseClient(callerPackage, epoch.callback) } },
+            "rear-sdk-release-${epoch.id}").apply { isDaemon = true }.start()
+    }
+
+    private fun completeConnectionWaiters(completion: ConnectionHandshakeGate.Completion, isCurrent: () -> Boolean = { true }) {
+        completion.waiters.forEach { waiter -> resultDispatcher.dispatch(waiter, completion.result, isCurrent) }
     }
 
     fun connect(callback: (Result<Unit>) -> Unit) {
-        check(!closed.get()) { "RearClient is closed" }
-        remote?.let { callback(Result.success(Unit)); return }
-        synchronized(connectionLock) {
-            remote?.let { callback(Result.success(Unit)); return }
-            connectionWaiters += callback
-            if (bound) return
-            val intent = Intent().setComponent(ComponentName(hostPackageName, HOST_SERVICE))
-            bound = appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-            if (!bound) {
-                val waiters = connectionWaiters.toList()
-                connectionWaiters.clear()
-                waiters.forEach { it(Result.failure(IllegalStateException("E_SERVICE_UNAVAILABLE"))) }
+        when (val decision = connectionGate.connect(callback)) {
+            ConnectionHandshakeGate.ConnectDecision.AlreadyConnected -> dispatchResult(callback, Result.success(Unit))
+            ConnectionHandshakeGate.ConnectDecision.AwaitingBinding -> Unit
+            is ConnectionHandshakeGate.ConnectDecision.Rejected -> {
+                val code = decision.code
+                dispatchResult(callback, Result.failure(IllegalStateException(code)))
+            }
+            is ConnectionHandshakeGate.ConnectDecision.StartBinding -> {
+                val attemptId = decision.attemptId
+                val binding = BindingHandle(attemptId, newServiceConnection(attemptId))
+                activeBinding = binding
+                if (!connectionGate.shouldStartBinding(attemptId)) {
+                    if (activeBinding === binding) activeBinding = null
+                    return
+                }
+                val intent = Intent().setComponent(ComponentName(hostPackageName, HOST_SERVICE))
+                val didBind = attemptBinding({ appContext.bindService(intent, binding.connection, Context.BIND_AUTO_CREATE) }) {
+                    val transition = connectionGate.bindingFailed(attemptId, RearSdkErrorCode.SERVICE_UNAVAILABLE) {
+                        currentEpoch.set(null)
+                        contractVersion = null
+                    }
+                    transition?.completion?.let(::completeConnectionWaiters)
+                }
+                val bindResult = connectionGate.bindingCompleted(attemptId, didBind)
+                bindResult.completion?.let(::completeConnectionWaiters)
+                if (bindResult.unbind) unbindService(binding)
+                if (!didBind && activeBinding === binding) activeBinding = null
             }
         }
     }
 
     fun queryCapabilities(callback: (Result<RearCapabilities>) -> Unit) = onBinder(callback) { service ->
-        RearCapabilities.fromJson(service.queryCapabilities(callerPackage))
+        RearCapabilities.fromJson(service.service.queryCapabilities(callerPackage))
     }
 
     /**
@@ -123,34 +269,34 @@ class RearClient private constructor(
      * size is physical pixels; an opened Scene's measured window is available in its Ready event.
      */
     fun queryRearInfo(callback: (Result<RearInfoSnapshot>) -> Unit) = onBinder(callback) { service ->
-        RearInfoSnapshot.fromJson(service.queryRearInfo(callerPackage))
+        RearInfoSnapshot.fromJson(service.service.queryRearInfo(callerPackage))
     }
 
     /** Start this only from a focused Activity; the host asks the user to choose data categories. */
     fun requestDataAuthorization(activity: Activity, fields: Set<RearDataField>, callback: (Result<Unit>) -> Unit = {}) {
         if (Looper.myLooper() != Looper.getMainLooper() || activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
-            callback(Result.failure(IllegalStateException("E_FOREGROUND_REQUIRED"))); return
+            dispatchResult(callback, Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED))); return
         }
         require(fields.isNotEmpty()) { "At least one data field is required" }
         val payload = JSONArray().apply { fields.sortedBy { it.name }.forEach { put(it.name) } }.toString()
         onBinder<PendingIntent>({ result -> result.fold(onSuccess = { pending ->
             if (activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
-                callback(Result.failure(IllegalStateException("E_FOREGROUND_REQUIRED")))
+                callback(Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED)))
             } else try {
                 activity.startIntentSenderForResult(pending.intentSender, DATA_CONSENT_REQUEST_CODE, null, 0, 0, 0)
                 callback(Result.success(Unit))
             } catch (error: IntentSender.SendIntentException) { callback(Result.failure(error)) }
         }, onFailure = { callback(Result.failure(it)) }) }) { service ->
-            service.requestDataAuthorization(callerPackage, payload, this.callback)
+            service.service.requestDataAuthorization(callerPackage, payload, service.callback)
         }
     }
 
     fun queryData(fields: Set<RearDataField>, callback: (Result<RearDataSnapshot>) -> Unit) = onBinder(callback) { service ->
         val payload = JSONArray().apply { fields.sortedBy { it.name }.forEach { put(it.name) } }.toString()
-        RearDataSnapshot.fromJson(service.queryData(callerPackage, payload, this.callback))
+        RearDataSnapshot.fromJson(service.service.queryData(callerPackage, payload, service.callback))
     }
 
-    /** Observations are worker-thread samples delivered through the client's event callback. */
+    /** Sampling is host-owned; callbacks arrive through this client's configured event executor. */
     fun observeData(fields: Set<RearDataField>, intervalMs: Long = 5_000L,
                     onSnapshot: (RearDataSnapshot) -> Unit,
                     callback: (Result<Closeable>) -> Unit) {
@@ -160,17 +306,17 @@ class RearClient private constructor(
             val lease = RearDataSubscription(this, id)
             dataHandlers[id] = onSnapshot
             val queued = synchronized(dataLock) { pendingData.remove(id) }
-            queued?.let(onSnapshot)
+            queued?.let { runCatching { onSnapshot(it) } }
             callback(Result.success(lease))
         }, onFailure = { callback(Result.failure(it)) }) }) { service ->
-            val root = JSONObject(service.observeData(callerPackage, payload, intervalMs, this.callback))
+            val root = JSONObject(service.service.observeData(callerPackage, payload, intervalMs, service.callback))
             if (!root.optBoolean("success")) throw IllegalStateException(root.optString("error", "E_SERVICE_UNAVAILABLE"))
             root.getString("subscriptionId")
         }
     }
 
     fun closeDataObservation(subscriptionId: String, callback: (Result<RearOperationResult>) -> Unit = {}) = onBinder(callback) { service ->
-        RearOperationResult.fromJson(service.closeDataObservation(callerPackage, subscriptionId, this.callback))
+        RearOperationResult.fromJson(service.service.closeDataObservation(callerPackage, subscriptionId, service.callback))
     }
 
     internal fun closeDataLease(subscriptionId: String) {
@@ -183,14 +329,14 @@ class RearClient private constructor(
     /** Call from a focused foreground Activity after the app's own user action. The SDK never starts the host UI from a service. */
     fun requestSceneActivation(activity: Activity, request: RearSceneRequest, callback: (Result<Unit>) -> Unit = {}) {
         if (Looper.myLooper() != Looper.getMainLooper() || activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
-            callback(Result.failure(IllegalStateException("E_FOREGROUND_REQUIRED")))
+            dispatchResult(callback, Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED)))
             return
         }
         onBinder<PendingIntent>({ result ->
             result.fold(
                 onSuccess = { pendingIntent ->
                     if (activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
-                        callback(Result.failure(IllegalStateException("E_FOREGROUND_REQUIRED")))
+                        callback(Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED)))
                     } else {
                         try {
                             activity.startIntentSenderForResult(pendingIntent.intentSender, ACTIVATION_REQUEST_CODE, null, 0, 0, 0)
@@ -202,13 +348,13 @@ class RearClient private constructor(
                 },
                 onFailure = { callback(Result.failure(it)) }
             )
-        }) { service -> service.requestSceneActivation(callerPackage, request.toJson().toString(), this.callback) }
+        }) { service -> service.service.requestSceneActivation(callerPackage, request.toJson().toString(), service.callback) }
     }
 
     /** Call from the target Activity after its first real layout, not before setContent/onCreate. */
     fun reportWindowReady(activity: Activity, launchTicket: String, revision: Long = 1L, callback: (Result<RearOperationResult>) -> Unit) {
         val report = runCatching { RearViewportReporter.capture(activity, revision) }.getOrElse {
-            callback(Result.failure(it)); return
+            dispatchResult(callback, Result.failure(it)); return
         }
         onBinder({ result ->
             val operation = result.getOrNull()
@@ -219,13 +365,13 @@ class RearClient private constructor(
             }
             callback(result)
         }) { service -> RearOperationResult.fromJson(
-            service.reportSceneWindowReady(callerPackage, launchTicket, report.toJson().toString(), this.callback)
+            service.service.reportSceneWindowReady(callerPackage, launchTicket, report.toJson().toString(), service.callback)
         ) }
     }
 
     fun reportViewport(activity: Activity, sessionId: String, generation: Long, revision: Long, callback: (Result<RearOperationResult>) -> Unit) {
         val report = runCatching { RearViewportReporter.capture(activity, revision) }.getOrElse {
-            callback(Result.failure(it)); return
+            dispatchResult(callback, Result.failure(it)); return
         }
         reportViewport(sessionId, generation, report, callback)
     }
@@ -234,16 +380,16 @@ class RearClient private constructor(
     fun reportViewport(sessionId: String, generation: Long, report: RearWindowReport, callback: (Result<RearOperationResult>) -> Unit) {
         require(report.revision > 0) { "revision must be positive" }
         onBinder(callback) { service -> RearOperationResult.fromJson(
-            service.reportSceneViewport(callerPackage, sessionId, generation, report.toJson().toString(), this.callback)
+            service.service.reportSceneViewport(callerPackage, sessionId, generation, report.toJson().toString(), service.callback)
         ) }
     }
 
     fun attachObserver(sessionId: String, generation: Long, callback: (Result<RearOperationResult>) -> Unit) = onBinder(callback) { service ->
-        RearOperationResult.fromJson(service.attachSceneObserver(callerPackage, sessionId, generation, this.callback))
+        RearOperationResult.fromJson(service.service.attachSceneObserver(callerPackage, sessionId, generation, service.callback))
     }
 
     fun reportVisibility(sessionId: String, generation: Long, visible: Boolean, callback: (Result<RearOperationResult>) -> Unit) = onBinder(callback) { service ->
-        RearOperationResult.fromJson(service.reportSceneVisibility(callerPackage, sessionId, generation, visible, this.callback))
+        RearOperationResult.fromJson(service.service.reportSceneVisibility(callerPackage, sessionId, generation, visible, service.callback))
     }
 
     /** Reconcile delayed observer callbacks against the Core's current owner/session snapshot. */
@@ -252,37 +398,46 @@ class RearClient private constructor(
         generation: Long,
         callback: (Result<RearScenePresentation>) -> Unit
     ) = onBinder(callback) { service ->
-        RearScenePresentation.fromJson(service.queryScenePresentation(callerPackage, sessionId, generation, this.callback))
+        RearScenePresentation.fromJson(service.service.queryScenePresentation(callerPackage, sessionId, generation, service.callback))
     }
 
     fun closeScene(sessionId: String, callback: (Result<RearOperationResult>) -> Unit = {}) = onBinder(callback) { service ->
-        RearOperationResult.fromJson(service.closeScene(callerPackage, sessionId, this.callback))
+        RearOperationResult.fromJson(service.service.closeScene(callerPackage, sessionId, service.callback))
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        val service = remote
-        val wasBound = synchronized(connectionLock) { remote = null; bound.also { bound = false } }
-        worker.execute {
-            if (service != null) runCatching { service.releaseClient(callerPackage, callback) }
-            dataHandlers.clear()
-            closedDataIds.clear()
-            synchronized(dataLock) { pendingData.clear() }
-            if (wasBound) Handler(Looper.getMainLooper()).post { runCatching { appContext.unbindService(connection) } }
-            worker.shutdown()
+        var epochAtClose: ClientEpoch? = null
+        val transition = connectionGate.close {
+            epochAtClose = currentEpoch.getAndSet(null)
+            contractVersion = null
         }
+        val epoch = epochAtClose
+        transition.completion?.let(::completeConnectionWaiters)
+        dataHandlers.clear()
+        closedDataIds.clear()
+        synchronized(dataLock) { pendingData.clear() }
+        val binding = transition.attemptId?.let { id -> activeBinding?.takeIf { it.attemptId == id } }
+        ClientCloseSequence(
+            operations = operationQueue,
+            unbind = { if (transition.wasBound && binding != null) unbindService(binding) },
+            scheduleHostRelease = { epoch?.let(::releaseEpochAsync) },
+            shutdownWorker = { worker.shutdown() }
+        ).close()
     }
 
-    private fun <T> onBinder(callback: (Result<T>) -> Unit, action: (IRemoteRearPlatformService) -> T) {
-        val service = remote
-        if (service == null) {
-            callback(Result.failure(IllegalStateException("E_NOT_CONNECTED")))
+    private fun <T> onBinder(callback: (Result<T>) -> Unit, action: (ClientEpoch) -> T) {
+        if (closed.get()) { dispatchResult(callback, Result.failure(IllegalStateException(RearSdkErrorCode.CLIENT_CLOSED))); return }
+        val epoch = currentEpoch.get()
+        if (epoch == null) {
+            dispatchResult(callback, Result.failure(IllegalStateException(RearSdkErrorCode.NOT_CONNECTED)))
             return
         }
-        worker.execute {
-            val result = runCatching { action(service) }
-            eventExecutor.execute { if (!closed.get()) callback(result) }
-        }
+        operationQueue.submit(epoch, { action(epoch) }, callback)
+    }
+
+    private fun <T> dispatchResult(callback: (Result<T>) -> Unit, result: Result<T>) {
+        resultDispatcher.dispatch(callback, result)
     }
 
     companion object {

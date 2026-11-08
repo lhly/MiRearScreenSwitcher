@@ -28,6 +28,7 @@ jobs:
     outputs:
       apk_name: ${{ steps.version.outputs.apk_name }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      sdk_name: ${{ steps.sdk.outputs.sdk_name }}
     steps:
       - name: Checkout tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,6 +75,7 @@ jobs:
           python3 tools/test_rear_shell_catalog.py
           python3 tools/test_cast_notification.py
           python3 tools/test_cast_notification_touch.py
+          python3 tools/test_package_android_sdk.py
 
       - name: Prepare Android toolchain
         run: |
@@ -98,6 +100,34 @@ jobs:
 
       - name: Verify APK and generate checksums
         run: python3 tools/ci_release.py verify build/app/outputs/apk/release/app-release.apk
+
+      - name: Build RC2 SDK AAR
+        run: ./android/gradlew -p android :platform-sdk:assembleRelease --console=plain
+
+      - name: Stage SDK and sample sources for standalone build
+        run: |
+          mkdir -p sdk/sample/standalone/app/libs sdk/sample/standalone/app/src/main
+          cp build/platform-sdk/outputs/aar/platform-sdk-release.aar \
+            sdk/sample/standalone/app/libs/platform-sdk-release.aar
+          cp -R sdk/sample/src/main/. sdk/sample/standalone/app/src/main/
+
+      - name: Build standalone SDK sample APK
+        run: ./android/gradlew -p sdk/sample/standalone :app:assembleDebug --console=plain
+
+      - name: Package SDK, sample and integration guide
+        id: sdk
+        run: |
+          sdk_version="$(awk -F= '$1 == "sdkVersion" { print $2 }' sdk/android/version.properties)"
+          test -n "$sdk_version"
+          sdk_name="remrss-platform-sdk-${sdk_version}.zip"
+          sdk_bundle="$RUNNER_TEMP/${sdk_name%.zip}"
+          python3 tools/package_android_sdk.py \
+            --aar build/platform-sdk/outputs/aar/platform-sdk-release.aar \
+            --sample-apk sdk/sample/standalone/app/build/outputs/apk/debug/app-debug.apk \
+            --output "$sdk_bundle" --host-release-compile-verified --host-apk-produced
+          cp "$sdk_bundle.zip" "dist/$sdk_name"
+          (cd dist && sha256sum "$sdk_name" >> SHA256SUMS)
+          echo "sdk_name=$sdk_name" >> "$GITHUB_OUTPUT"
 
       - name: Remove signing files
         if: always()
@@ -132,6 +162,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
           APK_NAME: ${{ needs.build.outputs.apk_name }}
+          SDK_NAME: ${{ needs.build.outputs.sdk_name }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           sha256sum --check SHA256SUMS
@@ -140,10 +171,10 @@ jobs:
               echo "Release already published; keeping its existing assets."
               exit 0
             fi
-            gh release upload "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE --clobber
+            gh release upload "$RELEASE_TAG" "$APK_NAME" "$SDK_NAME" SHA256SUMS LICENSE NOTICE --clobber
             gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" SHA256SUMS LICENSE NOTICE \
+            gh release create "$RELEASE_TAG" "$APK_NAME" "$SDK_NAME" SHA256SUMS LICENSE NOTICE \
               --verify-tag --title "ReMRSS $RELEASE_TAG" \
               --notes-file release-notes.md --draft
           fi
