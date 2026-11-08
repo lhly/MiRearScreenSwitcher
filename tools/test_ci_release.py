@@ -17,6 +17,15 @@ from release_notes import format_release_notes
 
 
 class ReleaseChecks(unittest.TestCase):
+    def test_dist_only_publish_job_has_explicit_github_repository(self):
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/release.yml').read_text(encoding='utf-8')
+        release_job = workflow.split('\n  release:\n', 1)[1].split('\n  update-version:\n', 1)[0]
+        self.assertIn('actions/download-artifact@', release_job)
+        self.assertNotIn('actions/checkout@', release_job)
+        publish_step = release_job.split('      - name: Publish APK and checksum file\n', 1)[1].split('\n      - name:', 1)[0]
+        publish_env = publish_step.split('        env:\n', 1)[1].split('        run:\n', 1)[0]
+        self.assertIn('          GH_REPO: ${{ github.repository }}', publish_env)
+
     def check_legal_assets(self, license_content=b'complete GPL text', notice_content=b'upstream and maintainer credits', signature=None,
                            package_name='top.zainzh.rearscreen', notes_tag='v3.3.2', notes_markdown=None):
         with tempfile.TemporaryDirectory() as directory:
