@@ -23,10 +23,7 @@ final class CompatibilityDiagnostics {
                     .put("device", Build.DEVICE).put("model", Build.MODEL).put("manufacturer", Build.MANUFACTURER)
                     .put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT).put("incremental", Build.VERSION.INCREMENTAL)
                     .put("display", new JSONObject(RearDisplay.state())).put("launchers", new JSONArray(RearSystemBridge.launcherCandidates()));
-            try {
-                java.lang.reflect.Field field = Class.forName("android.app.IActivityTaskManager$Stub").getDeclaredField("TRANSACTION_moveRootTaskToDisplay");
-                field.setAccessible(true); report.put("moveRootTaskTransaction", field.getInt(null));
-            } catch (Exception e) { report.put("moveRootTaskTransactionError", e.toString()); }
+            report.put("moveRootTaskTransactionError", "not_queried: blocked private API on Android 16+");
             try { report.put("physicalDisplayId", RearDisplay.physicalId()); } catch (Exception e) { report.put("physicalDisplayError", e.toString()); }
             try { report.put("input", RearInputDevices.diagnostics()); } catch (Exception e) { report.put("inputError", e.toString()); }
             synchronized (CompatibilityDiagnostics.class) { report.put("events", new JSONArray(events)); }

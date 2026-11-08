@@ -47,5 +47,6 @@ public final class VirtualRequestChecks {
 }'''
 with tempfile.TemporaryDirectory(prefix='mrss-vd-request-') as folder:
  out=Path(folder);test=out/'VirtualRequestChecks.java';test.write_text(HARNESS)
- subprocess.run([str(JAVA/'javac'),'-d',str(out),str(ROOT/'android/app/src/main/java/top/zainzh/rearscreen/VirtualCastRequest.java'),str(test)],check=True)
+ capability=out/'RearCapabilityCore.java';capability.parent.mkdir(parents=True,exist_ok=True);capability.write_text('package top.zainzh.rearscreen.platform; public final class RearCapabilityCore { public static boolean isActiveSceneTaskForeground(String s,int d){return false;} public static boolean hasActiveScenePackage(String s){return false;} public static boolean isActiveSceneTask(int t,int d){return false;} }')
+ subprocess.run([str(JAVA/'javac'),'-d',str(out),str(capability),str(ROOT/'android/app/src/main/java/top/zainzh/rearscreen/VirtualCastRequest.java'),str(test)],check=True)
  subprocess.run([str(JAVA/'java'),'-cp',str(out),'top.zainzh.rearscreen.VirtualRequestChecks'],check=True)

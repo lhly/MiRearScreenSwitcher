@@ -36,7 +36,7 @@ android {
 
     defaultConfig {
         applicationId = "top.zainzh.rearscreen"
-        minSdk = 24  // Shizuku需要最低24
+        minSdk = 36  // Android 16及以上，面向小米17 Pro系列及后续机型
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
         versionCode = (project.findProperty("mrssVersionCode")?.toString() ?: versionProperties.getProperty("versionCode")).toInt()

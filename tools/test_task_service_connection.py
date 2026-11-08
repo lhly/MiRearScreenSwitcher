@@ -44,7 +44,7 @@ f'{PACKAGE}/RootBackend.java': '''package top.zainzh.rearscreen; import android.
 'android/content/Intent.java': '''package android.content; public class Intent { public static final String ACTION_VIEW="android.intent.action.VIEW"; public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000,FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS=0x00800000; public Class<?> target; public android.net.Uri data; public String action; public int activityFlags; private java.util.Map<String,Boolean> flags=new java.util.HashMap<>(); public Intent(Context c,Class<?> t){target=t;} public Intent setAction(String a){action=a;return this;} public Intent addFlags(int f){activityFlags|=f;return this;} public Intent setData(android.net.Uri u){data=u;return this;} public Intent putExtra(String n,String v){return this;} public Intent putExtra(String n,boolean v){flags.put(n,v);return this;} public boolean getBooleanExtra(String n,boolean d){return flags.getOrDefault(n,d);} }''',
 'android/app/PendingIntent.java': '''package android.app; public class PendingIntent { public static final int FLAG_UPDATE_CURRENT=1,FLAG_IMMUTABLE=2; public static int lastFlags; public android.content.Intent intent; public static PendingIntent getActivity(android.content.Context c,int request,android.content.Intent i,int flags){PendingIntent p=new PendingIntent();p.intent=i;lastFlags=flags;return p;} }''',
 'android/net/Uri.java': '''package android.net; public class Uri { private String value; public static Uri parse(String s){Uri u=new Uri();u.value=s;return u;} public String toString(){return value;} }''',
-f'{PACKAGE}/BuildConfig.java': '''package top.zainzh.rearscreen; public class BuildConfig { public static boolean INPUT_PROXY_PROTOTYPE=false; public static boolean VIRTUAL_CAST_ENABLED=false; public static final boolean DEBUG=true; public static final String URI_SCHEME="mrss-debug"; }''',
+f'{PACKAGE}/BuildConfig.java': '''package top.zainzh.rearscreen; public class BuildConfig { public static boolean INPUT_PROXY_PROTOTYPE=false; public static boolean VIRTUAL_CAST_ENABLED=false; public static final boolean DEBUG=true; public static final String URI_SCHEME="mrss-debug"; public static final String APPLICATION_ID="test.mrss"; }''',
 f'{PACKAGE}/UriCommandService.java': '''package top.zainzh.rearscreen; public class UriCommandService {}''',
 f'{PACKAGE}/UriReceiverActivity.java': '''package top.zainzh.rearscreen; public class UriReceiverActivity {}''',
 f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class RearCastMode { public static boolean useVirtual(android.content.Context c){return true;} }''',
@@ -53,7 +53,8 @@ f'{PACKAGE}/RearCastMode.java': '''package top.zainzh.rearscreen; public class R
 'android/os/RemoteException.java': '''package android.os; public class RemoteException extends Exception {}''',
 'android/os/IBinder.java': '''package android.os; public interface IBinder { interface DeathRecipient { void binderDied(); } boolean isBinderAlive(); void linkToDeath(DeathRecipient r,int f) throws RemoteException; boolean unlinkToDeath(DeathRecipient r,int f); }''',
 'android/os/Looper.java': '''package android.os; public class Looper { private static final Looper MAIN=new Looper(); public static Looper getMainLooper(){return MAIN;} public static Looper myLooper(){return MAIN;} }''',
-'android/os/SystemClock.java': '''package android.os; public class SystemClock { public static long now; public static long elapsedRealtime(){return now;} }''',
+'android/os/SystemClock.java': '''package android.os; public class SystemClock { public static long now; public static long elapsedRealtime(){return now;} public static long uptimeMillis(){return now;} }''',
+'android/view/Display.java': '''package android.view; public class Display { public static final int STATE_ON=2; }''',
 'android/os/Handler.java': '''package android.os; import java.util.*; public class Handler {
  private static final List<Job> jobs=new ArrayList<>(); private static class Job { Handler h; Runnable r; long at; Job(Handler h,Runnable r,long at){this.h=h;this.r=r;this.at=at;} }
  public Handler(Looper l){} public boolean post(Runnable r){return postDelayed(r,0);}
@@ -83,18 +84,20 @@ f'{PACKAGE}/ITaskService.java': '''package top.zainzh.rearscreen; public interfa
  class Stub { public static ITaskService asInterface(android.os.IBinder b){return (ITaskService)b;} }
 }''',
 f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
- public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores,disables; public int links; public String occupancy=""; public Runnable beforeTarget,beforeOccupancy; public final List<DeathRecipient> recipients=new ArrayList<>();
+ public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores,disables; public int links,occupancyQueries; public String occupancy="test-fixture:focused-main-app"; public Runnable beforeTarget,beforeOccupancy; public final List<DeathRecipient> recipients=new ArrayList<>();
  public boolean isBinderAlive(){return alive;} public void linkToDeath(DeathRecipient r,int f) throws RemoteException {if(failLink)throw new RemoteException();recipients.add(r);links++;} public boolean unlinkToDeath(DeathRecipient r,int f){return recipients.remove(r);}
  public void die(){alive=false;for(DeathRecipient r:new ArrayList<>(recipients))r.binderDied();}
  public IBinder asBinder(){return this;} public String getForegroundAppOnDisplay(int d){return null;} public String getCurrentForegroundApp(){if(beforeTarget!=null)beforeTarget.run();return "com.test:42";}
- public String getDisplayCastOccupancy(int d){if(beforeOccupancy!=null)beforeOccupancy.run();return occupancy;}
+ public String getDisplayCastOccupancy(int d){occupancyQueries++;if(occupancyQueries>1&&beforeTarget!=null)beforeTarget.run();if(beforeOccupancy!=null)beforeOccupancy.run();return occupancy;}
  public boolean disableSubScreenLauncher(){disables++;return true;} public boolean enableSubScreenLauncher(){restores++;return true;} public boolean moveTaskToDisplay(int t,int d){moves++;return moveSuccess;} public boolean launchWakeActivity(int d){return true;} public boolean collapseStatusBar(){return true;}
 }''',
 f'{PACKAGE}/RearScreenKeeperService.java': '''package top.zainzh.rearscreen; public class RearScreenKeeperService {static boolean physical;static boolean isRunning(){return physical;}static boolean isPhysicalCastRunning(){return physical;}static String physicalCastTask(){return physical?"com.test:42":null;}}''',
 # This harness owns Tile lifecycle/effects. The production occupancy policy/JSON reader is exercised by its JVM tests.
 f'{PACKAGE}/RearDisplayCastOccupancy.java': '''package top.zainzh.rearscreen; final class RearDisplayCastOccupancy {
  static final class Result {final String foreground;Result(String value){foreground=value.isEmpty()?null:value;}boolean allowed(){return foreground==null;}}
- static Result query(ITaskService remote,String host,int display){String value=remote.getDisplayCastOccupancy(display);if(value==null)throw new IllegalStateException("query unavailable");return new Result(value);}
+ static final class Task {final int taskId;final String basePackage,topPackage;final Boolean visible,requested,sleeping;Task(int id,String base,String top,Boolean visible,Boolean requested,Boolean sleeping){taskId=id;basePackage=base;topPackage=top;this.visible=visible;this.requested=requested;this.sleeping=sleeping;}}
+ static final class Snapshot {final int displayId,displayState,powerBefore,powerAfter,focusedTaskId;final java.util.List<Task> tasks;final String source,failure;Snapshot(int displayId,int displayState,int powerBefore,int powerAfter,int focusedTaskId,java.util.List<Task> tasks,String source,String failure){this.displayId=displayId;this.displayState=displayState;this.powerBefore=powerBefore;this.powerAfter=powerAfter;this.focusedTaskId=focusedTaskId;this.tasks=tasks;this.source=source;this.failure=failure;}static Snapshot parse(String encoded,int expectedDisplay){if(!"test-fixture:focused-main-app".equals(encoded))return new Snapshot(expectedDisplay,0,0,0,-1,java.util.Collections.emptyList(),"unavailable","fixture_snapshot_unavailable");return new Snapshot(0,2,2,2,42,java.util.Collections.singletonList(new Task(42,"com.test","com.test",true,true,false)),"activity_task",null);}}
+ static Result query(ITaskService remote,String host,int display){String value=remote.getDisplayCastOccupancy(display);if(value==null)throw new IllegalStateException("query unavailable");return new Result(value.equals("test-fixture:focused-main-app")?"":value);}
 }''',
 f'{PACKAGE}/RearAnimationManager.java': '''package top.zainzh.rearscreen; final class RearAnimationManager {static void runDisplayAction(Runnable action){action.run();}static void projectionStarted(android.content.Context c){}static void projectionStarted(android.content.Context c,int task,String pkg){}}''',
 f'{PACKAGE}/platform/RearCapabilityCore.java': '''package top.zainzh.rearscreen.platform; public final class RearCapabilityCore {public static boolean hasActiveSceneSessions(){return false;}}''',
@@ -261,7 +264,7 @@ class ConnectionTests(unittest.TestCase):
         path.write_text(HARNESS)
         sources = list(folder.rglob('*.java'))
         sources += [ROOT / 'android/app/src/main/java' / PACKAGE / name for name in
-                    ['TaskServiceManager.java', 'SwitchToRearTileService.java', 'PrivilegeMode.java', 'PrivilegeBackend.java', 'ShizukuBackend.java', 'PrivilegeOperations.java']]
+                    ['TaskServiceManager.java', 'SwitchToRearTileService.java', 'CurrentMainTaskSelector.java', 'PrivilegeMode.java', 'PrivilegeBackend.java', 'ShizukuBackend.java', 'PrivilegeOperations.java']]
         subprocess.run([cls.javac, '--release', '11', '-d', str(cls.classes), *map(str, sources)], check=True)
 
     @classmethod

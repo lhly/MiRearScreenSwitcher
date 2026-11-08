@@ -42,7 +42,8 @@ class CompatibilityDiagnosticsComposeTest {
             val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val report = JSONObject(clipboard.primaryClip!!.getItemAt(0).coerceToText(compose.activity).toString())
             assertEquals(BuildConfig.APPLICATION_ID, report.getString("package"))
-            assertTrue(report.getInt("sdk") >= 24)
+            assertTrue(report.getInt("sdk") >= 36)
+            assertEquals("not_queried: blocked private API on Android 16+", report.getString("moveRootTaskTransactionError"))
             assertTrue(report.has("virtualCasting"))
             assertFalse(report.has("notificationContent"))
         }

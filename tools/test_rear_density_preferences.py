@@ -9,6 +9,7 @@ STUBS={
  interface Editor { Editor putBoolean(String key,boolean value);Editor putInt(String key,int value);Editor remove(String key);void apply();boolean commit(); }
 }''',
 'android/os/Build.java': '''package android.os; public final class Build { public static final class VERSION { public static int SDK_INT=34; } }''',
+'top/zainzh/rearscreen/platform/RearCapabilityCore.java': '''package top.zainzh.rearscreen.platform; public final class RearCapabilityCore { public static boolean isActiveSceneTaskForeground(String s,int d){return false;} public static boolean hasActiveScenePackage(String s){return false;} public static boolean isActiveSceneTask(int t,int d){return false;} }''',
 'android/content/Context.java': '''package android.content;import java.util.*; public class Context {
  public static final int MODE_PRIVATE=0;static final Map<String,Map<String,Object>> disk=new HashMap<>();
  public SharedPreferences getSharedPreferences(String name,int mode){Map<String,Object> data=disk.computeIfAbsent(name,k->new HashMap<>());

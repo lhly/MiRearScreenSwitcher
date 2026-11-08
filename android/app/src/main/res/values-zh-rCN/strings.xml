@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="scene_activation_title">允许在背屏打开场景？</string>
+    <string name="scene_activation_request">%1$s 请求在背屏显示“%2$s”。</string>
+    <string name="scene_activation_effect">这会创建独立任务，主屏应用保持不动。</string>
+    <string name="scene_activation_keep_visible">场景打开期间会请求保持背屏可见。</string>
+    <string name="scene_activation_allow">允许本次打开</string>
+    <string name="scene_activation_deny">取消</string>
+    <string name="data_consent_title">允许读取平台数据？</string>
+    <string name="data_consent_intro">%1$s 请求读取下列只读数据。客户端应只在界面可见时订阅，并在离开界面时关闭。</string>
+    <string name="data_consent_battery">电量与充电状态</string>
+    <string name="data_consent_battery_detail">只包含本机电量百分比和是否正在充电。</string>
+    <string name="data_consent_metrics">系统 CPU 与内存</string>
+    <string name="data_consent_metrics_detail">低频设备级 CPU 使用率与可用/总内存；GPU 当前不可用。</string>
+    <string name="data_consent_footer">你可只允许其中一类；授权按此应用及签名保存。此应用可从前台重新打开授权页，调整或关闭类别。</string>
+    <string name="data_consent_allow">保存选择</string>
+    <string name="zip_mods_title">ZIP Mods</string>
+    <string name="zip_mods_summary">安装、信任并管理平台模块；与旧模块实验隔离</string>
     <string name="tile_label">切换至背屏</string>
     <string name="tile_screenshot_label">获取背屏截图</string>
     <string name="tile_record_label">背屏录屏</string>

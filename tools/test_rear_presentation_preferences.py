@@ -16,6 +16,7 @@ STUBS = {
  public Editor edit(){return new Editor(){Map<String,Object> pending=new HashMap<>();public Editor putInt(String k,int v){pending.put(k,v);return this;}
  public Editor putBoolean(String k,boolean v){pending.put(k,v);return this;}public void apply(){data.putAll(pending);}};}};}}
 ''',
+    'top/zainzh/rearscreen/platform/RearCapabilityCore.java': '''package top.zainzh.rearscreen.platform; public final class RearCapabilityCore { public static boolean isActiveSceneTaskForeground(String s,int d){return false;} public static boolean hasActiveScenePackage(String s){return false;} public static boolean isActiveSceneTask(int t,int d){return false;} }''',
     'PresentationTest.java': '''package top.zainzh.rearscreen;import android.content.Context;public class PresentationTest {
  static void eq(Context c,String pkg,int rotation,boolean full){RearPresentationPreferences.Selection p=RearPresentationPreferences.read(c,pkg);
   if(p.rotation!=rotation||p.full!=full)throw new AssertionError(pkg+" "+p.rotation+" "+p.full);}

@@ -4,6 +4,8 @@
 
 面向小米 17 Pro / 17 Pro Max 等双屏设备的背屏工具，通过 Shizuku 实现应用切换、截图、录屏、通知和充电动画，无需 Root。
 
+当前宿主 App 要求 Android 16（API 36）及以上；机型适配范围见[兼容与排障](docs/rear-compatibility.md)。
+
 基于 [MRSS](https://github.com/AntiOblivionis/MiRearScreenSwitcher) 继续开发，由本仓库独立维护。
 
 ## 功能
