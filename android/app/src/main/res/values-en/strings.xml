@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="scene_activation_title">Allow a rear-screen scene?</string>
+    <string name="scene_activation_request">%1$s wants to show “%2$s” on the rear screen.</string>
+    <string name="scene_activation_effect">This opens a separate task and leaves the main-screen app in place.</string>
+    <string name="scene_activation_keep_visible">The scene requests that the rear display stay visible while it is open.</string>
+    <string name="scene_activation_allow">Allow this launch</string>
+    <string name="scene_activation_deny">Cancel</string>
+    <string name="data_consent_title">Allow platform data?</string>
+    <string name="data_consent_intro">%1$s requests the read-only data below. Subscribe only while your UI is visible and close the subscription when it leaves view.</string>
+    <string name="data_consent_battery">Battery and charging</string>
+    <string name="data_consent_battery_detail">This includes only battery percentage and charging state.</string>
+    <string name="data_consent_metrics">System CPU and memory</string>
+    <string name="data_consent_metrics_detail">Low-frequency device CPU use and available/total memory. GPU data is unavailable.</string>
+    <string name="data_consent_footer">Choose either or both. Consent is saved for this app and signer; this app can reopen the consent screen to change or revoke categories.</string>
+    <string name="data_consent_allow">Save choices</string>
+    <string name="zip_mods_title">ZIP Mods</string>
+    <string name="zip_mods_summary">Install, trust, and manage platform Mods separately from legacy experiments.</string>
     <string name="tile_label">Switch to Rear Screen</string>
     <string name="tile_screenshot_label">Rear Screen Screenshot</string>
     <string name="tile_record_label">Rear Screen Record</string>
@@ -16,4 +32,8 @@
     <string name="notif_running_on_rear">running on rear screen</string>
     <string name="notif_click_to_return">Tap to switch %s back to main screen</string>
     <string name="notif_mrss_running">ReMRSS is currently running</string>
+    <string name="module_recovery_notification_channel">Module display session</string>
+    <string name="module_recovery_notification_title">Timer running on rear screen</string>
+    <string name="module_recovery_notification_text">Display pauses when covered and resumes when uncovered</string>
+    <string name="module_recovery_stop">End timer and exit</string>
 </resources>

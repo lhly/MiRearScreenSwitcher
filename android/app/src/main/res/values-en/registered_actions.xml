@@ -1,0 +1,23 @@
+<resources>
+    <string name="registered_actions_title">Quick actions</string>
+    <string name="registered_actions_intro">Choose an app to open, or add a shortcut provided by an app.</string>
+    <string name="registered_actions_add_app">Add app</string>
+    <string name="registered_actions_add">Add shortcut</string>
+    <string name="registered_actions_working">Saving…</string>
+    <string name="registered_actions_empty">No quick actions added</string>
+    <string name="registered_actions_picker_title">Choose a shortcut provider</string>
+    <string name="registered_actions_provider_cancel">Cancel</string>
+    <string name="registered_actions_no_provider">No shortcut provider is available</string>
+    <string name="registered_actions_provider_limit">There are too many shortcut providers to show</string>
+    <string name="registered_actions_no_app_picker">The system app picker is unavailable</string>
+    <string name="registered_action_cancelled">Cancelled; nothing was saved</string>
+    <string name="registered_action_saved">Quick action registered</string>
+    <string name="registered_action_target_unavailable">The target app or component is unavailable. Register it again.</string>
+    <string name="registered_action_revoke">Revoke registration</string>
+    <string name="registered_action_select">Bind to this button</string>
+    <string name="registered_action_revoked">Registration revoked</string>
+    <string name="registered_action_missing">This registration no longer exists</string>
+    <string name="registered_action_limit">The registration limit has been reached</string>
+    <string name="registered_action_storage_failed">Could not save. Try again.</string>
+    <string name="registered_action_invalid">This shortcut target or its parameters are not supported</string>
+</resources>

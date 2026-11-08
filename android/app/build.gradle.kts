@@ -20,6 +20,14 @@ val inputProxyPrototype = providers.gradleProperty("mrssInputProxy").map(String:
 android {
     namespace = "top.zainzh.rearscreen"
     compileSdk = 37
+    ndkVersion = "27.0.12077973"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/mod_runtime/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -113,6 +121,7 @@ android {
 /** The virtual display input reader is packaged as an extracted executable for each Android ABI. */
 abstract class CompileRearInputReader : DefaultTask() {
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sourceFile: RegularFileProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val includedSources: ConfigurableFileCollection
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val compilerFiles: ConfigurableFileCollection
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
     @get:javax.inject.Inject abstract val execution: org.gradle.process.ExecOperations
@@ -133,6 +142,7 @@ val inputReader = tasks.register<CompileRearInputReader>("compileRearInputReader
     val sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
     val host = if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
     sourceFile.set(layout.projectDirectory.file("src/main/cpp/rear_input_reader.c"))
+    includedSources.from(layout.projectDirectory.file("src/main/cpp/rear_input_reader_control.h"))
     val binaries = File(sdk, "ndk/27.0.12077973/toolchains/llvm/prebuilt/$host/bin")
     compilerFiles.from(listOf("aarch64-linux-android24-clang", "armv7a-linux-androideabi24-clang", "i686-linux-android24-clang", "x86_64-linux-android24-clang").map { File(binaries, it) })
     outputDirectory.set(layout.buildDirectory.dir("generated/inputProxyNative"))
@@ -149,7 +159,7 @@ abstract class PrepareLegalAssets : DefaultTask() {
     }
 }
 val prepareLegalAssets = tasks.register<PrepareLegalAssets>("prepareLegalAssets") {
-    legalTexts.from(rootProject.file("../LICENSE"), rootProject.file("../NOTICE"), rootProject.file("../third_party/MIUIX-LICENSE.txt"), rootProject.file("../third_party/MATERIALKOLOR-LICENSE.txt"), rootProject.file("../third_party/LIBSU-LICENSE.txt"))
+    legalTexts.from(rootProject.file("../LICENSE"), rootProject.file("../NOTICE"), rootProject.file("../third_party/MIUIX-LICENSE.txt"), rootProject.file("../third_party/MATERIALKOLOR-LICENSE.txt"), rootProject.file("../third_party/LIBSU-LICENSE.txt"), rootProject.file("../third_party/QUICKJS-LICENSE.txt"))
     outputDirectory.set(layout.buildDirectory.dir("generated/legalAssets"))
 }
 androidComponents.onVariants { variant ->
@@ -187,6 +197,9 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    // Tests exercise the real sample SDK presentation gate with Core snapshots; this test-only
+    // dependency is not packaged into Host product variants.
+    androidTestImplementation(project(":platform-sdk"))
     implementation("com.github.topjohnwu.libsu:core:6.0.0")
     implementation("com.github.topjohnwu.libsu:service:6.0.0")
     // Shizuku API

@@ -35,6 +35,7 @@ import android.app.Activity;
 import rikka.shizuku.Shizuku;
 
 public class MainActivity extends androidx.activity.ComponentActivity {
+    static final String EXTRA_NAVIGATION_TARGET = "native_navigation_target";
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
     
@@ -113,12 +114,26 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         
         // 处理通知Intent
         handleIncomingIntent(getIntent());
+        handleNavigationIntent(getIntent());
     }
     
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         handleIncomingIntent(intent);
+        handleNavigationIntent(intent);
+    }
+
+    private void handleNavigationIntent(Intent intent) {
+        if (intent == null || !intent.hasExtra(EXTRA_NAVIGATION_TARGET) || nativeUi == null) return;
+        nativeUi.openNavigationTarget(intent.getIntExtra(EXTRA_NAVIGATION_TARGET, 0));
+        intent.removeExtra(EXTRA_NAVIGATION_TARGET);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (nativeUi != null) nativeUi.onActivityResult(requestCode, resultCode, data);
     }
 
     /**

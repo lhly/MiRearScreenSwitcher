@@ -5,14 +5,17 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.ArrayList;
+import java.lang.reflect.Method;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Resolve platform methods and exported launcher components on the running ROM. */
 final class RearSystemBridge {
     private RearSystemBridge() {}
+    private static volatile String lastTaskSnapshotQuery = "unavailable";
+    static String lastTaskSnapshotQueryForDiagnostics() { return lastTaskSnapshotQuery; }
     static Object service(String name, String stub) throws Exception {
         Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, name);
         if (binder == null) throw new IllegalStateException("Missing system service: " + name);
@@ -21,6 +24,66 @@ final class RearSystemBridge {
     static final class TaskLocation {
         final int rootTask, displayId;
         TaskLocation(int rootTask, int displayId) { this.rootTask = rootTask; this.displayId = displayId; }
+    }
+
+    /**
+     * Uses ActivityTaskManager's existing task snapshot rather than starting `am` for every
+     * final-window READY. The returned records contain only task id, stable base component,
+     * current top component and display.
+     */
+    static List<SceneTaskIdentity.Record> runningTaskSnapshot() throws Exception {
+        Object manager = service("activity_task", "android.app.IActivityTaskManager$Stub");
+        return runningTaskSnapshot(manager);
+    }
+
+    /** Package-visible for deterministic task-query contract tests using a binder-shaped fake. */
+    static List<SceneTaskIdentity.Record> runningTaskSnapshot(Object manager) throws Exception {
+        Method query = null;
+        for (Method method : manager.getClass().getMethods()) {
+            if (!method.getName().equals("getTasks")) continue;
+            Class<?>[] types = method.getParameterTypes();
+            // The Binder contract accepts a display selector. Always request all displays so
+            // scene ownership and cleanup compare against the same global task identities.
+            if (types.length == 4 && types[0] == int.class && types[1] == boolean.class
+                    && types[2] == boolean.class && types[3] == int.class) {
+                query = method; break;
+            }
+            if (types.length == 3 && types[0] == int.class && types[1] == boolean.class && types[2] == boolean.class) {
+                if (query == null) query = method;
+            }
+            if (types.length == 1 && types[0] == int.class && query == null) query = method;
+        }
+        if (query == null) throw new NoSuchMethodException("IActivityTaskManager.getTasks");
+        Class<?>[] parameters = query.getParameterTypes();
+        lastTaskSnapshotQuery = "getTasks/" + parameters.length
+                + " display=" + (parameters.length == 4 ? "INVALID_DISPLAY" : "legacy");
+        Object raw;
+        if (parameters.length == 4) raw = query.invoke(manager, 1000, false, false, -1); // INVALID_DISPLAY: all displays
+        else if (parameters.length == 3) raw = query.invoke(manager, 1000, false, false);
+        else raw = query.invoke(manager, 1000);
+        CompatibilityDiagnostics.record("scene_task_snapshot", "method=" + lastTaskSnapshotQuery
+                + " records=" + (raw instanceof List ? ((List<?>) raw).size() : "invalid"));
+        if (!(raw instanceof List)) throw new IllegalStateException("task_snapshot_not_list");
+        List<SceneTaskIdentity.Record> result = new ArrayList<>();
+        for (Object info : (List<?>) raw) {
+            if (info == null) continue;
+            int task = ((Number) info.getClass().getField("taskId").get(info)).intValue();
+            int display = ((Number) info.getClass().getField("displayId").get(info)).intValue();
+            Object base = info.getClass().getField("baseActivity").get(info);
+            Object top = info.getClass().getField("topActivity").get(info);
+            String baseComponent = base == null ? null : (String) base.getClass().getMethod("flattenToString").invoke(base);
+            String component = top == null ? null : (String) top.getClass().getMethod("flattenToString").invoke(top);
+            Boolean visible = null;
+            try {
+                Object value = info.getClass().getMethod("isVisible").invoke(info);
+                if (value instanceof Boolean) visible = (Boolean) value;
+            } catch (NoSuchMethodException oldApi) {
+                // Older platform TaskInfo has no visibility bit. Scene task ownership remains
+                // queryable, but foreground presentation will fail closed without this evidence.
+            }
+            result.add(new SceneTaskIdentity.Record(task, display, baseComponent, component, visible));
+        }
+        return result;
     }
     static TaskLocation taskLocation(String stacks, int task) {
         int root = -1, display = -1;

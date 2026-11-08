@@ -1,0 +1,33 @@
+<resources>
+<string name="mod_scene_cover_behavior_note">When cover handling is enabled, the rear display turns fully black and pauses UI updates, then resumes when uncovered. Black is not hardware screen-off and may use more power.</string>
+    <string name="native_modules_debug_only">Debug only · legacy .remodule experiments</string>
+    <string name="native_modules_total_duration_range">Total duration across all stages and rounds must not exceed 24 hours.</string>
+    <string name="native_modules_editing">Editing</string>
+    <string name="native_modules_not_set">Not set</string><string name="native_modules_selected">Selected</string><string name="native_modules_stage_name">Stage name</string><string name="native_modules_minutes">%1$d min</string><string name="native_modules_seconds_compact">%1$d sec</string>
+    <string name="native_modules_title">Modules</string><string name="native_modules_summary">Import and manage optional declarative rear display modules.</string><string name="native_modules_loading">Loading installed modules…</string>
+    <string name="native_modules_intro">Add rear display features when you need them, with no extra app to install.</string><string name="native_modules_trust">After importing a trusted module, enable it, adjust its settings, or remove it here.</string>
+    <string name="native_modules_import">Import module</string><string name="native_modules_import_help">Choose a .remodule file. Its signature is checked before installation.</string><string name="native_modules_empty">No modules installed</string><string name="native_modules_empty_help">Installed modules appear here with settings and rear display access.</string>
+    <string name="native_modules_settings">Settings</string><string name="native_modules_rear">Show on rear display</string><string name="native_modules_rear_help">Opens only when the rear display is available.</string><string name="native_modules_remove">Uninstall</string><string name="native_modules_seconds">Seconds</string><string name="native_modules_add_stage">Add stage</string><string name="native_modules_remove_stage">Remove</string><string name="native_modules_new_stage">New stage</string>
+    <string name="native_modules_installed">Installed: %1$s</string><string name="native_modules_read_failed">Could not read the selected file</string><string name="native_modules_action_failed">Action failed</string><string name="native_modules_rear_unavailable">The rear panel cannot be opened right now</string><string name="native_modules_rear_busy">The rear display is in use. Close the current content and try again.</string><string name="native_modules_unlock">Unlock your phone first</string><string name="native_modules_service_unavailable">Control service unavailable</string>
+<string name="native_modules_move_up">Move up</string><string name="native_modules_move_down">Move down</string><string name="native_modules_seconds_range">Duration must be 1–86400 seconds</string><string name="native_modules_number_range">Enter a number from %1$d to %2$d</string>
+<string name="native_modules_text_length_range">Enter 1–80 characters</string><string name="native_modules_stage_name_range">Stage names must contain 1–60 characters</string>
+<string name="native_modules_fix_invalid_fields">Fix invalid fields before starting or saving.</string>
+<string name="native_modules_runtime">Timer reminders</string>
+<string name="native_modules_cover_black_note">When covered, the rear display shows pure black and stops UI updates while the timer continues. The display returns when uncovered. This is not a true screen-off state and may use more power.</string>
+<string name="native_modules_exact_alarm">Exact alarms</string>
+<string name="native_modules_exact_ready">Exact alarms are available.</string>
+<string name="native_modules_exact_fallback">Exact alarms are not allowed; reminders may be delayed.</string>
+<string name="native_modules_notifications">Notifications</string>
+<string name="native_modules_notifications_ready">Stage reminder notifications are available.</string>
+<string name="native_modules_notifications_disabled">Stage reminder notifications are disabled.</string>
+<string name="native_modules_permission_page_unavailable">Could not open the system permission page.</string>
+
+    <string name="native_modules_removed">Module removed</string>
+    <string name="native_modules_enable_module">Enable module</string>
+    <string name="native_modules_disabled_detail_help">Enable this module to access its settings and show it on the rear display.</string>
+    <string name="native_modules_enable_required">Enable the module first</string>
+    <string name="native_modules_working">Working…</string>
+    <string name="native_modules_uninstall">Uninstall module</string>
+    <string name="native_modules_uninstall_confirm_title">Uninstall module?</string>
+    <string name="native_modules_uninstall_confirm_message">%1$s will be removed from this device. Any task started by this module will stop, and its settings will be deleted.</string>
+</resources>

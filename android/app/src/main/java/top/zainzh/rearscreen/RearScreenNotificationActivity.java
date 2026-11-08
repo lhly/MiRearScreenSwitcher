@@ -89,6 +89,7 @@ public class RearScreenNotificationActivity extends Activity {
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
             finish(); return;
         }
+        RearAnimationManager.registerAnimationActivityTask(animationId, getTaskId());
         
         // 判断当前所在的屏幕
         int displayId = currentDisplayId();

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rear_info_title">Rear information (experimental)</string>
+    <string name="rear_info_summary">Open a performance panel to verify sampling and power use.</string>
+    <string name="rear_info_open">Open on rear screen</string>
+    <string name="rear_info_opening">Opening…</string>
+    <string name="rear_info_help">Wakes the rear screen once when opened. Updates every 2 seconds for the first 8 visible seconds, then every 5 seconds. Does not keep the screen awake. Pauses behind apps, notifications or charging.</string>
+    <string name="rear_info_connect">Connect the control service on the home screen first.</string>
+    <string name="rear_info_busy">The rear screen is busy. End casting or wait for the notification or charging display to finish.</string>
+    <string name="rear_info_failed">Cannot open the rear panel. Check the rear screen and control service.</string>
+    <string name="rear_info_opened">Panel opened on the rear screen.</string>
+    <string name="rear_info_live">Live information</string>
+    <string name="rear_info_cpu">CPU</string>
+    <string name="rear_info_gpu">GPU (experimental)</string>
+    <string name="rear_info_memory">Memory</string>
+    <string name="rear_info_battery">Battery</string>
+    <string name="rear_info_network">Network</string>
+    <string name="rear_info_speed">Traffic</string>
+    <string name="rear_info_waiting">Sampling…</string>
+    <string name="rear_info_unavailable">Unavailable</string>
+    <string name="rear_info_running">Live · %1$d seconds</string>
+    <string name="rear_info_paused">Paused</string>
+    <string name="rear_info_close">Close panel</string>
+    <string name="rear_info_wifi">Wi-Fi</string>
+    <string name="rear_info_mobile">Mobile</string>
+    <string name="rear_info_vpn">VPN</string>
+    <string name="rear_info_other">Other network</string>
+    <string name="rear_info_offline">Offline</string>
+    <string name="rear_info_validated">Internet validated</string>
+    <string name="rear_info_unvalidated">Internet unverified</string>
+    <string name="rear_info_memory_value">Available %1$s / total %2$s</string>
+    <string name="rear_info_battery_value">%1$d%% · %2$s °C</string>
+    <string name="rear_info_note">Device-wide traffic rate. No GPU percentage is shown without a valid sample.</string>
+</resources>

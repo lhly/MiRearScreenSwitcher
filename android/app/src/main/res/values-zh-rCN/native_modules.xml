@@ -1,0 +1,33 @@
+<resources>
+    <string name="mod_scene_cover_behavior_note">开启遮挡处理后，背屏显示全黑并暂停界面刷新，移开后恢复。全黑不等于硬件息屏，耗电可能更高。</string>
+    <string name="native_modules_debug_only">仅调试版显示：旧 .remodule 实验</string>
+    <string name="native_modules_total_duration_range">阶段时长与轮数的总时长不能超过 24 小时。</string>
+    <string name="native_modules_editing">正在编辑</string>
+    <string name="native_modules_not_set">未填写</string><string name="native_modules_selected">已选择</string><string name="native_modules_stage_name">阶段名称</string><string name="native_modules_minutes">%1$d 分钟</string><string name="native_modules_seconds_compact">%1$d 秒</string>
+    <string name="native_modules_title">模块</string><string name="native_modules_summary">导入并管理可选的声明式背屏模块。</string><string name="native_modules_loading">正在读取已安装模块…</string>
+    <string name="native_modules_intro">按需添加背屏功能，无需安装额外 App。</string><string name="native_modules_trust">导入可信模块后，可在这里启用、设置或移除。</string>
+    <string name="native_modules_import">导入模块</string><string name="native_modules_import_help">选择 .remodule 文件，签名校验通过后安装。</string><string name="native_modules_empty">尚未安装模块</string><string name="native_modules_empty_help">安装后这里会显示模块设置与背屏入口。</string>
+    <string name="native_modules_settings">设置</string><string name="native_modules_rear">显示到背屏</string><string name="native_modules_rear_help">仅在背屏空闲时打开面板。</string><string name="native_modules_remove">卸载</string><string name="native_modules_seconds">秒</string><string name="native_modules_add_stage">添加阶段</string><string name="native_modules_remove_stage">删除</string><string name="native_modules_new_stage">新阶段</string>
+    <string name="native_modules_installed">已安装：%1$s</string><string name="native_modules_read_failed">无法读取所选文件</string><string name="native_modules_action_failed">操作失败</string><string name="native_modules_rear_unavailable">当前无法打开背屏面板</string><string name="native_modules_rear_busy">背屏正被其他内容占用，请先关闭后重试</string><string name="native_modules_unlock">请先解锁手机</string><string name="native_modules_service_unavailable">控制服务暂不可用</string>
+<string name="native_modules_move_up">上移</string><string name="native_modules_move_down">下移</string><string name="native_modules_seconds_range">时长需为 1–86400 秒</string><string name="native_modules_number_range">请输入 %1$d–%2$d 之间的数字</string>
+<string name="native_modules_text_length_range">请输入 1–80 个字符</string><string name="native_modules_stage_name_range">阶段名称需为 1–60 个字符</string>
+<string name="native_modules_fix_invalid_fields">请修正输入后再开始或保存。</string>
+<string name="native_modules_runtime">计时提醒</string>
+    <string name="native_modules_cover_black_note">遮挡背屏时显示纯黑并停止界面刷新，计时仍继续；移开后恢复显示。这不是真正息屏，耗电可能高于系统息屏。</string>
+<string name="native_modules_exact_alarm">精确提醒</string>
+<string name="native_modules_exact_ready">精确提醒可用</string>
+<string name="native_modules_exact_fallback">系统未授权精确提醒；将使用可能延迟的提醒。</string>
+<string name="native_modules_notifications">通知权限</string>
+<string name="native_modules_notifications_ready">阶段提醒通知可用</string>
+<string name="native_modules_notifications_disabled">阶段提醒通知未获允许</string>
+<string name="native_modules_permission_page_unavailable">无法打开系统权限页面</string>
+
+    <string name="native_modules_removed">已卸载模块</string>
+    <string name="native_modules_enable_module">启用模块</string>
+    <string name="native_modules_disabled_detail_help">请先启用模块，启用后可设置并显示到背屏。</string>
+    <string name="native_modules_enable_required">请先启用模块</string>
+    <string name="native_modules_working">正在处理…</string>
+    <string name="native_modules_uninstall">卸载模块</string>
+    <string name="native_modules_uninstall_confirm_title">确认卸载模块？</string>
+    <string name="native_modules_uninstall_confirm_message">%1$s 将从本机移除，该模块正在运行的任务会停止，模块设置也会删除。</string>
+</resources>

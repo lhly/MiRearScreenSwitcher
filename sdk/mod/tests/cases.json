@@ -1,0 +1,18 @@
+[
+  {
+    "name": "increment then decrement preserves count",
+    "initial": {"count": 4},
+    "events": [
+      {"type": "counter.increment", "payload": {}},
+      {"type": "counter.increment", "payload": {}},
+      {"type": "counter.decrement", "payload": {}}
+    ],
+    "expected": {"count": 5}
+  },
+  {
+    "name": "unknown event is a no-op",
+    "initial": {"count": 9},
+    "events": [{"type": "counter.unknown", "payload": {}}],
+    "expected": {"count": 9}
+  }
+]

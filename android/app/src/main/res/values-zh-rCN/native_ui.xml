@@ -143,4 +143,24 @@
     <string name="ui_installer_unavailable" formatted="false">无法打开系统安装器或安装设置，可前往发布页处理。</string>
     <string name="ui_current_version" formatted="false">当前版本：{0}</string>
     <string name="ui_update_size" formatted="false">安装包大小：{0}</string>
+    <string name="ui_nav_modules" formatted="false">模块</string>
+    <string name="ui_nav_settings" formatted="false">设置</string>
+    <string name="ui_nav_cast" formatted="false">投放与显示</string>
+    <string name="ui_nav_cast_help" formatted="false">选择背屏投放方式并查看显示选项。</string>
+    <string name="ui_nav_wake" formatted="false">唤醒与息屏</string>
+    <string name="ui_nav_wake_help" formatted="false">设置背屏唤醒方式和息屏显示。</string>
+    <string name="ui_nav_charging" formatted="false">充电显示</string>
+    <string name="ui_nav_charging_help" formatted="false">设置充电动画和常亮显示。</string>
+    <string name="ui_nav_screenshots" formatted="false">截图工具</string>
+    <string name="ui_nav_screenshots_help" formatted="false">设置截图外壳、构图和配色。</string>
+    <string name="ui_nav_cast_virtual" formatted="false">当前使用虚拟投放模式。</string>
+    <string name="ui_nav_cast_direct" formatted="false">当前使用设备直连显示。</string>
+    <string name="ui_nav_wake_state" formatted="false">投放常亮：{0} · 持续唤醒：{1} · 遮挡处理：{2}</string>
+    <string name="ui_nav_charging_state" formatted="false">充电动画：{0} · 充电常亮：{1}</string>
+    <string name="ui_status_on" formatted="false">开启</string>
+    <string name="ui_status_off" formatted="false">关闭</string>
+    <string name="ui_nav_about_help" formatted="false">查看应用信息、项目地址和致谢。</string>
+    <string name="ui_settings_runtime" formatted="false">运行状态</string>
+    <string name="ui_settings_usage" formatted="false">使用</string>
+    <string name="ui_settings_support" formatted="false">版本与支持</string>
 </resources>

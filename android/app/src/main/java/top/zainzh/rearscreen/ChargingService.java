@@ -294,23 +294,114 @@ public class ChargingService extends Service {
     }
 
     static void restoreRearScreen(ITaskService service, int taskId, long sessionId) {
+        if (RearAnimationManager.isSceneOverlaySession(sessionId)) {
+            Log.i(TAG, "scene_overlay_return_owned_by_core session=" + sessionId + " task=" + taskId);
+            return;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            restoreAfterAnimation(service, taskId, sessionId);
+            return;
+        }
         if (!RearAnimationManager.isIdle(sessionId)) return;
+        boolean moduleAnimationTask = taskId > 0 && ModuleDisplayRecoveryService.isModuleAnimationTask(taskId);
         try {
-            if (taskId > 0 && service.isTaskOnDisplay(taskId, RearDisplay.requireId())
-                    && service.moveTaskToDisplay(taskId, RearDisplay.requireId())) {
-                Log.i(TAG, "restored projected_task=" + taskId);
-            } else {
-                service.enableSubScreenLauncher();
-                Log.i(TAG, "restored official_launcher");
+            try {
+                AnimationRestoreDisposition disposition = ModuleDisplayRecoveryService.restoreAnimation(service, taskId, sessionId);
+                switch (disposition) {
+                    case RECOVERY:
+                        Log.i(TAG, "animation restore delegated to active module recovery task=" + taskId);
+                        return;
+                    case RESTORE_EXISTING_MODULE_TASK:
+                        restoreExistingModuleTask(service, taskId, sessionId);
+                        return;
+                    case SUPPRESS_STALE_MODULE_TASK:
+                        Log.i(TAG, "animation restore suppressed for stale module task=" + taskId);
+                        return;
+                    case LEGACY_FALLBACK:
+                        break;
+                }
+            } catch (RuntimeException e) {
+                if (moduleAnimationTask) {
+                    Log.e(TAG, "module_restore_guard_failed; suppress legacy restore", e);
+                    return;
+                }
+                // Keep legacy restoration available for non-module tasks if the ownership hook fails.
+                Log.e(TAG, "module_restore_guard_failed; continue legacy restore", e);
             }
-        } catch (Exception e) {
-            Log.e(TAG, "restore_failed", e);
-            try { service.enableSubScreenLauncher(); }
-            catch (Exception fallback) { Log.w(TAG, "launcher_restore_failed", fallback); }
+            try {
+                if (taskId > 0 && service.isTaskOnDisplay(taskId, RearDisplay.requireId())
+                        && service.moveTaskToDisplay(taskId, RearDisplay.requireId())) {
+                    Log.i(TAG, "restored projected_task=" + taskId);
+                } else {
+                    service.enableSubScreenLauncher();
+                    Log.i(TAG, "restored official_launcher");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "restore_failed", e);
+                try { service.enableSubScreenLauncher(); }
+                catch (Exception fallback) { Log.w(TAG, "launcher_restore_failed", fallback); }
+            }
         } finally {
             new Handler(Looper.getMainLooper()).post(() -> {
-                if (RearAnimationManager.isIdle(sessionId)) RearScreenKeeperService.resumeMonitoring();
+                if (!moduleAnimationTask && RearAnimationManager.isIdle(sessionId)) {
+                    RearScreenKeeperService.resumeMonitoring();
+                }
             });
+        }
+    }
+
+    private static void restoreExistingModuleTask(ITaskService service, int taskId, long sessionId) {
+        try {
+            int display = RearDisplay.requireId();
+            if (RearScreenKeeperService.isPhysicalCastRunning()
+                    || new org.json.JSONObject(service.getRearVirtualCastStatus()).optString("state").equals("running")) {
+                Log.i(TAG, "paused module restore suppressed while rear projection owns display task=" + taskId);
+                return;
+            }
+            String foreground = service.getForegroundAppOnDisplay(display);
+            if (!isSafeModuleRestoreForeground(foreground, taskId, sessionId)) {
+                Log.i(TAG, "paused module restore suppressed after rear owner takeover task=" + taskId + " foreground=" + foreground);
+                return;
+            }
+            if (!isCurrentPausedRestore(taskId, sessionId) || !ModuleRearAnimationRestorePolicy.INSTANCE.canRestoreExistingTask(
+                    taskId, RearModuleSession.INSTANCE.taskId(), RearScreenKeeperService.isPhysicalCastRunning(),
+                    "running".equals(new org.json.JSONObject(service.getRearVirtualCastStatus()).optString("state")))
+                    || !service.isTaskOnDisplay(taskId, display)) return;
+            String beforeMove = service.getForegroundAppOnDisplay(display);
+            if (!isSafeModuleRestoreForeground(beforeMove, taskId, sessionId) || !isCurrentPausedRestore(taskId, sessionId)
+                    || !ModuleRearAnimationRestorePolicy.INSTANCE.canRestoreExistingTask(
+                        taskId, RearModuleSession.INSTANCE.taskId(), RearScreenKeeperService.isPhysicalCastRunning(),
+                        "running".equals(new org.json.JSONObject(service.getRearVirtualCastStatus()).optString("state")))) {
+                Log.i(TAG, "paused module restore became stale before move task=" + taskId);
+                return;
+            }
+            if (service.moveTaskToDisplay(taskId, display)) {
+                Log.i(TAG, "restored existing module timer task=" + taskId);
+            } else {
+                Log.i(TAG, "existing module task move failed; preserving current rear owner task=" + taskId);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "existing module task restore failed", e);
+        }
+    }
+
+    private static boolean isCurrentPausedRestore(int taskId, long sessionId) {
+        return RearAnimationManager.isIdle(sessionId) &&
+                ModuleDisplayRecoveryService.animationRestoreDisposition(taskId, sessionId)
+                        == AnimationRestoreDisposition.RESTORE_EXISTING_MODULE_TASK;
+    }
+
+    private static boolean isSafeModuleRestoreForeground(String foreground, int taskId, long sessionId) {
+        if (foreground == null) return false;
+        if (foreground != null && (foreground.equals(BuildConfig.APPLICATION_ID + ":" + taskId)
+                || foreground.startsWith("com.xiaomi.subscreencenter:")
+                || foreground.startsWith("com.xiaomi.mirror:"))) return true;
+        if (!foreground.startsWith(BuildConfig.APPLICATION_ID + ":")) return false;
+        try {
+            int foregroundTaskId = Integer.parseInt(foreground.substring(foreground.lastIndexOf(':') + 1));
+            return RearAnimationManager.isAnimationActivityTask(sessionId, foregroundTaskId);
+        } catch (NumberFormatException ignored) {
+            return false;
         }
     }
 

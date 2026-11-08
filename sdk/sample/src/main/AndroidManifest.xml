@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="${remrssHostPackage}" />
+    </queries>
+    <application android:name=".SampleApplication" android:label="Rear SDK Sample" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <meta-data android:name="miui.rear.policy" android:value="1" />
+        <activity android:name=".RearSceneActivity" android:exported="true" android:excludeFromRecents="true"
+            android:taskAffinity="${applicationId}.rear" android:launchMode="standard" android:showWhenLocked="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale">
+            <meta-data android:name="miui.rear.policy" android:value="1" />
+        </activity>
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

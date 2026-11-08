@@ -1,0 +1,1 @@
+<resources><string name="timer_channel_name">階段提醒</string><string name="timer_runtime_finished">計時已完成</string><string name="timer_alarm_caveat">Doze 與省電策略可能延遲階段提醒。</string></resources>

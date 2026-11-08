@@ -54,33 +54,53 @@ final class RearFreezeState implements AutoCloseable {
         }
         return String.join(", ", remaining);
     }
-    void ensure(String pkg) throws Exception {
-        validatePackage(pkg);
-        if (saved != null && !pkg.equals(saved.getProperty("package"))) throw new IOException("Stale freeze record must be restored first");
+    void ensure(String pkg) throws Exception { ensureAll(new String[]{pkg}); }
+    private static List<String> members(Properties p, String key) {
+        String value = p.getProperty(key, p.getProperty("package", ""));
+        List<String> result = new ArrayList<>();
+        for (String pkg : value.split(",")) { validatePackage(pkg); result.add(pkg); }
+        return result;
+    }
+    void ensureAll(String[] packages) throws Exception {
+        if (packages.length < 1 || packages.length > 2) throw new IllegalArgumentException("Invalid freeze package count");
+        for (String pkg : packages) validatePackage(pkg);
+        String group = String.join(",", packages);
+        if (saved != null && !group.equals(String.join(",", members(saved,"packages"))))
+            throw new IOException("Stale freeze record must be restored first");
         String current = store.read();
-        if (contains(current, pkg)) return;
-        // PowerKeeper may rebuild its mirror while casting. Preserve that newer baseline.
-        Properties next = new Properties(); next.setProperty("package", pkg);
-        if (current != null) next.setProperty("original", current);
-        String applied = current == null || current.isEmpty() ? pkg : current + ", " + pkg;
-        next.setProperty("applied", applied);
-        File temporary = new File(journal.getParentFile(), "pending.tmp");
-        try (FileOutputStream out = new FileOutputStream(temporary)) {
-            next.store(out, "ReMRSS temporary cast freeze protection"); out.getFD().sync();
+        boolean all = true;
+        for (String pkg : packages) if (!contains(current,pkg)) all = false;
+        if (all) return;
+        String original = current;
+        Set<String> added = new LinkedHashSet<>();
+        if (saved != null) {
+            for (String pkg : members(saved,"added")) { added.add(pkg); if (contains(original,pkg)) original = without(original,pkg); }
+            if (Objects.equals(current,saved.getProperty("applied"))) original=saved.getProperty("original");
         }
+        String applied = current;
+        for (String pkg : packages) if (!contains(applied,pkg)) {
+            added.add(pkg); applied = applied == null || applied.isEmpty() ? pkg : applied + ", " + pkg;
+        }
+        Properties next = new Properties(); next.setProperty("package",packages[0]); next.setProperty("packages",group);
+        next.setProperty("added",String.join(",",added));
+        if (original != null) next.setProperty("original",original);
+        next.setProperty("applied",applied);
+        File temporary = new File(journal.getParentFile(),"pending.tmp");
+        try (FileOutputStream out = new FileOutputStream(temporary)) { next.store(out,"ReMRSS temporary cast freeze protection"); out.getFD().sync(); }
         if (!temporary.renameTo(journal)) throw new IOException("Freeze recovery journal unavailable");
-        saved = next; // Write-ahead record also covers a failed/ambiguous settings write.
-        writeVerified(applied);
+        saved=next; writeVerified(applied);
     }
     void restore() throws Exception {
         if (saved == null) return;
-        String current = store.read(), pkg = saved.getProperty("package");
-        String original = saved.getProperty("original");
-        if (Objects.equals(current, saved.getProperty("applied"))) writeVerified(original);
-        else if (contains(current, pkg) && !contains(original, pkg)) writeVerified(without(current, pkg));
-        // Unrelated PowerKeeper/user changes are retained; an already removed entry needs no write.
-        if (journal.exists() && !journal.delete()) throw new IOException("Freeze recovery record could not be cleared");
-        saved = null;
+        String current=store.read(), original=saved.getProperty("original");
+        if (Objects.equals(current,saved.getProperty("applied"))) writeVerified(original);
+        else {
+            String retained=current;
+            for (String pkg : members(saved,"added")) if (contains(retained,pkg) && !contains(original,pkg)) retained=without(retained,pkg);
+            if (!Objects.equals(current,retained)) writeVerified(retained);
+        }
+        if (journal.exists()&&!journal.delete()) throw new IOException("Freeze recovery record could not be cleared");
+        saved=null;
     }
     private void writeVerified(String value) throws Exception {
         store.write(value);

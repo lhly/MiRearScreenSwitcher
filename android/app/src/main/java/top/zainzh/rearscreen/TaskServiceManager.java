@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import org.json.JSONObject;
+import top.zainzh.rearscreen.platform.RearCapabilityCore;
 
 import rikka.shizuku.Shizuku;
 
@@ -91,6 +92,10 @@ public final class TaskServiceManager {
         return value == PrivilegeBackend.State.READY || value == PrivilegeBackend.State.BINDING
                 || value == PrivilegeBackend.State.AUTHORIZING;
     }
+
+    /** Internal host status for non-blocking capability queries; never exposed to the Mod SDK. */
+    public static String connectionStateName(Context context) { return state(context).name(); }
+
     static void requestConnection(Context context) {
         INSTANCE.onMain(() -> { INSTANCE.initialize(context); INSTANCE.failures = 0; INSTANCE.connect(true); });
     }
@@ -109,7 +114,8 @@ public final class TaskServiceManager {
         PrivilegeBackend.State previous = state;
         state = PrivilegeBackend.State.SWITCHING;
         IBinder old = binder;
-        boolean localBusy = ScreenRecordService.isRunning() || RearScreenKeeperService.isRunning();
+        boolean localBusy = ScreenRecordService.isRunning() || RearScreenKeeperService.isRunning()
+                || RearCapabilityCore.hasActiveSceneSessions();
         for (String owner : consumers.values()) {
             if (owner.contains("VirtualRearHostActivity") || owner.contains("ModuleRearActivity")
                     || owner.contains("RearInfoActivity") || owner.contains("RearInfoSession")

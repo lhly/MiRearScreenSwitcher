@@ -62,7 +62,9 @@ public final class RearFreezeGuardProcess {
         if (Process.myUid() != 2000 && Process.myUid() != 0) throw new SecurityException("Shell freeze guard only");
         if (args.length != 1) throw new IllegalArgumentException("A cast package is required");
         if ("--recover".equals(args[0])) { recover(); return; }
-        RearFreezeState.validatePackage(args[0]);
+        String[] packages = args[0].split(",");
+        if (packages.length < 1 || packages.length > 2) throw new IllegalArgumentException("Invalid freeze package count");
+        for (String pkg : packages) RearFreezeState.validatePackage(pkg);
         heartbeat = SystemClock.elapsedRealtime();
         Thread reader = new Thread(() -> {
             try {
@@ -75,11 +77,11 @@ public final class RearFreezeGuardProcess {
             try {
                 state.restore();
                 if (ended) return;
-                state.ensure(args[0]);
+                state.ensureAll(packages);
                 System.out.println("READY"); System.out.flush();
                 while (!ended && SystemClock.elapsedRealtime() - heartbeat < LEASE_MS) {
                     SystemClock.sleep(2000);
-                    if (!ended) state.ensure(args[0]);
+                    if (!ended) state.ensureAll(packages);
                 }
             } finally {
                 // Keep the independent process alive through transient settings/provider failures.

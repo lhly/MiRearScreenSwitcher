@@ -2,6 +2,8 @@
 <resources>
     <!-- Compose、窗口及服务视图共用的 ReMRSS 主题。 -->
     <color name="remrss_primary">#82B2FF</color>
+    <color name="remrss_destructive">#FF6B6B</color>
+    <color name="remrss_on_destructive">#27090A</color>
     <color name="remrss_background">#101013</color>
     <color name="remrss_surface">#242424</color>
     <color name="remrss_foreground">#F4F4F5</color>

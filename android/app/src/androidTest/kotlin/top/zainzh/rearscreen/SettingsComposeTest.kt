@@ -1,16 +1,12 @@
 package top.zainzh.rearscreen
 
-import java.io.FileOutputStream
-
-import androidx.lifecycle.ViewModelProvider
-
-import android.graphics.Bitmap
-
 import android.app.Instrumentation
+import android.graphics.Bitmap
 import android.content.Intent
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Rule
@@ -18,6 +14,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.io.FileOutputStream
 
 class SettingsComposeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -34,16 +31,18 @@ class SettingsComposeTest {
         return node
     }
     @Test fun aboutKeepsCreditsAndCompleteSelectableOfflineLicense() {
-        tab("about")
-        compose.onNodeWithText("ReMRSS").assertExists()
-        compose.onNodeWithText(s("version_label").replace("{0}", BuildConfig.VERSION_NAME)).assertExists()
-        row("author_anti", "about_list").assertExists()
-        row("diagnostics", "about_list").performClick()
+        tab("nav_settings")
+        compose.onNodeWithText(s("diagnostics")).performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithText(s("license")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(s("license")).performScrollTo().performClick()
         compose.onNodeWithText("GNU GENERAL PUBLIC LICENSE", substring = true).assertExists()
         compose.onNodeWithText("https://www.gnu.org/licenses/why-not-lgpl.html", substring = true).assertExists()
         compose.onNodeWithText("MIUIX-LICENSE.txt", substring = true).assertExists()
+        compose.onNodeWithText(s("confirm")).performClick()
+        compose.onNodeWithText(s("about")).performClick()
+        compose.onNodeWithText("ReMRSS").assertExists()
+        compose.onNodeWithText(s("version_label").replace("{0}", BuildConfig.VERSION_NAME)).assertExists()
+        compose.onNodeWithText(s("author_anti")).assertExists()
     }
     @Test fun aboutLinksAndAutomationKeepTheirDestinations() {
         val opened = AtomicReference<Intent>()
@@ -55,12 +54,14 @@ class SettingsComposeTest {
         }
         instrumentation.addMonitor(monitor)
         try {
-            tab("about")
+            tab("nav_settings")
+            compose.onNodeWithText(s("about")).performClick()
             listOf("project_repository" to ProjectInfo.REPOSITORY, "issue_feedback" to ProjectInfo.urlForAction("openFeedback"),
                 "author_anti" to ProjectInfo.urlForAction("openOriginalProject")).forEach { (key, target) ->
-                row(key, "about_list").performClick(); assertEquals(target, opened.get().dataString)
+                compose.onNodeWithText(s(key)).performClick(); assertEquals(target, opened.get().dataString)
             }
-            row("uri_title", "about_list").performClick()
+            compose.onNodeWithTag("about_details_back").performClick()
+            compose.onNodeWithText(s("uri_title")).performClick()
             compose.onNodeWithText(BuildConfig.URI_SCHEME + "://switch?current=1", substring = true).assertExists()
             compose.onNodeWithText(s("uri_copy")).assertExists()
         } finally { instrumentation.removeMonitor(monitor) }
@@ -69,22 +70,26 @@ class SettingsComposeTest {
         val prefs = compose.activity.getSharedPreferences("mrss_settings", 0)
         val old = UpdateNetwork.proxyEnabled(compose.activity)
         try {
-            tab("about"); row("update_proxy", "about_list").performClick()
+            tab("nav_settings"); row("update_proxy", "settings_list").performClick()
             assertEquals(!old, UpdateNetwork.proxyEnabled(compose.activity))
-            tab("notifications_title"); tab("about")
+            tab("notifications_title"); tab("nav_settings")
             compose.activityRule.scenario.recreate()
-            row("update_proxy", "about_list").let { if (old) it.assertIsOff() else it.assertIsOn() }
+            row("update_proxy", "settings_list").let { if (old) it.assertIsOff() else it.assertIsOn() }
         } finally { prefs.edit().putBoolean("update_proxy_enabled", old).commit() }
     }
     @Test fun privacyTogglePreservesServicePreferencesOnRecreation() {
         val prefs = NativePreferences(compose.activity)
         val old = prefs.getBoolean("notification_privacy_hide_title")
         try {
-            tab("notifications_title"); row("hide_notification_title", "notifications_list").performClick()
+            tab("notifications_title")
+            compose.onNodeWithText(s("privacy_section")).performClick()
+            compose.onNodeWithTag("notification_privacy_list").performScrollToNode(hasText(s("hide_notification_title")))
+            compose.onNodeWithText(s("hide_notification_title")).performClick()
             assertEquals(!old, prefs.getBoolean("notification_privacy_hide_title"))
             assertEquals(!old, compose.activity.getSharedPreferences("FlutterSharedPreferences", 0).getBoolean("flutter.notification_privacy_hide_title", old))
             compose.activityRule.scenario.recreate()
-            row("hide_notification_title", "notifications_list").let { if (old) it.assertIsOff() else it.assertIsOn() }
+            compose.onNodeWithTag("notification_privacy_list").performScrollToNode(hasText(s("hide_notification_title")))
+            compose.onNodeWithText(s("hide_notification_title")).let { if (old) it.assertIsOff() else it.assertIsOn() }
         } finally { prefs.putBoolean("notification_privacy_hide_title", old) }
     }
     @Test fun appSearchSystemFilterAndBulkActionsOnlyAffectVisibleApps() {
@@ -112,7 +117,10 @@ class SettingsComposeTest {
         } finally { prefs.edit().putStringSet("notification_selected_apps", old).commit() }
     }
     @Test fun notificationDurationDraftSurvivesRecreationAndInvalidInputStaysOpen() {
-        tab("notifications_title"); row("auto_destroy_time", "notifications_list").performClick()
+        tab("notifications_title")
+        compose.onNodeWithText(s("notification_rules")).performClick()
+        compose.onNodeWithTag("notification_rules_list").performScrollToNode(hasText(s("auto_destroy_time")))
+        compose.onNodeWithText(s("auto_destroy_time")).performClick()
         compose.onNodeWithTag("number_input").performTextReplacement("0")
         assertEquals("0", compose.onNodeWithTag("number_input").fetchSemanticsNode()
             .config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text)
@@ -126,7 +134,8 @@ class SettingsComposeTest {
         val saved = mode.all[RearCastMode.VIRTUAL]
         try {
             compose.runOnIdle { RearCastMode.setVirtual(compose.activity, false) }
-            row("dpi_caption", "home_list").performClick()
+            compose.onNodeWithTag("cast_settings_entry").performClick()
+            compose.onNodeWithText(s("screen_size")).performClick()
             compose.onNodeWithTag("number_input").performTextReplacement("420")
             compose.activityRule.scenario.recreate()
             compose.onNodeWithTag("number_input").assertTextContains("420")
@@ -156,7 +165,7 @@ class SettingsComposeTest {
         val ui = checker { attempts.incrementAndGet(); release.await(); ReleaseUpdateChecker.Response(200, ReleaseUpdateCheckerTest.release(target)) }
         try {
             compose.runOnIdle { ui.checkForUpdates(); ui.checkForUpdates() }
-            row("check_updates", "about_list").assertIsNotEnabled()
+            row("check_updates", "settings_list").assertIsNotEnabled()
             compose.runOnIdle { release.countDown() }
             compose.waitUntil(5000) { compose.onAllNodesWithText(compose.activity.getString(R.string.ui_download_update)).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, attempts.get())
@@ -367,14 +376,14 @@ class SettingsComposeTest {
         val monitor = instrumentation.addMonitor(PermissionChecksActivity::class.java.name, null, false)
         var checks: PermissionChecksActivity? = null
         try {
-            tab("about")
-            compose.onNodeWithTag("about_list").performScrollToNode(hasTestTag("permission_checks_menu"))
+            tab("nav_settings")
+            compose.onNodeWithTag("settings_list").performScrollToNode(hasTestTag("permission_checks_menu"))
             compose.onNodeWithTag("permission_checks_menu").performClick()
             checks = monitor.waitForActivityWithTimeout(5000) as? PermissionChecksActivity
             assertNotNull(checks)
             compose.onNodeWithTag("permissions_back").performClick()
             compose.onNodeWithTag("permission_checks_menu").assertIsDisplayed()
-            tab("about").let { compose.onNodeWithContentDescription(s("about")).assertIsSelected() }
+            tab("nav_settings").let { compose.onNodeWithContentDescription(s("nav_settings")).assertIsSelected() }
         } finally { instrumentation.removeMonitor(monitor); instrumentation.runOnMainSync { checks?.finish() } }
     }
 }

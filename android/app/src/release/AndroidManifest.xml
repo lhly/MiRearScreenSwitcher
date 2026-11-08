@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
+    <application>
+        <activity android:name=".ModuleSettingsActivity" tools:node="remove" />
+        <activity android:name=".ModuleRearActivity" tools:node="remove" />
+        <activity android:name=".NativeModuleLaunchActivity" tools:node="remove" />
+        <receiver android:name=".timer.StageTimerAlarmReceiver" tools:node="remove" />
+        <receiver android:name=".timer.StageTimerSystemReceiver" tools:node="remove" />
+        <receiver android:name=".timer.ModuleRuntimeReceiver" tools:node="remove" />
+    </application>
+</manifest>

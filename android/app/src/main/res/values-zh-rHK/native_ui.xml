@@ -143,4 +143,24 @@
     <string name="ui_installer_unavailable" formatted="false">無法開啟系統安裝程式或安裝設定，可前往發布頁處理。</string>
     <string name="ui_current_version" formatted="false">目前版本：{0}</string>
     <string name="ui_update_size" formatted="false">安裝套件大小：{0}</string>
+    <string name="ui_nav_modules" formatted="false">模組</string>
+    <string name="ui_nav_settings" formatted="false">設定</string>
+    <string name="ui_nav_cast" formatted="false">投放與顯示</string>
+    <string name="ui_nav_cast_help" formatted="false">選擇背屏投放方式並查看顯示選項。</string>
+    <string name="ui_nav_wake" formatted="false">喚醒與息屏</string>
+    <string name="ui_nav_wake_help" formatted="false">設定背屏喚醒方式和息屏顯示。</string>
+    <string name="ui_nav_charging" formatted="false">充電顯示</string>
+    <string name="ui_nav_charging_help" formatted="false">設定充電動畫和常亮顯示。</string>
+    <string name="ui_nav_screenshots" formatted="false">截圖工具</string>
+    <string name="ui_nav_screenshots_help" formatted="false">設定截圖外殼、構圖和配色。</string>
+    <string name="ui_nav_cast_virtual" formatted="false">目前使用虛擬投放模式。</string>
+    <string name="ui_nav_cast_direct" formatted="false">目前使用裝置直連顯示。</string>
+    <string name="ui_nav_wake_state" formatted="false">投放常亮：{0} · 持續喚醒：{1} · 遮擋處理：{2}</string>
+    <string name="ui_nav_charging_state" formatted="false">充電動畫：{0} · 充電常亮：{1}</string>
+    <string name="ui_status_on" formatted="false">開啟</string>
+    <string name="ui_status_off" formatted="false">關閉</string>
+    <string name="ui_nav_about_help" formatted="false">查看應用資訊、專案網址和致謝。</string>
+    <string name="ui_settings_runtime" formatted="false">執行狀態</string>
+    <string name="ui_settings_usage" formatted="false">使用</string>
+    <string name="ui_settings_support" formatted="false">版本與支援</string>
 </resources>

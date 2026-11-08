@@ -27,8 +27,11 @@ import java.util.Map;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.nio.charset.StandardCharsets;
 import rikka.shizuku.Shizuku;
+import top.zainzh.rearscreen.modules.ModuleStore;
 
 /** Settings actions and lifecycle. All visual rendering belongs to Compose + Miuix. */
 final class SettingsController {
@@ -38,6 +41,7 @@ final class SettingsController {
     private final MiuixSettingsUi composeUi;
     private final MiuixDialogUi modal;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService moduleWorker = Executors.newSingleThreadExecutor();
     private final UpdateDialogController updateDialog;
     private final boolean automaticChecksEnabled;
     private final UriConflictMonitor uriConflicts;
@@ -89,7 +93,11 @@ final class SettingsController {
         modal = new MiuixDialogUi(activity);
         preferences = new NativePreferences(activity);
         uriConflicts = new UriConflictMonitor(activity, this::updateUriConflicts);
-        page = state == null ? 0 : state.getInt("native_page", 0);
+        int restoredPage = state == null ? 0 : state.getInt("native_page", 0);
+        // Legacy page 3 was the app picker; preserve it as the distinct picker route.
+        page = state != null && state.getInt("native_route_version", 0) >= 2
+                ? restoredPage : restoredPage == 3 ? 100 : restoredPage == 2 ? 3 : restoredPage;
+        if (!BuildConfig.DEBUG && (page == 30 || page == 40)) page = 2;
         currentDpi = state == null ? 0 : state.getInt("native_dpi", 0);
         rotation = state == null ? -1 : state.getInt("native_rotation", -1);
         pickerState = state;
@@ -105,7 +113,48 @@ final class SettingsController {
             @Override public void toggle(String key, String method, boolean enabled) { SettingsController.this.toggle(key, method, enabled); }
             @Override public void tutorial() { action("openTutorial"); }
             @Override public void automation() { showUri(); }
-            @Override public void apps() { navigate(3); }
+            @Override public void apps() { navigate(100); }
+            @Override public void moduleImport() {
+                if (!BuildConfig.DEBUG) return;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*")
+                        .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/zip", "application/octet-stream"})
+                        .addCategory(Intent.CATEGORY_OPENABLE);
+                activity.startActivityForResult(intent, 4102);
+            }
+            @Override public void moduleSettings(String id) {
+                if (BuildConfig.DEBUG)
+                    activity.startActivity(new Intent(activity, ModuleSettingsActivity.class).putExtra("module_id", id));
+            }
+            @Override public void moduleRear(String id) {
+                if (BuildConfig.DEBUG) activity.startActivityForResult(
+                        new Intent(activity, NativeModuleLaunchActivity.class).putExtra("module_id", id), 4103);
+            }
+            @Override public void moduleRemove(String id,
+                    kotlin.jvm.functions.Function1<? super Boolean, kotlin.Unit> onComplete) {
+                if (!BuildConfig.DEBUG) { onComplete.invoke(false); return; }
+                submitModuleWork(() -> {
+                    String error = null;
+                    boolean removed = false;
+                    try {
+                        ModuleStore.INSTANCE.uninstall(activity, id);
+                        removed = true;
+                    } catch (Exception failure) {
+                        error = failure.getMessage() == null
+                                ? activity.getString(R.string.native_modules_action_failed)
+                                : failure.getMessage();
+                    }
+                    final boolean succeeded = removed;
+                    final String result = error;
+                    handler.post(() -> {
+                        if (destroyed) return;
+                        if (succeeded && composeUi.isShowingModuleDetails(id)) navigate(2);
+                        Toast.makeText(activity,
+                                succeeded ? activity.getString(R.string.native_modules_removed) : result,
+                                Toast.LENGTH_LONG).show();
+                        onComplete.invoke(succeeded);
+                    });
+                });
+            }
             @Override public void duration() { showDuration(); }
             @Override public void action(String method) { SettingsController.this.action(method); }
             @Override public void updates() { checkForUpdates(); }
@@ -119,7 +168,7 @@ final class SettingsController {
         root.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) ViewCompat.requestApplyInsets(root);
         });
-        if (page == 3) navigate(3);
+        if (page == 100) navigate(100);
         else { composeUi.showPage(page); refreshStatus(); }
         if (state != null && state.containsKey("compatibility_report")) {
             String restored = state.getString("compatibility_report");
@@ -137,6 +186,7 @@ final class SettingsController {
     }
 
     View getView() { return root; }
+    void openNavigationTarget(int target) { navigate(target); }
     String s(String key) { return NativeStrings.get(activity, key); }
     String count(String key, Object value) { return s(key).replace("{0}", String.valueOf(value)); }
 
@@ -161,7 +211,7 @@ final class SettingsController {
         resumed = true;
         displayRead = false;
         uriConflicts.start();
-        updateDialog.onResume(page == 2);
+        updateDialog.onResume(page == 3);
         updateDialog.resumeInterruptedCheck();
         if (automaticChecksEnabled) updateDialog.startAutomaticCheck();
         updateDialog.offerAutomaticResultIfReady();
@@ -178,13 +228,57 @@ final class SettingsController {
         updateDialog.destroy(activity.isChangingConfigurations());
         handler.removeCallbacksAndMessages(null);
         if (picker != null) picker.destroy();
+        moduleWorker.shutdownNow();
         modal.dismiss();
+    }
+
+    void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == 4103) {
+            if (resultCode != MainActivity.RESULT_OK && !destroyed) {
+                String message = data == null ? null : data.getStringExtra("error");
+                Toast.makeText(activity,
+                        message == null || message.isBlank()
+                                ? activity.getString(R.string.native_modules_rear_unavailable)
+                                : message,
+                        Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        if (requestCode != 4102 || resultCode != MainActivity.RESULT_OK || data == null || data.getData() == null) return;
+        android.net.Uri uri = data.getData();
+        submitModuleWork(() -> {
+            String result;
+            try (InputStream input = activity.getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new IOException("Cannot read module file");
+                top.zainzh.rearscreen.modules.ModuleDescriptor installed = ModuleStore.INSTANCE.install(activity, input);
+                result = activity.getString(R.string.native_modules_installed,
+                        installed.label(activity.getResources().getConfiguration().getLocales().get(0).toLanguageTag()));
+            } catch (Exception failure) {
+                result = failure.getMessage() == null ? activity.getString(R.string.native_modules_action_failed) : failure.getMessage();
+            }
+            String message = result;
+            handler.post(() -> {
+                if (!destroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
+    private void submitModuleWork(Runnable work) {
+        if (destroyed || moduleWorker.isShutdown()) return;
+        try {
+            moduleWorker.execute(() -> {
+                if (!destroyed) work.run();
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Activity results may arrive after the UI owner has begun teardown.
+        }
     }
 
     void saveState(Bundle state) {
         updateDialog.saveState(state);
         composeUi.saveState(state);
         state.putInt("native_page", page);
+        state.putInt("native_route_version", 2);
         state.putInt("native_dpi", currentDpi);
         state.putInt("native_rotation", rotation);
         if (picker != null) picker.saveState(state);
@@ -193,21 +287,26 @@ final class SettingsController {
     }
 
     boolean navigateBack() {
-        if (page == 3) { navigate(1); return true; }
+        if (page == 100) { navigate(1); return true; }
+        if (page >= 20 && page <= 21) { navigate(1); return true; }
+        if (page >= 10 && page <= 13) { navigate(0); return true; }
+        if (page == 30) { navigate(2); return true; }
+        if (page == 40) { navigate(3); return true; }
         if (page != 0) { navigate(0); return true; }
         return false;
     }
 
     private void navigate(int target) {
         if (destroyed) return;
-        if (picker != null && target != 3) {
+        if (!BuildConfig.DEBUG && (target == 30 || target == 40)) target = 2;
+        if (picker != null && target != 100) {
             pickerState = new Bundle(); picker.saveState(pickerState); picker.destroy(); picker = null;
             composeUi.showPicker(null);
         }
         page = target;
-        updateDialog.setManualFeedbackVisible(page == 2);
+        updateDialog.setManualFeedbackVisible(page == 3);
         hideKeyboard();
-        if (target == 3 && picker == null) {
+        if (target == 100 && picker == null) {
             picker = new AppPickerModel(activity, pickerState, this::closePicker);
             composeUi.showPicker(picker);
             if (resumed) picker.onResume();
@@ -218,9 +317,9 @@ final class SettingsController {
     }
 
     private void onPageSettled(int target) {
-        if (destroyed || page == 3 || page == target) return;
+        if (destroyed || page >= 10 || page == 100 || page == target) return;
         page = target;
-        updateDialog.setManualFeedbackVisible(page == 2);
+        updateDialog.setManualFeedbackVisible(page == 3);
         refreshStatus();
     }
 
@@ -249,7 +348,7 @@ final class SettingsController {
     }
 
     private boolean automaticOfferAllowed() {
-        return !destroyed && page >= 0 && page <= 2 && (modal == null || !modal.isVisible());
+        return !destroyed && page >= 0 && page <= 3 && (modal == null || !modal.isVisible());
     }
 
 

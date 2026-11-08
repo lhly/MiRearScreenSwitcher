@@ -79,7 +79,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     }
     private void startInputProxy() {
         stopInputProxy();
-        if (virtualSessionId != null) return;
+        if (virtualSessionId != null || hasExclusiveDisplayLease()) return;
         if (!monitoringPaused && taskService != null && RearInputProxySession.enabled(this)
                 && monitoredTaskInfo != null && monitoredTaskInfo.contains(":")) {
             try {
@@ -91,6 +91,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     public static void refreshInputProxyPreference() {
         RearScreenKeeperService s = instance;
         if (s != null && s.handler != null) s.handler.post(() -> {
+            if (s.virtualSessionId == null && s.hasExclusiveDisplayLease()) return;
             s.stopRearScreenWakeup();
             s.startInputProxy();
             s.startRearScreenWakeup();
@@ -104,6 +105,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     // V12.1: 接近传感器监听
     private SensorManager sensorManager;
     private Sensor proximitySensor;
+    private boolean proximityListenerRegistered;
     private boolean isProximityCovered = false;
     private long lastProximityTime = 0;
     private static final long PROXIMITY_DEBOUNCE_MS = 1500; // 防抖动：1500ms内连续覆盖才触发（降低灵敏度）
@@ -114,6 +116,15 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     // V14.5: 监听应用是否手动移回主屏
     private static final long CHECK_TASK_INTERVAL_MS = 2000; // 每2秒检查一次
     private volatile String monitoredTaskInfo = null; // 格式: "packageName:taskId"
+    private volatile boolean moduleLeaseSuspended = false;
+    private volatile String moduleLeaseId;
+    private boolean moduleLeaseHadMonitoringPaused;
+    private int moduleLeaseResumeAttempts;
+    private volatile boolean sceneLeaseSuspended;
+    private volatile String sceneLeaseId;
+    private boolean sceneLeaseHadMonitoringPaused;
+    private int sceneLeaseResumeAttempts;
+    private boolean startCommandProcessed;
 
     // V2.3: 临时暂停监控（充电动画显示期间）
     private boolean monitoringPaused = false;
@@ -123,8 +134,19 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private boolean keepScreenOnEnabled = true; // 默认启用背屏常亮
     private boolean wakeupLoopRunning;
 
+    private boolean hasExclusiveDisplayLease() {
+        return sceneLeaseSuspended || SceneLegacyServiceLease.hasActiveLease()
+                || moduleLeaseSuspended || ModuleDisplayRecoveryService.hasActiveLease();
+    }
+
+    private boolean mayRunLegacyWakeup() {
+        return LegacyDisplayKeeperPolicy.mayWake(keepScreenOnEnabled, moduleLeaseSuspended,
+                sceneLeaseSuspended, ModuleDisplayRecoveryService.hasActiveLease(),
+                SceneLegacyServiceLease.hasActiveLease());
+    }
+
     public static void pauseMonitoring() {
-        if (instance != null) {
+        if (instance != null && (instance.virtualSessionId != null || (!ModuleDisplayRecoveryService.hasActiveLease() && !SceneLegacyServiceLease.hasActiveLease()))) {
             instance.monitoringPaused = true;
             instance.stopInputProxy();
 
@@ -139,7 +161,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     }
 
     public static void resumeMonitoring() {
-        if (instance != null) {
+        if (instance != null && (instance.virtualSessionId != null || (!ModuleDisplayRecoveryService.hasActiveLease() && !SceneLegacyServiceLease.hasActiveLease()))) {
             instance.monitoringPaused = false;
             instance.startInputProxy();
             Log.d(TAG, "▶️ Monitoring resumed");
@@ -157,6 +179,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     public void onCreate() {
         super.onCreate();
         instance = this;
+        String activeSceneLease = SceneLegacyServiceLease.activeLeaseId();
+        if (activeSceneLease != null) {
+            sceneLeaseSuspended = true;
+            sceneLeaseId = activeSceneLease;
+        }
 
         // 创建通知渠道
         createNotificationChannel();
@@ -170,12 +197,31 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        boolean firstStartCommand = !startCommandProcessed;
+        startCommandProcessed = true;
         String requestedSession = intent == null ? null : intent.getStringExtra(VirtualCastUriFlow.EXTRA_SESSION);
         boolean startsProjection = intent != null && VirtualCastRequest.startsProjection(
                 intent.getAction(), intent.getStringExtra("lastMovedTask"), requestedSession);
         if (startsProjection) {
-            // A new cast must not inherit an old animation's pause.
+            // A new cast must not inherit a module's queued resume or an old animation's pause.
+            clearModuleLeaseSnapshot();
             monitoringPaused = false;
+        }
+        if (startsProjection && ModuleDisplayRecoveryService.hasActiveLease()) {
+            ModuleDisplayRecoveryService.stopRecoveryForPriorityTakeover(this);
+        } else if (ModuleDisplayRecoveryService.hasActiveLease()) {
+            if (intent != null && "ACTION_SET_KEEP_SCREEN_ON_ENABLED".equals(intent.getAction())) {
+                keepScreenOnEnabled = intent.getBooleanExtra("enabled", true);
+            } else if (intent != null && "ACTION_SET_PROXIMITY_ENABLED".equals(intent.getAction())) {
+                proximitySensorEnabled = intent.getBooleanExtra("enabled", true);
+            }
+            suspendCurrentStateForModuleLease(null);
+            if (firstStartCommand) {
+                startForeground(NOTIFICATION_ID, buildNotification());
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                stopSelf(startId);
+            }
+            return START_NOT_STICKY;
         }
         if (BuildConfig.VIRTUAL_CAST_ENABLED && (virtualSessionId != null || requestedSession != null)) {
             if ("ACTION_RETURN_TO_MAIN".equals(intent == null ? null : intent.getAction())) {
@@ -243,17 +289,22 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
             // 如果关闭了传感器，且当前正在监听，则注销监听
             if (!enabled && sensorManager != null && proximitySensor != null) {
-                sensorManager.unregisterListener(this);
+                unregisterProximitySensor();
                 Log.d(TAG, "⏸️ 传感器监听器已注销");
             }
             // 如果打开了传感器，且当前没有监听，则注册监听
             else if (enabled && sensorManager != null && proximitySensor != null) {
-                boolean registered = sensorManager.registerListener(this, proximitySensor,
-                        SensorManager.SENSOR_DELAY_NORMAL);
-                if (registered) {
-                    Log.d(TAG, "✅ 传感器监听器已注册");
+                if (hasExclusiveDisplayLease()) {
+                    unregisterProximitySensor();
                 } else {
-                    Log.w(TAG, "⚠ 传感器监听器注册失败");
+                    boolean registered = sensorManager.registerListener(this, proximitySensor,
+                            SensorManager.SENSOR_DELAY_NORMAL);
+                    proximityListenerRegistered = registered;
+                    if (registered) {
+                        Log.d(TAG, "✅ 传感器监听器已注册");
+                    } else {
+                        Log.w(TAG, "⚠ 传感器监听器注册失败");
+                    }
                 }
             }
 
@@ -274,8 +325,12 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             }
             // 如果打开了常亮，启动发送WAKEUP
             else if (enabled && handler != null) {
-                stopRearScreenWakeup();
-                startRearScreenWakeup();
+                if (hasExclusiveDisplayLease()) {
+                    stopRearScreenWakeup();
+                } else {
+                    stopRearScreenWakeup();
+                    startRearScreenWakeup();
+                }
             }
 
             return START_STICKY;
@@ -364,6 +419,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
                 return;
             }
+            if (hasExclusiveDisplayLease()) return;
             // V2.3: 如果监控已暂停（充电动画显示中），跳过本次检查
             if (monitoringPaused) {
                 handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
@@ -405,7 +461,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     };
 
     private void startTaskMonitoring() {
-        if (monitoredTaskInfo != null && handler != null) {
+        if (monitoredTaskInfo != null && handler != null
+                && (virtualSessionId != null || !hasExclusiveDisplayLease())) {
             handler.postDelayed(checkTaskRunnable, CHECK_TASK_INTERVAL_MS);
         }
     }
@@ -417,6 +474,10 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         @Override
         public void run() {
             if (virtualSessionId != null) { wakeupLoopRunning = false; return; }
+            if (!mayRunLegacyWakeup()) {
+                wakeupLoopRunning = false;
+                return;
+            }
             if (RearInputProxySession.enabled(RearScreenKeeperService.this)) {
                 wakeupLoopRunning = false;
                 return;
@@ -443,6 +504,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
     private void startRearScreenWakeup() {
         if (virtualSessionId != null) return;
+        if (!mayRunLegacyWakeup()) return;
         if (RearInputProxySession.enabled(this)) return;
         if (handler != null && keepScreenOnEnabled && !wakeupLoopRunning) {
             // 立即执行第一次唤醒，然后开始持续发送
@@ -556,8 +618,10 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             handler.removeCallbacksAndMessages(null);
         }
 
+        // A module lease owns restoration. A stale Keeper must not cover it with the official Launcher.
+        boolean moduleOwnsDisplay = hasExclusiveDisplayLease();
         // V12.2: 恢复并主动唤醒Launcher
-        if (taskService != null) {
+        if (taskService != null && !moduleOwnsDisplay) {
             try {
 
                 // 1. 恢复Launcher（unsuspend）
@@ -571,6 +635,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             } catch (Exception e) {
                 Log.w(TAG, "Failed to restore launcher", e);
             }
+        } else if (moduleOwnsDisplay) {
+            Log.i(TAG, "module lease owns rear display; skip legacy launcher restore");
         }
 
         // 解绑TaskService
@@ -701,6 +767,207 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         return instance != null;
     }
 
+    /** Suspend only an existing legacy keeper instance while a module owns rear display. */
+    public static void suspendForModuleLease(String leaseId) {
+        AlwaysWakeUpService.suspendForModuleLease(leaseId);
+        RearScreenKeeperService service = instance;
+        if (service == null || service.virtualSessionId != null || service.handler == null) return;
+        service.handler.post(() -> {
+            if (instance != service || !ModuleDisplayRecoveryService.isLeaseCurrent(leaseId)
+                    || service.virtualSessionId != null) return;
+            service.suspendCurrentStateForModuleLease(leaseId);
+        });
+    }
+
+    private void suspendCurrentStateForModuleLease(String leaseId) {
+        if (leaseId != null && !ModuleDisplayRecoveryService.isLeaseCurrent(leaseId)) return;
+        if (!moduleLeaseSuspended) {
+            moduleLeaseHadMonitoringPaused = monitoringPaused;
+            moduleLeaseResumeAttempts = 0;
+        }
+        moduleLeaseSuspended = true;
+        if (leaseId != null) moduleLeaseId = leaseId;
+        stopRearScreenWakeup();
+        if (handler != null) handler.removeCallbacks(checkTaskRunnable);
+        stopInputProxy();
+        unregisterProximitySensor();
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+    }
+
+    /** Restore only the same existing Keeper instance and still-owned task. */
+    public static void resumeAfterModuleLease(String leaseId) {
+        AlwaysWakeUpService.resumeAfterModuleLease(leaseId);
+        RearScreenKeeperService service = instance;
+        if (service == null || service.handler == null || leaseId == null
+                || !leaseId.equals(service.moduleLeaseId)) return;
+        service.handler.post(() -> {
+            if (instance != service || SceneLegacyServiceLease.hasActiveLease() || ModuleDisplayRecoveryService.hasActiveLease()
+                    || !leaseId.equals(service.moduleLeaseId) || service.taskServiceReleased) return;
+            if (service.virtualSessionId != null) {
+                service.clearModuleLeaseSnapshot();
+                return;
+            }
+            final String taskInfo = service.monitoredTaskInfo;
+            final ITaskService remote = service.taskService;
+            new Thread(() -> {
+                boolean taskStillOwned = taskInfo == null;
+                if (taskInfo != null && remote != null) {
+                    try {
+                        int taskId = Integer.parseInt(taskInfo.substring(taskInfo.lastIndexOf(':') + 1));
+                        taskStillOwned = taskInfo.equals(remote.getForegroundAppOnDisplay(RearDisplay.requireId()))
+                                && remote.isTaskOnDisplay(taskId, RearDisplay.requireId());
+                    } catch (Exception ignored) { taskStillOwned = false; }
+                }
+                final boolean stillOwned = taskStillOwned;
+                service.handler.post(() -> {
+                    if (instance != service || SceneLegacyServiceLease.hasActiveLease() || ModuleDisplayRecoveryService.hasActiveLease()
+                            || !leaseId.equals(service.moduleLeaseId) || service.virtualSessionId != null
+                            || service.taskServiceReleased) return;
+                    if (taskInfo != null && service.taskService != remote) {
+                        if (service.moduleLeaseResumeAttempts++ < 3) {
+                            service.handler.postDelayed(() -> resumeAfterModuleLease(leaseId), 250);
+                        } else {
+                            service.monitoredTaskInfo = null;
+                            service.stopSelf();
+                        }
+                        return;
+                    }
+                    if (!stillOwned || (taskInfo != null && !taskInfo.equals(service.monitoredTaskInfo))) {
+                        service.monitoredTaskInfo = null;
+                        // Preserve suppression through onDestroy; the old owner must not restore Launcher over a new task.
+                        service.stopSelf();
+                        return;
+                    }
+                    service.moduleLeaseSuspended = false;
+                    service.moduleLeaseId = null;
+                    service.moduleLeaseResumeAttempts = 0;
+                    service.monitoringPaused = service.moduleLeaseHadMonitoringPaused;
+                    if (service.keepScreenOnEnabled && (service.wakeLock == null || !service.wakeLock.isHeld())) {
+                        try {
+                            PowerManager pm = (PowerManager) service.getSystemService(POWER_SERVICE);
+                            service.wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "ReMRSS::RearScreenKeeper");
+                            service.wakeLock.acquire();
+                        } catch (Exception ignored) { }
+                    }
+                    if (service.proximitySensorEnabled
+                            && service.sensorManager != null && service.proximitySensor != null) {
+                        service.proximityListenerRegistered = service.sensorManager.registerListener(
+                                service, service.proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+                        if (service.proximityListenerRegistered && (service.moduleLeaseSuspended
+                                || SceneLegacyServiceLease.hasActiveLease() || ModuleDisplayRecoveryService.hasActiveLease() || service.taskServiceReleased)) {
+                            service.unregisterProximitySensor();
+                        }
+                    }
+                    if (!service.monitoringPaused && service.monitoredTaskInfo != null) service.startTaskMonitoring();
+                    if (service.monitoredTaskInfo != null) service.startInputProxy();
+                    if (service.keepScreenOnEnabled) service.startRearScreenWakeup();
+                    service.clearModuleLeaseSnapshot();
+                });
+            }, "keeper-module-lease-restore").start();
+        });
+    }
+
+    /** Pause only the existing Keeper instance; a Scene never starts this legacy service. */
+    public static void suspendForSceneLease(String leaseId) {
+        if (!SceneLegacyServiceLease.isCurrent(leaseId)) return;
+        RearScreenKeeperService service = instance;
+        if (service == null || service.virtualSessionId != null || service.handler == null) return;
+        if (!service.sceneLeaseSuspended) {
+            service.sceneLeaseHadMonitoringPaused = service.monitoringPaused;
+            service.sceneLeaseHadWakeLock = service.wakeLock != null && service.wakeLock.isHeld();
+        }
+        service.sceneLeaseSuspended = true;
+        service.sceneLeaseId = leaseId;
+        // Synchronously prevent an already-queued 100ms callback from issuing another wake.
+        service.stopRearScreenWakeup();
+        service.handler.removeCallbacks(service.checkTaskRunnable);
+        service.handler.post(() -> {
+            if (instance != service || !SceneLegacyServiceLease.isCurrent(leaseId)
+                    || service.virtualSessionId != null) return;
+            service.stopInputProxy();
+            service.unregisterProximitySensor();
+            if (service.wakeLock != null && service.wakeLock.isHeld()) service.wakeLock.release();
+        });
+    }
+
+    /** Restore the same service and prior user-selected mode only after the exact Scene lease ends. */
+    public static void resumeAfterSceneLease(String leaseId, boolean restorePriorMode) {
+        RearScreenKeeperService service = instance;
+        if (service == null || service.handler == null || !leaseId.equals(service.sceneLeaseId)) return;
+        service.handler.post(() -> {
+            if (instance != service || !leaseId.equals(service.sceneLeaseId)
+                    || SceneLegacyServiceLease.hasActiveLease() || ModuleDisplayRecoveryService.hasActiveLease()) return;
+            if (!restorePriorMode || service.virtualSessionId != null || service.taskServiceReleased) {
+                service.clearSceneLeaseSnapshot();
+                return;
+            }
+            final String taskInfo = service.monitoredTaskInfo;
+            final ITaskService remote = service.taskService;
+            new Thread(() -> {
+                boolean taskStillOwned = taskInfo == null;
+                if (taskInfo != null && remote != null) {
+                    try {
+                        int taskId = Integer.parseInt(taskInfo.substring(taskInfo.lastIndexOf(':') + 1));
+                        taskStillOwned = taskInfo.equals(remote.getForegroundAppOnDisplay(RearDisplay.requireId()))
+                                && remote.isTaskOnDisplay(taskId, RearDisplay.requireId());
+                    } catch (Exception ignored) { taskStillOwned = false; }
+                }
+                final boolean stillOwned = taskStillOwned;
+                service.handler.post(() -> {
+                    if (instance != service || !leaseId.equals(service.sceneLeaseId)
+                            || SceneLegacyServiceLease.hasActiveLease() || ModuleDisplayRecoveryService.hasActiveLease()
+                            || service.virtualSessionId != null || service.taskServiceReleased) return;
+                    if (taskInfo != null && (service.taskService != remote || !stillOwned
+                            || !taskInfo.equals(service.monitoredTaskInfo))) {
+                        service.clearSceneLeaseSnapshot();
+                        service.stopSelf();
+                        return;
+                    }
+                    service.monitoringPaused = service.sceneLeaseHadMonitoringPaused;
+                    service.sceneLeaseSuspended = false;
+                    service.sceneLeaseId = null;
+                    if (service.sceneLeaseHadWakeLock && service.keepScreenOnEnabled
+                            && (service.wakeLock == null || !service.wakeLock.isHeld())) {
+                        try {
+                            PowerManager pm = (PowerManager) service.getSystemService(POWER_SERVICE);
+                            service.wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "ReMRSS::RearScreenKeeper");
+                            service.wakeLock.acquire();
+                        } catch (Exception ignored) { }
+                    }
+                    if (service.proximitySensorEnabled && service.sensorManager != null && service.proximitySensor != null) {
+                        service.proximityListenerRegistered = service.sensorManager.registerListener(
+                                service, service.proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+                        if (service.proximityListenerRegistered && (SceneLegacyServiceLease.hasActiveLease()
+                                || ModuleDisplayRecoveryService.hasActiveLease() || service.taskServiceReleased)) {
+                            service.unregisterProximitySensor();
+                        }
+                    }
+                    if (!service.monitoringPaused && service.monitoredTaskInfo != null) service.startTaskMonitoring();
+                    if (service.monitoredTaskInfo != null) service.startInputProxy();
+                    if (service.keepScreenOnEnabled) service.startRearScreenWakeup();
+                    service.clearSceneLeaseSnapshot();
+                });
+            }, "keeper-scene-lease-restore").start();
+        });
+    }
+
+    private boolean sceneLeaseHadWakeLock;
+
+    private void clearSceneLeaseSnapshot() {
+        sceneLeaseSuspended = false;
+        sceneLeaseId = null;
+        sceneLeaseHadMonitoringPaused = false;
+        sceneLeaseHadWakeLock = false;
+        sceneLeaseResumeAttempts = 0;
+    }
+
+    private void clearModuleLeaseSnapshot() {
+        moduleLeaseSuspended = false;
+        moduleLeaseId = null;
+        moduleLeaseHadMonitoringPaused = false;
+        moduleLeaseResumeAttempts = 0;
+    }
+
     /**
      * 停止Service
      */
@@ -771,18 +1038,27 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
                 if (proximitySensor != null) {
                     // V2.2: 只有在传感器开关启用时才注册监听器
-                    if (proximitySensorEnabled) {
+                    if (proximitySensorEnabled && !taskServiceReleased && !hasExclusiveDisplayLease()) {
                         boolean registered = sensorManager.registerListener(
                                 this,
                                 proximitySensor,
                                 SensorManager.SENSOR_DELAY_NORMAL);
+                        proximityListenerRegistered = registered;
 
-                        if (registered) {
+                        // Sensor discovery can run off the main thread while a module lease
+                        // starts. Recheck after registration so that race cannot leave a
+                        // legacy back sensor client active behind the module.
+                        if (registered && (taskServiceReleased || hasExclusiveDisplayLease())) {
+                            unregisterProximitySensor();
+                        }
+
+                        if (registered && proximityListenerRegistered) {
                             Log.d(TAG, "✅ 接近传感器已注册 (开关状态: " + proximitySensorEnabled + ")");
-                        } else {
+                        } else if (!registered) {
                             Log.w(TAG, "⚠ Failed to register proximity sensor");
                         }
                     } else {
+                        proximityListenerRegistered = false;
                         Log.d(TAG, "⏸️ 接近传感器已禁用，跳过注册");
                     }
                 } else {
@@ -806,6 +1082,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             }
         } catch (Exception e) {
             Log.e(TAG, "✗ Error unregistering proximity sensor", e);
+        } finally {
+            proximityListenerRegistered = false;
         }
     }
 
@@ -814,6 +1092,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
      */
     @Override
     public void onSensorChanged(SensorEvent event) {
+        if (virtualSessionId == null && hasExclusiveDisplayLease()) return;
         // V2.2: 如果传感器已关闭，不处理事件
         if (!proximitySensorEnabled) {
             return;
@@ -879,6 +1158,7 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
      */
     private void handleProximityCovered() {
         if (virtualSessionId != null) { stopSelf(); return; }
+        if (hasExclusiveDisplayLease()) return;
         Log.w(TAG, "═══════════════════════════════════════");
         Log.w(TAG, "🤚 PROXIMITY TRIGGER - Return to main display");
         Log.w(TAG, "═══════════════════════════════════════");

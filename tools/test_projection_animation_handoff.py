@@ -10,7 +10,7 @@ STUBS = {
     'android/util/Log.java': '''package android.util;public class Log {public static int d(String a,String b){return 0;}public static int e(String a,String b,Throwable c){return 0;}}''',
     'android/content/Intent.java': '''package android.content;import java.util.*;public class Intent {public final String action;public String pkg;public final Map<String,Long> extras=new HashMap<>();public Intent(String a){action=a;}public Intent setPackage(String p){pkg=p;return this;}public Intent putExtra(String k,long v){extras.put(k,v);return this;}}''',
     'android/content/Context.java': '''package android.content;import java.util.*;public class Context {public final List<Intent> sent=new ArrayList<>();public String getPackageName(){return "top.zainzh.rearscreen";}public void sendBroadcast(Intent i){sent.add(i);}}''',
-    'Dependencies.java': '''package top.zainzh.rearscreen;class BuildConfig {static final String APPLICATION_ID="top.zainzh.rearscreen";}class RearScreenChargingActivity {static final String EXTRA_REQUEST_ID="chargingRequestId";}''',
+    'Dependencies.java': '''package top.zainzh.rearscreen;class BuildConfig {static final String APPLICATION_ID="top.zainzh.rearscreen";}class RearInfoSession {static void animationChanged(){}}class RearModuleSession {static final RearModuleSession INSTANCE=new RearModuleSession();void animationChanged(){}}class RearScreenChargingActivity {static final String EXTRA_REQUEST_ID="chargingRequestId";}''',
     'ProjectionHandoffCheck.java': r'''package top.zainzh.rearscreen;
 import android.content.*;import java.util.*;import java.util.concurrent.*;
 public class ProjectionHandoffCheck {

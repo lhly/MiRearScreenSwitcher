@@ -133,7 +133,7 @@ public final class RearDisplay {
         try { result.put("displays", displays); } catch (Exception ignored) { }
         return result.toString();
     }
-    static String identity() {
+    public static String identity() {
         try {
             int id = requireId(); Object info = info(id);
             return id + ":" + info.getClass().getField("uniqueId").get(info);

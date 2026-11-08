@@ -1,13 +1,56 @@
 package top.zainzh.rearscreen;
 
+import top.zainzh.rearscreen.platform.RearCapabilityCore;
+
 /** Validated casting URI input, shared by launch and stop routing. No shell text is accepted here. */
 final class VirtualCastRequest {
     // This controls the effective layout density. Density compatibility can retain the source DPI.
     static final int DEFAULT_DENSITY_DPI = 200;
+    enum RearOwnerDisposition { EMPTY, CORE_SCENE, HOST, SYSTEM_LAUNCHER, UNKNOWN }
+    @FunctionalInterface interface SceneTaskMatcher { boolean matches(String foreground, int displayId); }
+    @FunctionalInterface interface SceneTaskIdMatcher { boolean matches(int taskId, int displayId); }
+    @FunctionalInterface interface ScenePackageMatcher { boolean owns(String packageName); }
+    @FunctionalInterface interface PackageStopper { void stop() throws Exception; }
+
     static boolean yes(String value) { return "1".equals(value) || "true".equalsIgnoreCase(value); }
     static boolean isReplaceableRearOwner(String foreground, String hostPackage) {
         return foreground != null && (foreground.startsWith(hostPackage + ":")
                 || foreground.startsWith("com.xiaomi.subscreencenter:"));
+    }
+    static boolean isReplaceableRearOwner(String foreground, String hostPackage, int displayId) {
+        return classifyRearOwner(foreground, hostPackage, displayId) != RearOwnerDisposition.UNKNOWN;
+    }
+
+    static RearOwnerDisposition classifyRearOwner(String foreground, String hostPackage, int displayId) {
+        return classifyRearOwner(foreground, hostPackage, displayId, RearCapabilityCore::isActiveSceneTaskForeground);
+    }
+
+    /** Shared production decision seam: only a currently registered exact Scene task bypasses unknown-app protection. */
+    static RearOwnerDisposition classifyRearOwner(
+            String foreground, String hostPackage, int displayId, SceneTaskMatcher sceneTaskMatcher) {
+        if (foreground == null || foreground.isEmpty()) return RearOwnerDisposition.EMPTY;
+        if (sceneTaskMatcher != null && sceneTaskMatcher.matches(foreground, displayId))
+            return RearOwnerDisposition.CORE_SCENE;
+        if (hostPackage != null && foreground.startsWith(hostPackage + ":")) return RearOwnerDisposition.HOST;
+        if (foreground.startsWith("com.xiaomi.subscreencenter:")) return RearOwnerDisposition.SYSTEM_LAUNCHER;
+        return RearOwnerDisposition.UNKNOWN;
+    }
+
+    /** Run the legacy package-wide stop only when no live Core Scene owns that app package. */
+    static boolean stopTargetPackageUnlessSceneOwned(String targetPackage, ScenePackageMatcher scenePackageMatcher,
+                                                     PackageStopper stopper) throws Exception {
+        if (targetPackage != null && scenePackageMatcher != null && scenePackageMatcher.owns(targetPackage)) return false;
+        if (targetPackage != null && stopper != null) stopper.stop();
+        return true;
+    }
+    static boolean stopTargetPackageUnlessSceneOwned(String targetPackage, PackageStopper stopper) throws Exception {
+        return stopTargetPackageUnlessSceneOwned(targetPackage, RearCapabilityCore::hasActiveScenePackage, stopper);
+    }
+    static boolean mayRemoveStaleVirtualHostTask(int taskId, int displayId, SceneTaskIdMatcher sceneTaskMatcher) {
+        return taskId > 0 && displayId > 0 && (sceneTaskMatcher == null || !sceneTaskMatcher.matches(taskId, displayId));
+    }
+    static boolean mayRemoveStaleVirtualHostTask(int taskId, int displayId) {
+        return mayRemoveStaleVirtualHostTask(taskId, displayId, RearCapabilityCore::isActiveSceneTask);
     }
     static boolean startsProjection(String action, String physicalTask, String virtualSession) {
         return action == null && ((physicalTask != null && !physicalTask.isEmpty())

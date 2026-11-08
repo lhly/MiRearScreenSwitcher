@@ -8,9 +8,12 @@ import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.io.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Owns a virtual display and presents its Surface on the physical rear display. */
 final class RearVirtualCast {
+    static final int RECOVERY_WAKE_REAR = 1;
+    static final int RECOVERY_PRESENT_HOST = 2;
     // Framework flags hidden from the public SDK. Preserve these values for the shell-owned display.
     private static final int VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH = 1 << 6;
     private static final int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
@@ -82,6 +85,13 @@ final class RearVirtualCast {
         if (s == null || !s.id.equals(id)) { if (surface != null) surface.release(); return false; }
         return s.updateSurface(surface);
     }
+    String recoverHost(String id, int hostTask, int rearDisplayId, int action,
+                       ISceneTaskActionGate actionGate) throws Exception {
+        Session s = current;
+        if (s == null || id == null || !s.id.equals(id)) return "stale_session";
+        if (action != RECOVERY_WAKE_REAR && action != RECOVERY_PRESENT_HOST) return "invalid_action";
+        return s.recoverHost(hostTask, rearDisplayId, action, actionGate);
+    }
     void dismissMenu(String id) throws Exception {
         Session s = current;
         if (s != null && !s.closed && s.id.equals(id)) input.dismissMenu(s.inputId);
@@ -108,7 +118,16 @@ final class RearVirtualCast {
     boolean renew(String id) {
         Session s = current;
         if (s == null || s.closed || !s.id.equals(id)) return false;
-        s.lease = SystemClock.uptimeMillis(); return true;
+        synchronized (s) { if (s.closed || !s.id.equals(id)) return false; s.touchLease(); return true; }
+    }
+    String setOutputAvailable(String id, boolean available, Surface replacement,
+                              ISceneTaskActionGate actionGate) throws Exception {
+        Session s = current;
+        if (s == null || s.closed || !s.id.equals(id)) {
+            if (replacement != null) replacement.release();
+            return "stale_session";
+        }
+        return s.setOutputAvailable(available, replacement, actionGate);
     }
     private static Throwable root(Throwable e) { while (e.getCause() != null) e = e.getCause(); return e; }
 
@@ -119,9 +138,10 @@ final class RearVirtualCast {
         final String packageName, component;
         final boolean densityCompatibility;
         final String physicalIdentity = RearDisplay.identity();
+        final int physicalRearId = RearDisplay.requireId();
         volatile Surface surface;
         volatile boolean outputAvailable = true;
-        volatile long outputDeadline;
+        volatile long viewportDeadline;
         final IBinder owner;
         final IRearGestureListener gestures;
         final RearCastViewport safeViewport;
@@ -130,10 +150,23 @@ final class RearVirtualCast {
         final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
         final IBinder.DeathRecipient death = () -> close("owner_died");
         volatile boolean closed;
+        // Every state transition which can invalidate an in-flight health probe advances this
+        // generation while holding the Session monitor. The 500 ms probe may do slow checks
+        // outside the lock, but it may only close the exact state it inspected.
+        final VirtualCastHealthGeneration healthGeneration = new VirtualCastHealthGeneration();
+        final RearTouchActivityReporter touchActivityReporter;
+        final AtomicBoolean touchActivityUnavailableLogged = new AtomicBoolean();
+        final AtomicBoolean firstTouchActivityLogged = new AtomicBoolean();
+        final AtomicBoolean touchActivityReportPending = new AtomicBoolean();
+        final java.util.concurrent.ExecutorService touchActivityExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "rear-touch-activity"); thread.setDaemon(true); return thread;
+        });
+        volatile long lastTouchActivityQueuedUptime = Long.MIN_VALUE;
         volatile long lease = SystemClock.uptimeMillis();
         volatile String phase = "starting", inputId = "";
         String sizePolicy = "disabled";
         RearAppFreezeGuard freezeGuard;
+        boolean launcherEntry;
         int display = -1;
         volatile int contentRotation;
         Object manager, callback;
@@ -146,6 +179,18 @@ final class RearVirtualCast {
             this.requestedDensity = density; this.density = renderDensity; this.component = component;
             this.densityCompatibility = compatibility;
             this.packageName = component == null ? service.getPackageNameFromTaskId(task) : component.substring(0, component.indexOf('/'));
+            RearDisplayUserActivity.Sink activitySink = null;
+            try { activitySink = RearDisplayUserActivity.shell(); }
+            catch (Exception unavailable) {
+                android.util.Log.i("RearVirtualCast", "touch_activity_api=unavailable reason=" + unavailable.getClass().getSimpleName());
+            }
+            touchActivityReporter = new RearTouchActivityReporter(activitySink, (displayId, hostTaskId, hostPackage) -> {
+                if (!physicalIdentity.equals(RearDisplay.identity()) || !RearDisplay.isRear(displayId))
+                    return RearTouchPresentationGate.Decision.SNAPSHOT_UNAVAILABLE;
+                RearDisplayCastOccupancy.Snapshot snapshot = RearDisplayCastOccupancyReader.readTypedOnly(displayId);
+                return RearTouchPresentationGate.inspect(snapshot, displayId, hostTaskId, hostPackage,
+                        ignored -> physicalRearStillOn());
+            });
         }
         synchronized void begin() throws Exception {
             owner.linkToDeath(death, 0);
@@ -190,10 +235,10 @@ final class RearVirtualCast {
             awaitRotation(contentRotation);
             // Acquire before the target enters the virtual display. The independent process
             // restores its mirror entry even if this Shizuku service is killed abruptly.
-            freezeGuard = RearAppFreezeGuard.start(packageName);
+            if (freezeGuard == null) freezeGuard = RearAppFreezeGuard.start(packageName);
             if (task >= 0 && !service.moveTaskToDisplay(task, display)) throw new IOException("Task move failed");
             if (component != null) {
-                if (!service.executeShellCommand("am start --display " + display + " -n '" + component + "'"))
+                if (!service.executeShellCommand("am start --display " + display + (launcherEntry ? " -a android.intent.action.MAIN -c android.intent.category.LAUNCHER" : "") + " -n '" + component + "'"))
                     throw new IOException("Activity launch failed");
                 long end = SystemClock.uptimeMillis() + 4000;
                 boolean found = false;
@@ -223,21 +268,114 @@ final class RearVirtualCast {
                     if (gestures == null || closed) throw new IOException("Menu consumer unavailable");
                     gestures.onCastMenuTouch(id, action, x, y, down, time);
                 }
-            }, contentRotation));
+            }, contentRotation, this::reportAcceptedInteraction));
             inputId = started.getString("id");
             freezeGuard.renew();
-            lease = SystemClock.uptimeMillis();
+            touchLease();
             phase = "running";
             timer.scheduleAtFixedRate(() -> {
+                HealthSnapshot checked = healthSnapshot();
+                if (checked.closed) return;
+                String failure = null;
                 try {
-                    if (SystemClock.uptimeMillis() - lease > 4000) { close("lease_expired"); return; }
-                    freezeGuard.renew();
-                    if (!outputAvailable && SystemClock.uptimeMillis() > outputDeadline) { close("output_reconnect_timeout"); return; }
-                    if (!physicalIdentity.equals(RearDisplay.identity()) || !owner.isBinderAlive() || (outputAvailable && !surface.isValid()) || !service.isTaskOnDisplay(host, RearDisplay.requireId())
-                            || !service.isTaskOnDisplay(task, display) || !input.renew(inputId)) close("host_task_or_input_left");
-                } catch (Exception e) { close(root(e).toString()); }
+                    long now = SystemClock.uptimeMillis();
+                    if (now - checked.lease > 4000) {
+                        closeIfLeaseSnapshotCurrent(checked, "lease_expired");
+                        return;
+                    }
+                    else if (VirtualCastOutputRecoveryPolicy.expireViewportChange(
+                            checked.viewportPending, checked.viewportDeadline, now)) failure = "viewport_reconnect_timeout";
+                    else {
+                        // Keep the captured Surface local; never dereference mutable Session.surface
+                        // outside the Session monitor while updateSurface may be releasing it.
+                        boolean invalidOutput = checked.outputAvailable
+                                && (checked.surface == null || !checked.surface.isValid());
+                        if (!physicalIdentity.equals(RearDisplay.identity()) || !owner.isBinderAlive() || invalidOutput
+                                || !service.isTaskOnDisplay(host, RearDisplay.requireId())
+                                || !service.isTaskOnDisplay(task, display) || !input.renew(inputId))
+                            failure = "host_task_or_input_left";
+                        else if (freezeGuard != null) freezeGuard.renew();
+                    }
+                } catch (Exception e) { failure = root(e).toString(); }
+                if (failure != null) closeIfHealthSnapshotCurrent(checked, failure);
             }, 500, 500, TimeUnit.MILLISECONDS);
             android.util.Log.i("RearVirtualCast", status());
+        }
+        private void reportAcceptedInteraction(long eventTimeUptime) {
+            if (current != this || closed || !owner.isBinderAlive() || host < 0
+                    || !outputAvailable || pendingViewport != null || surface == null || !surface.isValid()) return;
+            long queuedAt = SystemClock.uptimeMillis();
+            long previous = lastTouchActivityQueuedUptime;
+            if (previous != Long.MIN_VALUE && queuedAt >= previous
+                    && queuedAt - previous < RearTouchActivityReporter.MIN_REPORT_INTERVAL_MS) return;
+            if (!touchActivityReportPending.compareAndSet(false, true)) return;
+            lastTouchActivityQueuedUptime = queuedAt;
+            try {
+                touchActivityExecutor.execute(() -> {
+                    try { reportAcceptedTouchNow(eventTimeUptime); }
+                    finally { touchActivityReportPending.set(false); }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException closedExecutor) {
+                touchActivityReportPending.set(false);
+            }
+        }
+        private void reportAcceptedTouchNow(long eventTimeUptime) {
+            RearTouchActivityReporter.Result result = touchActivityReporter.acceptedInteraction(eventTimeUptime,
+                    display, physicalRearId, host, BuildConfig.APPLICATION_ID,
+                    () -> current == this && !closed && owner.isBinderAlive(),
+                    () -> current == this && !closed && owner.isBinderAlive()
+                            && host >= 0
+                            && outputAvailable && pendingViewport == null && surface != null && surface.isValid());
+            if (result == RearTouchActivityReporter.Result.REPORTED
+                    && firstTouchActivityLogged.compareAndSet(false, true)) {
+                android.util.Log.i("RearVirtualCast", "touch_activity session=" + id + " display=" + physicalRearId
+                        + " uptime=" + eventTimeUptime + " result=submitted");
+            } else if (result == RearTouchActivityReporter.Result.UNAVAILABLE
+                    && touchActivityUnavailableLogged.compareAndSet(false, true)) {
+                android.util.Log.w("RearVirtualCast", "touch_activity session=" + id + " display=" + physicalRearId
+                        + " uptime=" + eventTimeUptime + " result=unavailable");
+            } else if (result == RearTouchActivityReporter.Result.HOST_NOT_PRESENTED) {
+                android.util.Log.i("RearVirtualCast", "touch_activity session=" + id + " display=" + physicalRearId
+                        + " uptime=" + eventTimeUptime + " result=not_presented gate=" + touchActivityReporter.lastDecision());
+            }
+        }
+        private boolean physicalRearStillOn() {
+            try {
+                if (!physicalIdentity.equals(RearDisplay.identity()) || !RearDisplay.isRear(physicalRearId)) return false;
+                Object info = RearDisplay.info(physicalRearId);
+                return info.getClass().getField("state").getInt(info) == android.view.Display.STATE_ON;
+            } catch (Exception unavailable) { return false; }
+        }
+        private final class HealthSnapshot {
+            final long generation, leaseGeneration, lease, viewportDeadline;
+            final Surface surface;
+            final boolean closed, outputAvailable, viewportPending;
+            HealthSnapshot(long generation, long leaseGeneration, long lease, long viewportDeadline, Surface surface,
+                           boolean closed, boolean outputAvailable, boolean viewportPending) {
+                this.generation = generation; this.leaseGeneration = leaseGeneration; this.lease = lease; this.viewportDeadline = viewportDeadline;
+                this.surface = surface; this.closed = closed; this.outputAvailable = outputAvailable;
+                this.viewportPending = viewportPending;
+            }
+        }
+        private synchronized HealthSnapshot healthSnapshot() {
+            return new HealthSnapshot(healthGeneration.capture(), healthGeneration.captureLease(), lease, viewportDeadline, surface, closed,
+                    outputAvailable, pendingViewport != null);
+        }
+        private synchronized void touchLease() {
+            lease = SystemClock.uptimeMillis();
+            healthGeneration.renewLease();
+        }
+        private void closeIfHealthSnapshotCurrent(HealthSnapshot checked, String reason) {
+            synchronized (this) {
+                if (closed) return;
+                healthGeneration.runIfCurrent(checked.generation, () -> close(reason));
+            }
+        }
+        private void closeIfLeaseSnapshotCurrent(HealthSnapshot checked, String reason) {
+            synchronized (this) {
+                if (closed) return;
+                healthGeneration.runIfLeaseCurrent(checked.leaseGeneration, () -> close(reason));
+            }
         }
         private void command(String... args) throws Exception {
             DisplayRotationController.Result result = DisplayRotationController.runCommand(args);
@@ -259,7 +397,7 @@ final class RearVirtualCast {
             if (closed || pendingViewport != null || !outputAvailable || !surface.isValid() || !owner.isBinderAlive())
                 throw new IllegalStateException("Rear output unavailable for rotation");
             int previous = contentRotation, next = (previous + direction + 4) % 4;
-            lease = SystemClock.uptimeMillis();
+            touchLease();
             if (!input.beginRotation(inputId)) throw new IOException("Input session ended");
             try {
                 // Only our disposable display is changed. Surface pixels remain in the physical safe rectangle.
@@ -277,7 +415,7 @@ final class RearVirtualCast {
                     if (!input.finishRotation(inputId, previous, outputAvailable)) throw new IOException("Input rollback failed");
                 } catch (Exception rollback) { close("rotation_rollback_failed: " + root(rollback)); }
                 throw failure;
-            } finally { lease = SystemClock.uptimeMillis(); }
+            } finally { touchLease(); }
         }
         synchronized String beginViewport(boolean full) throws Exception {
             if (closed || pendingViewport != null || !outputAvailable || !surface.isValid() || !owner.isBinderAlive())
@@ -286,8 +424,8 @@ final class RearVirtualCast {
             RearCastViewport next = RearCastCompatibility.viewport(full ? safeViewport.full() : safeViewport, requestedDensity, density);
             if (!input.beginRotation(inputId)) throw new IOException("Input session ended");
             pendingViewport = next;
-            outputAvailable = false; outputDeadline = SystemClock.uptimeMillis() + 5000;
-            lease = SystemClock.uptimeMillis();
+            outputAvailable = false; viewportDeadline = SystemClock.uptimeMillis() + 5000; healthGeneration.advance();
+            touchLease();
             android.util.Log.i("RearVirtualCast", "viewport_begin id=" + id + " target=" + next.key());
             return RearCastGeometry.encode(next);
         }
@@ -296,7 +434,7 @@ final class RearVirtualCast {
             try {
                 if (closed || pendingViewport == null || next == null || !next.isValid() || !owner.isBinderAlive())
                     throw new IllegalStateException("Viewport transaction unavailable");
-                lease = SystemClock.uptimeMillis();
+                touchLease();
                 // Resize the same display/task; fix its current rotation before applying the new native dimensions.
                 command("wm", "fixed-to-user-rotation", "-d", Integer.toString(display), "enabled");
                 command("wm", "user-rotation", "-d", Integer.toString(display), "lock", Integer.toString(contentRotation));
@@ -307,7 +445,7 @@ final class RearVirtualCast {
                 viewport = pendingViewport;
                 awaitRotation(contentRotation);
                 if (!input.finishConfiguration(inputId, viewport, contentRotation, true)) throw new IOException("Input session ended");
-                pendingViewport = null; outputAvailable = true;
+                pendingViewport = null; outputAvailable = true; healthGeneration.advance();
                 android.util.Log.i("RearVirtualCast", "viewport_changed id=" + id + " full=" + viewport.isFull() + " rotation=" + contentRotation);
                 return status();
             } catch (Exception e) {
@@ -315,40 +453,231 @@ final class RearVirtualCast {
                 close("viewport_failed: " + root(e)); throw e;
             } finally {
                 if (!adopted && next != null) next.release();
-                lease = SystemClock.uptimeMillis();
+                touchLease();
             }
         }
         synchronized boolean updateSurface(Surface next) throws Exception {
-            if (closed) { if (next != null) next.release(); return false; }
-            if (pendingViewport != null) {
+            VirtualCastOutputRecoveryPolicy.SurfaceUpdate decision = VirtualCastOutputRecoveryPolicy.surfaceUpdate(
+                    closed, pendingViewport != null, next != null, next == null || next.isValid());
+            if (decision == VirtualCastOutputRecoveryPolicy.SurfaceUpdate.SESSION_CLOSED) {
+                if (next != null) next.release(); return false;
+            }
+            if (decision == VirtualCastOutputRecoveryPolicy.SurfaceUpdate.VIEWPORT_INTERRUPTED) {
                 if (next != null) next.release();
                 close("viewport_output_interrupted"); return false;
             }
-            if (next == null) {
-                if (outputAvailable) {
-                    outputDeadline = SystemClock.uptimeMillis() + 2500;
+            if (decision == VirtualCastOutputRecoveryPolicy.SurfaceUpdate.LOST_TEMPORARILY) {
+                if (outputAvailable || surface != null) {
+                    if (outputAvailable)
+                        iface.getMethod("setVirtualDisplaySurface", callbackType, Surface.class).invoke(manager, callback, (Surface) null);
+                    Surface previous = surface;
+                    surface = null;
                     outputAvailable = false;
+                    healthGeneration.advance();
+                    if (previous != null) previous.release();
                     input.outputAvailable(inputId, false);
                     android.util.Log.i("RearVirtualCast", "output_reconnecting id=" + id);
                 }
                 return true;
             }
+            if (decision == VirtualCastOutputRecoveryPolicy.SurfaceUpdate.INVALID_REPLACEMENT) {
+                next.release();
+                throw new IOException("Replacement Surface invalid");
+            }
             boolean adopted = false;
             try {
-                if (!next.isValid()) throw new IOException("Replacement Surface invalid");
                 iface.getMethod("setVirtualDisplaySurface", callbackType, Surface.class).invoke(manager, callback, next);
                 Surface previous = surface;
                 surface = next; adopted = true;
-                previous.release();
+                outputAvailable = true; healthGeneration.advance();
+                if (previous != null) previous.release();
                 if (!input.outputAvailable(inputId, true)) throw new IOException("Input session ended during reconnect");
-                outputAvailable = true;
                 android.util.Log.i("RearVirtualCast", "output_reconnected id=" + id);
                 return true;
             } finally { if (!adopted) next.release(); }
         }
+        synchronized String setOutputAvailable(boolean available, Surface replacement,
+                                               ISceneTaskActionGate actionGate) throws Exception {
+            if (closed || current != this || !owner.isBinderAlive()) {
+                if (replacement != null && replacement != surface) replacement.release();
+                return "stale_session";
+            }
+            if (pendingViewport != null || actionGate == null) {
+                if (replacement != null && replacement != surface) replacement.release();
+                return "cancelled";
+            }
+            int rearId = RearDisplay.requireId();
+            int stateNow = rearDisplayState(rearId);
+            if (!powerTransitionCurrent(available, stateNow, actionGate)) {
+                if (replacement != null && replacement != surface) replacement.release();
+                return "cancelled";
+            }
+            if (!available) {
+                // Even if the VD flag already says paused, reconcile the reader too. A prior
+                // ON attach may have been cancelled after its reader resumed but before the
+                // output transition committed.
+                // Release the rear input grab before the remote display update so the system
+                // can receive its wake gesture even if setVirtualDisplaySurface is slow.
+                if (!input.outputAvailable(inputId, false, () -> currentGate(actionGate))) return "cancelled";
+                if (!outputAvailable) return "already_paused";
+                outputAvailable = false; healthGeneration.advance();
+                if (!sessionStillOwnsSleepingOutput(rearId)) return "cancelled";
+                iface.getMethod("setVirtualDisplaySurface", callbackType, Surface.class)
+                        .invoke(manager, callback, (Surface) null);
+                android.util.Log.i("RearVirtualCast", "power_output_paused id=" + id + " surface_retained=" + (surface != null));
+                return "paused";
+            }
+            VirtualCastOutputPowerGate.SurfaceChoice choice = VirtualCastOutputPowerGate.chooseRestoreSurface(
+                    surface != null && surface.isValid(), replacement != null, replacement != null && replacement.isValid());
+            if (choice == VirtualCastOutputPowerGate.SurfaceChoice.INVALID_REPLACEMENT) {
+                replacement.release(); return "surface_unavailable";
+            }
+            Surface candidate = choice == VirtualCastOutputPowerGate.SurfaceChoice.REPLACEMENT ? replacement
+                    : choice == VirtualCastOutputPowerGate.SurfaceChoice.RETAINED ? surface : null;
+            if (candidate == null) return "surface_unavailable";
+            if (outputAvailable && candidate == surface) {
+                if (replacement != null && replacement != surface) replacement.release();
+                return "already_available";
+            }
+            if (!powerTransitionCurrent(true, rearDisplayState(rearId), actionGate)) {
+                if (replacement != null && replacement != surface) replacement.release();
+                return "cancelled";
+            }
+            iface.getMethod("setVirtualDisplaySurface", callbackType, Surface.class)
+                    .invoke(manager, callback, candidate);
+            Surface previous = surface;
+            surface = candidate;
+            if (previous != null && previous != candidate) previous.release();
+            healthGeneration.advance();
+            if (!powerTransitionCurrent(true, rearDisplayState(rearId), actionGate)
+                    || !input.outputAvailable(inputId, true, () -> currentGate(actionGate))) {
+                boolean cleanupOk = VirtualCastOutputPowerGate.rollbackCancelledRestore(
+                        () -> {
+                            if (!input.outputAvailable(inputId, false))
+                                throw new IOException("Input session unavailable during cancelled restore");
+                        },
+                        () -> iface.getMethod("setVirtualDisplaySurface", callbackType, Surface.class)
+                                .invoke(manager, callback, (Surface) null));
+                outputAvailable = false; healthGeneration.advance();
+                if (!cleanupOk) {
+                    close("cancelled_restore_cleanup_failed");
+                    return "cleanup_failed";
+                }
+                return "cancelled";
+            }
+            outputAvailable = true; healthGeneration.advance();
+            android.util.Log.i("RearVirtualCast", "power_output_resumed id=" + id + " same_session=true replacement=" + (candidate != previous));
+            return "resumed";
+        }
+        private boolean powerTransitionCurrent(boolean available, int rearState,
+                                               ISceneTaskActionGate actionGate) throws Exception {
+            int rearId = RearDisplay.requireId();
+            boolean taskStillOwned = service.isTaskOnDisplay(host, rearId);
+            return VirtualCastOutputPowerGate.mayCommit(!closed && current == this, owner.isBinderAlive(),
+                    taskStillOwned, rearState, available, () -> currentGate(actionGate));
+        }
+        private boolean sessionStillOwnsSleepingOutput(int rearId) throws Exception {
+            return !closed && current == this && owner.isBinderAlive()
+                    && service.isTaskOnDisplay(host, rearId)
+                    && VirtualCastOutputPowerGate.isSleeping(rearDisplayState(rearId));
+        }
+        private boolean currentGate(ISceneTaskActionGate actionGate) {
+            try { return actionGate != null && actionGate.isCurrent(); }
+            catch (RemoteException denied) { return false; }
+        }
+        private String recordPresentationResult(VirtualCastRecoveryForeground.Decision decision,
+                                               String result, int finalPower) {
+            if (decision != null && decision.diagnostic != null) {
+                android.util.Log.i("RearVirtualCast", "recovery_present "
+                        + decision.diagnostic.format(decision.refusal, result, finalPower));
+            }
+            return result;
+        }
+        String recoverHost(int requestedHost, int rearDisplayId, int action,
+                           ISceneTaskActionGate actionGate) throws Exception {
+            if (action != RECOVERY_WAKE_REAR && action != RECOVERY_PRESENT_HOST) return "invalid_action";
+            final long generation;
+            synchronized (this) {
+                if (closed || current != this || requestedHost != host || actionGate == null
+                        || rearDisplayId != RearDisplay.requireId() || !owner.isBinderAlive()) return "stale_owner";
+                generation = healthGeneration.capture();
+            }
+            if (!service.isTaskOnDisplay(host, rearDisplayId)) return "host_not_on_rear";
+            VirtualCastRecoveryForeground.Decision presentation = null;
+            RearDisplayCastOccupancy.Snapshot snapshot = RearDisplayCastOccupancy.Snapshot.parse(
+                    service.getDisplayCastOccupancy(rearDisplayId), rearDisplayId);
+            if (action == RECOVERY_PRESENT_HOST) {
+                presentation = VirtualCastRecoveryForeground.resolve(snapshot, rearDisplayId, host,
+                        BuildConfig.APPLICATION_ID);
+                if (presentation.disposition == VirtualCastRecoveryForeground.Disposition.HOST_ALREADY_FRONT)
+                    return recordPresentationResult(presentation, "already_front", snapshot.displayState);
+                if (presentation.disposition == VirtualCastRecoveryForeground.Disposition.OTHER_TASK)
+                    return recordPresentationResult(presentation, "preserved_other_task", snapshot.displayState);
+                if (presentation.disposition != VirtualCastRecoveryForeground.Disposition.FOCUS_HOST)
+                    return recordPresentationResult(presentation, "foreground_unverified", snapshot.displayState);
+            } else {
+                // A sleeping rear has no meaningful visible top, so require the exact owned host
+                // plus known rear launcher(s) and reject every unknown/third-party task.
+                presentation = VirtualCastRecoveryForeground.resolveWake(snapshot, rearDisplayId, host,
+                        BuildConfig.APPLICATION_ID);
+                if (presentation.disposition == VirtualCastRecoveryForeground.Disposition.OTHER_TASK)
+                    return "preserved_other_task";
+                if (presentation.disposition != VirtualCastRecoveryForeground.Disposition.WAKE_ALLOWED)
+                    return "foreground_unverified";
+            }
+
+            int powerState = rearDisplayState(rearDisplayId);
+            if (action == RECOVERY_PRESENT_HOST) {
+                if (powerState != android.view.Display.STATE_ON)
+                    return recordPresentationResult(presentation, "rear_not_on", powerState);
+            } else {
+                if (!isSleepingDisplayState(powerState)) return powerState == android.view.Display.STATE_ON
+                        ? "already_on" : "rear_state_unknown";
+            }
+
+            // The expensive task/foreground queries are complete. Keep the final state check,
+            // caller gate and side effect adjacent; close/updateSurface cannot invalidate the
+            // Session between this check and its own shell action.
+            synchronized (this) {
+                if (closed || current != this || generation != healthGeneration.capture()
+                        || !owner.isBinderAlive() || requestedHost != host || rearDisplayId != RearDisplay.requireId())
+                    return action == RECOVERY_PRESENT_HOST
+                            ? recordPresentationResult(presentation, "stale_session", powerState) : "stale_session";
+                if (!actionGate.isCurrent())
+                    return action == RECOVERY_PRESENT_HOST
+                            ? recordPresentationResult(presentation, "cancelled", powerState) : "cancelled";
+                int now = rearDisplayState(rearDisplayId);
+                if (action == RECOVERY_WAKE_REAR) {
+                    if (!isSleepingDisplayState(now)) return now == android.view.Display.STATE_ON ? "already_on" : "rear_state_unknown";
+                    return service.executeShellCommand("input -d " + rearDisplayId + " keyevent KEYCODE_WAKEUP")
+                            ? "wake_requested" : "wake_rejected";
+                }
+                if (now != android.view.Display.STATE_ON)
+                    return recordPresentationResult(presentation, "rear_not_on", now);
+                String result = VirtualCastRecoveryForeground.perform(presentation, host, rearDisplayId,
+                        taskId -> service.executeShellCommand("am task focus " + taskId));
+                return recordPresentationResult(presentation, result, now);
+            }
+        }
+        private int rearDisplayState(int displayId) throws Exception {
+            JSONObject state = new JSONObject(RearDisplay.state());
+            org.json.JSONArray displays = state.optJSONArray("displays");
+            if (displays == null) return android.view.Display.STATE_UNKNOWN;
+            for (int i = 0; i < displays.length(); i++) {
+                JSONObject item = displays.optJSONObject(i);
+                if (item != null && item.optInt("id", -1) == displayId)
+                    return item.optInt("state", android.view.Display.STATE_UNKNOWN);
+            }
+            return android.view.Display.STATE_UNKNOWN;
+        }
+        private boolean isSleepingDisplayState(int state) {
+            return state == android.view.Display.STATE_OFF || state == android.view.Display.STATE_DOZE
+                    || state == android.view.Display.STATE_DOZE_SUSPEND || state == android.view.Display.STATE_ON_SUSPEND;
+        }
         synchronized void close(String reason) {
             if (closed) return;
-            closed = true; phase = reason; timer.shutdown();
+            closed = true; healthGeneration.advance(); phase = reason; timer.shutdown();
+            touchActivityExecutor.shutdownNow();
             if (!inputId.isEmpty()) input.stop(inputId);
             // Also restore tasks newly opened by the app on our display. Never inspect/move other displays.
             if (display > 0 && !RearDisplay.isRear(display)) {
@@ -372,7 +701,7 @@ final class RearVirtualCast {
                 catch (Exception e) { android.util.Log.e("RearVirtualCast", "Display release", e); }
             }
             owner.unlinkToDeath(death, 0);
-            surface.release();
+            if (surface != null) surface.release();
             if (freezeGuard != null) freezeGuard.close();
             // Restore the physical rear only for this closing session, before a new start can proceed.
             try {
@@ -386,6 +715,9 @@ final class RearVirtualCast {
             }
             catch (Exception e) { android.util.Log.w("RearVirtualCast", "Rear launcher restoration", e); }
             CompatibilityDiagnostics.record("virtual_closed", "reason=" + reason);
+            if (firstTouchActivityLogged.get() || touchActivityUnavailableLogged.get())
+                android.util.Log.i("RearVirtualCast", "touch_activity_summary session=" + id + " display="
+                        + physicalRearId + " " + touchActivityReporter.summary());
             last = status();
             android.util.Log.i("RearVirtualCast", last);
             if (current == this) current = null;

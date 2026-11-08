@@ -40,7 +40,8 @@ public final class RearInputInjector {
     }
 
     public void touch(int action, int[] ids, float[] xs, float[] ys, long downTime, long eventTime) throws Exception {
-        send(action, ids, xs, ys, downTime, eventTime, InputDevice.SOURCE_TOUCHSCREEN, MotionEvent.TOOL_TYPE_FINGER, -31);
+        send(action, ids, xs, ys, downTime, eventTime, InputDevice.SOURCE_TOUCHSCREEN,
+                MotionEvent.TOOL_TYPE_FINGER, -31);
     }
 
     /** Navigation stays on the owned virtual display, including while the main keyguard is showing. */
@@ -72,8 +73,14 @@ public final class RearInputInjector {
                 0, 0, 1, 1, device, 0, source, 0);
         try {
             setDisplayId.invoke(event, displayId);
-            if (!sink.inject(event)) throw new IllegalStateException("Rear input injection rejected: " + action);
+            injectAcknowledged(sink, event, action);
         } finally { event.recycle(); }
+    }
+
+    /** Production result is the actual IInputManager sink ACK, not a queued native frame. */
+    static boolean injectAcknowledged(Sink sink, InputEvent event, int action) throws Exception {
+        if (!sink.inject(event)) throw new IllegalStateException("Rear input injection rejected: " + action);
+        return true;
     }
 
     /** Experimental generic pointer events; ordinary touch coordinates/timing are unchanged. */

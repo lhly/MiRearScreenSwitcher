@@ -36,11 +36,13 @@ public class RearAnimationManager {
     private static volatile AnimationType currentAnimation = AnimationType.NONE;
     private static Session currentSession = new Session(generation, AnimationType.NONE, AnimationType.NONE, -1);
     private static volatile boolean interruptedChargingWasAlwaysOn;
+    private static volatile long sceneOverlaySessionId = Long.MIN_VALUE;
 
     static final class Session {
         final long id;
         final AnimationType type, previous;
         volatile int rearTaskId;
+        volatile int animationActivityTaskId = -1;
         Session(long id, AnimationType type, AnimationType previous, int rearTaskId) {
             this.id = id; this.type = type; this.previous = previous; this.rearTaskId = rearTaskId;
         }
@@ -48,11 +50,18 @@ public class RearAnimationManager {
 
     static synchronized Session beginAnimation(AnimationType type) {
         if (type == AnimationType.NONE) throw new IllegalArgumentException("Cannot begin NONE");
-        Session session = new Session(++generation, type, currentAnimation,
-                currentAnimation == AnimationType.NONE ? -1 : currentSession.rearTaskId);
+        Session previousSession = currentSession;
+        boolean replacesAnimation = currentAnimation != AnimationType.NONE;
+        int inheritedRearTaskId = replacesAnimation ? previousSession.rearTaskId : -1;
+        Session session = new Session(++generation, type, currentAnimation, inheritedRearTaskId);
         currentSession = session;
         currentAnimation = type;
         if (type == AnimationType.CHARGING) interruptedChargingWasAlwaysOn = false;
+        sceneOverlaySessionId = top.zainzh.rearscreen.platform.RearCapabilityCore.beginTransientOverlay(
+                session.id, replacesAnimation ? previousSession.id : Long.MIN_VALUE, inheritedRearTaskId > 0)
+                ? session.id : Long.MIN_VALUE;
+        RearInfoSession.animationChanged();
+        RearModuleSession.INSTANCE.animationChanged();
         return session;
     }
 
@@ -70,12 +79,42 @@ public class RearAnimationManager {
     static synchronized boolean isIdle(long id) {
         return currentAnimation == AnimationType.NONE && currentSession.id == id;
     }
+    static boolean isSceneOverlaySession(long id) { return sceneOverlaySessionId == id; }
+    private static void endSceneOverlay(long id) {
+        boolean suppressLegacyRestore = top.zainzh.rearscreen.platform.RearCapabilityCore.endTransientOverlay(id);
+        if (sceneOverlaySessionId == id) sceneOverlaySessionId = Long.MIN_VALUE;
+        // A Scene or cast can take ownership after this animation began. The Core's epoch
+        // check remains authoritative even when the animation did not cover a Scene at start.
+        if (suppressLegacyRestore) sceneOverlaySessionId = id;
+    }
+    static synchronized void registerAnimationActivityTask(long id, int taskId) {
+        if (currentSession.id == id && currentAnimation != AnimationType.NONE && taskId > 0)
+            currentSession.animationActivityTaskId = taskId;
+    }
+    static synchronized boolean isAnimationActivityTask(long id, int taskId) {
+        return currentSession.id == id && taskId > 0 && currentSession.animationActivityTaskId == taskId;
+    }
+
     /** Explicit casting replaces the transient animation owner, including queued restoration. */
     static synchronized void projectionStarted(android.content.Context context) {
+        top.zainzh.rearscreen.platform.RearCapabilityCore.onLegacyProjectionStarted(context, -1, null);
+        finishTransientAnimation(context);
+    }
+
+    /** Existing physical URI/Tile owner, called only after the task move was verified successful. */
+    static synchronized void projectionStarted(android.content.Context context, int taskId, String packageName) {
+        top.zainzh.rearscreen.platform.RearCapabilityCore.onLegacyProjectionStarted(context, taskId, packageName);
+        finishTransientAnimation(context);
+    }
+
+    private static void finishTransientAnimation(android.content.Context context) {
         Session previous = currentSession;
         currentAnimation = AnimationType.NONE;
         currentSession = new Session(++generation, AnimationType.NONE, AnimationType.NONE, -1);
         interruptedChargingWasAlwaysOn = false;
+        endSceneOverlay(previous.id);
+        RearInfoSession.animationChanged();
+        RearModuleSession.INSTANCE.animationChanged();
         String action;
         String extra;
         if (previous.type == AnimationType.NOTIFICATION) {
@@ -129,6 +168,9 @@ public class RearAnimationManager {
     static synchronized boolean endAnimation(AnimationType type, long id) {
         if (!isCurrent(type, id)) return false;
         currentAnimation = AnimationType.NONE;
+        endSceneOverlay(id);
+        RearInfoSession.animationChanged();
+        RearModuleSession.INSTANCE.animationChanged();
         return true;
     }
 

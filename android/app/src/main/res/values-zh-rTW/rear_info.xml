@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rear_info_title">背螢幕資訊（實驗）</string>
+    <string name="rear_info_summary">手動開啟效能面板，驗證採集與低耗電顯示。</string>
+    <string name="rear_info_open">開啟背螢幕面板</string>
+    <string name="rear_info_opening">正在開啟…</string>
+    <string name="rear_info_help">開啟時點亮背螢幕一次，可見時前 8 秒每 2 秒更新，之後每 5 秒更新；不會保持常亮。被應用程式、通知或充電畫面遮擋時暫停。</string>
+    <string name="rear_info_connect">請先在首頁連線控制服務。</string>
+    <string name="rear_info_busy">背螢幕正在顯示其他內容，請結束投放或等待通知、充電顯示結束後重試。</string>
+    <string name="rear_info_failed">無法開啟背螢幕面板，請確認背螢幕和控制服務可用。</string>
+    <string name="rear_info_opened">已開啟背螢幕面板。</string>
+    <string name="rear_info_live">即時資訊</string>
+    <string name="rear_info_cpu">CPU</string>
+    <string name="rear_info_gpu">GPU（實驗）</string>
+    <string name="rear_info_memory">記憶體</string>
+    <string name="rear_info_battery">電池</string>
+    <string name="rear_info_network">網路</string>
+    <string name="rear_info_speed">網速</string>
+    <string name="rear_info_waiting">待採集</string>
+    <string name="rear_info_unavailable">暫不可用</string>
+    <string name="rear_info_running">採集中 · %1$d 秒</string>
+    <string name="rear_info_paused">已暫停</string>
+    <string name="rear_info_close">關閉面板</string>
+    <string name="rear_info_wifi">Wi-Fi</string>
+    <string name="rear_info_mobile">行動網路</string>
+    <string name="rear_info_vpn">VPN</string>
+    <string name="rear_info_other">其他網路</string>
+    <string name="rear_info_offline">離線</string>
+    <string name="rear_info_validated">已連網</string>
+    <string name="rear_info_unvalidated">未驗證連網</string>
+    <string name="rear_info_memory_value">可用 %1$s / 總計 %2$s</string>
+    <string name="rear_info_battery_value">%1$d%% · %2$s °C</string>
+    <string name="rear_info_note">整機流量速率；GPU 無有效樣本時不顯示百分比。</string>
+</resources>

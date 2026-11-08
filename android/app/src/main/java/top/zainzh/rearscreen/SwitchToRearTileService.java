@@ -190,6 +190,7 @@ public class SwitchToRearTileService extends TileService {
         request.executing = true;
         handler.removeCallbacks(readyTimeout);
         updateFeedback("切换中...");
+        Log.i(TAG, "cast_dispatch mode=physical source=qs_tile action=switch");
         Log.i(TAG, "request=" + request.id + " stage=ready elapsed_ms="
                 + (SystemClock.elapsedRealtime() - request.startedAt));
         worker.execute(() -> RearAnimationManager.runDisplayAction(() -> performSwitch(request, service)));
@@ -212,10 +213,12 @@ public class SwitchToRearTileService extends TileService {
                         getString(R.string.toast_please_switch_back, appName), Toast.LENGTH_LONG).show(), 300);
                 return;
             }
-            String currentApp = service.getCurrentForegroundApp();
-            if (currentApp == null || !currentApp.contains(":")) {
+            CurrentMainTaskSelector.Result currentTarget = CurrentMainTaskSelector.await(
+                    displayId -> service.getDisplayCastOccupancy(displayId), getPackageName(), 4000, 100);
+            String currentApp = currentTarget.target == null ? null : currentTarget.target.legacyForegroundValue();
+            if (currentApp == null) {
                 feedback = "✗ 未找到应用";
-                Log.w(TAG, "request=" + request.id + " stage=no_foreground_task");
+                Log.w(TAG, "request=" + request.id + " stage=no_foreground_task reason=" + currentTarget.reason);
                 return;
             }
             String[] parts = currentApp.split(":");
@@ -225,12 +228,14 @@ public class SwitchToRearTileService extends TileService {
             launcherStopped = service.disableSubScreenLauncher();
             if (request.cancelled) return;
             moved = service.moveTaskToDisplay(taskId, RearDisplay.requireId());
+            Log.i(TAG, "cast_stage mode=physical target=main_foreground status=" + (moved ? "move_success" : "move_failed")
+                    + " result=" + (moved ? "committed" : "not_committed"));
             Log.i(TAG, "request=" + request.id + " stage=move_result task_id=" + taskId + " verified=" + moved);
             if (!moved) {
                 feedback = "✗ 切屏失败，请查看日志";
                 return;
             }
-            RearAnimationManager.projectionStarted(this);
+            RearAnimationManager.projectionStarted(this, taskId, currentApp.split(":", 2)[0]);
             lastMovedTask = currentApp;
             Intent keeper = new Intent(this, RearScreenKeeperService.class);
             keeper.putExtra("lastMovedTask", currentApp);

@@ -1,0 +1,5 @@
+<resources>
+    <string name="native_modules_debug_only">僅調試版顯示：舊 .remodule 實驗</string>
+    <string name="native_modules_cover_black_note">遮擋背屏時顯示純黑並停止介面更新，計時仍會繼續；移開後恢復顯示。這不是真正熄屏，耗電可能高於系統熄屏。</string>
+    <string name="mod_scene_cover_behavior_note">開啟遮擋處理後，背屏會顯示全黑並暫停介面更新，移開後恢復。全黑不等於硬體熄屏，耗電可能較高。</string>
+</resources>

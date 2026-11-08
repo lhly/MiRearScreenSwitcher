@@ -3,6 +3,7 @@ import android.os.IBinder;
 import android.view.Surface;
 import android.os.ParcelFileDescriptor;
 import top.zainzh.rearscreen.IRearGestureListener;
+import top.zainzh.rearscreen.ISceneTaskActionGate;
 
 interface ITaskService {
     void destroy() = 16777114;  // Shizuku required
@@ -154,14 +155,40 @@ interface ITaskService {
     // Metadata is [display rotation, logical width, logical height]. PNG travels through an fd.
     ParcelFileDescriptor captureRearScreenshot(out int[] metadata) = 37;
     boolean saveRearScreenshotLegacy(in ParcelFileDescriptor source) = 38;
-    // Transaction 39 is reserved for an unpublished experiment; keep later IDs stable.
+    // Fixed CPU/GPU counters only; future display packages do not receive a shell interface.
+    String readSystemMetrics() = 39;
     String getRearDisplayState() = 40;
     String getCompatibilityDiagnostics() = 41;
     String getRearPhysicalDisplayId() = 42;
     // Only temperature, condition and update time; no location or arbitrary query access.
     String readSystemWeather() = 43;
     boolean setRearCastNotificationBounds(String sessionId, long token, int left, int top, int right, int bottom) = 44;
-    // Transactions 45-58 remain reserved for unpublished experiments.
+
+    // Narrow privileged scene operations; never exported through the third-party SDK service.
+    int launchSceneActivity(String component, int displayId, String launchTicket) = 45;
+    boolean verifySceneActivity(int taskId, String component, int displayId) = 46;
+    boolean finishSceneActivityTask(int taskId, String component, int displayId) = 47;
+    /** Internal ownership verification for a previously registered legacy cast task. */
+    String getPackageNameFromTaskId(int taskId) = 48;
+    /** Final Scene window check with bounded, task-local diagnostics; never returns other task records. */
+    String inspectSceneActivityTask(int taskId, String component, int displayId) = 49;
+    /** One-shot, target-rear-only wake for an authorized Scene activation; never a loop or global wake. */
+    boolean wakeRearDisplayForScene(int displayId) = 50;
+    /** Focus an already-owned Scene task only when the rear OEM launcher is top; never launches or moves. */
+    String presentSceneActivityTask(int taskId, String component, int displayId, ISceneTaskActionGate actionGate) = 51;
+
+    // Internal host-only theme operations. No raw shell/MAML interface is exported to clients.
+    String getOfficialThemeStatus() = 52;
+    String installOfficialTheme(String registration, int systemId, String title, in byte[] compiledResource) = 53;
+    String removeOfficialTheme(String registration) = 54;
+    void prepareOfficialThemeHost(int hostTaskId, String component, IBinder owner) = 55;
+    void cancelOfficialThemeHost(IBinder owner) = 56;
+    /** Present/wake only the currently owned virtual-cast host at a gated recovery edge; action 1=wake, 2=present. */
+    String recoverRearVirtualCastHost(String sessionId, int hostTaskId, int rearDisplayId,
+            int action, ISceneTaskActionGate actionGate) = 57;
+    /** Pauses/resumes this owned cast's existing Surface without releasing it during display power edges. */
+    String setRearVirtualCastOutputAvailable(String sessionId, boolean available, in Surface replacement,
+            ISceneTaskActionGate actionGate) = 58;
     /** Read-only cast admission snapshot; legacy foreground/ownership queries retain their semantics. */
     String getDisplayCastOccupancy(int displayId) = 59;
 }

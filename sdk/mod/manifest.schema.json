@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:remrss:mod:manifest:v1",
+  "title": "ReMRSS Mod manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "formatVersion",
+    "id",
+    "name",
+    "version",
+    "versionCode",
+    "author",
+    "platform",
+    "minimumAndroidApi",
+    "capabilities",
+    "permissions",
+    "scenes",
+    "runtime",
+    "data",
+    "payloads"
+  ],
+  "properties": {
+    "format": {
+      "const": "remrss.mod"
+    },
+    "formatVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]{2,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$",
+      "maxLength": 64
+    },
+    "versionCode": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "keyFingerprint"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "keyFingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api"
+      ],
+      "properties": {
+        "api": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "minimumAndroidApi": {
+      "type": "integer",
+      "minimum": 24,
+      "maximum": 1000
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "optional"
+      ],
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          },
+          "uniqueItems": true
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "optional"
+      ],
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/token"
+          },
+          "uniqueItems": true
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/token"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "scenes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "settings",
+        "rear"
+      ],
+      "properties": {
+        "settings": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]+\\.ui\\.json$"
+        },
+        "rear": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]+\\.ui\\.json$"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "quickjs"
+          ]
+        },
+        "entry": {
+          "type": "string",
+          "const": "main.js"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stateSchema",
+        "configSchema",
+        "dataVersion"
+      ],
+      "properties": {
+        "stateSchema": {
+          "type": "object"
+        },
+        "configSchema": {
+          "type": "object"
+        },
+        "dataVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "payloads": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 62,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "minimumVersion"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"
+        },
+        "minimumVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

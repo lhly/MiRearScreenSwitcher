@@ -44,7 +44,7 @@ class NavigationComposeTest {
         assertEquals("Drawing glass must not grow the navigation layout", before.height, after.height, 1f)
         val density = compose.activity.resources.displayMetrics.density
         assertTrue("Navigation must remain a compact control", after.height < 160f * density)
-        for (key in listOf("screen_title", "notifications_title", "about")) {
+        for (key in listOf("screen_title", "notifications_title", "nav_modules", "nav_settings")) {
             compose.onAllNodesWithContentDescription(label(key)).assertCountEquals(1)
             tab(key).assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
         }
@@ -56,7 +56,7 @@ class NavigationComposeTest {
         navigation.performTouchInput {
             swipe(Offset(width / 6f, height / 2f), Offset(width * 5f / 6f, height / 2f), 500)
         }
-        tab("about").assertIsSelected()
+        tab("nav_settings").assertIsSelected()
         navigation.performTouchInput {
             swipe(Offset(width * 5f / 6f, height / 2f), Offset(width / 6f, height / 2f), 500)
         }

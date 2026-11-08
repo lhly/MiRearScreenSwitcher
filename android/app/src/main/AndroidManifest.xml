@@ -21,6 +21,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- 通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 查询所有应用包权限 (Android 11+，用于通知功能选择应用) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission"/>
     
@@ -118,6 +120,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="背屏漫游服务"/>
         </service>
+
+        <service
+            android:name=".platform.runtime.ModRuntimeWorkerService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":modruntime" />
+
+        <service android:name=".ModuleDisplayRecoveryService" android:enabled="true" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="用户主动模块显示期间的背屏遮挡与锁屏事件恢复" />
+        </service>
         
         <!-- V2.3: 充电动画服务 -->
         <service
@@ -164,6 +177,38 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="背屏投放命令处理" />
         </service>
 
+        <!-- Public controlled SDK broker; identity is checked against Binder UID/package/signing certificate per call. -->
+        <service android:name=".platform.ipc.RemoteRearPlatformService" android:enabled="true" android:exported="true" />
+
+        <activity android:name=".SceneActivationConfirmationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".DataAccessConfirmationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".RearPluginsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".platform.mods.ModSettingsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".platform.mods.ModConfigActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".platform.mods.ModPreviewActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".platform.mods.ModRearSceneActivity" android:exported="true" android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true" android:launchMode="standard" android:taskAffinity="${applicationId}.mod.rear"
+            android:showWhenLocked="true" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale"
+            android:theme="@style/MiuixHostTheme">
+            <meta-data android:name="miui.rear.policy" android:value="1" />
+        </activity>
+        <activity android:name=".ModuleSettingsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".ModuleRearActivity" android:exported="true" android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true" android:launchMode="singleTask" android:taskAffinity="${applicationId}.module.rear"
+            android:showWhenLocked="true" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density|fontScale" android:theme="@style/MiuixHostTheme">
+            <meta-data android:name="miui.rear.policy" android:value="1" />
+        </activity>
+        <activity android:name=".NativeModuleLaunchActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@style/Theme.Transparent" android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode|fontScale|density|locale|layoutDirection" />
+        <receiver android:name=".timer.StageTimerAlarmReceiver" android:exported="false" />
+        <receiver android:name=".timer.ModuleRuntimeReceiver" android:exported="false">
+            <intent-filter><action android:name="top.zainzh.rearscreen.MODULE_CHANGED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".timer.StageTimerSystemReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <activity android:name=".DensityCompatibilityActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".VirtualRearHostActivity" android:exported="true" tools:targetApi="33"
             android:permission="android.permission.DUMP" android:excludeFromRecents="true"

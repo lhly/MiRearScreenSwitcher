@@ -1,0 +1,23 @@
+<resources>
+    <string name="registered_actions_title">快捷操作</string>
+    <string name="registered_actions_intro">选择要打开的应用，或添加系统提供的快捷方式。</string>
+    <string name="registered_actions_add_app">添加应用</string>
+    <string name="registered_actions_add">添加快捷方式</string>
+    <string name="registered_actions_working">正在保存…</string>
+    <string name="registered_actions_empty">尚未添加快捷操作</string>
+    <string name="registered_actions_picker_title">选择快捷方式提供方</string>
+    <string name="registered_actions_provider_cancel">取消</string>
+    <string name="registered_actions_no_provider">系统没有可用的快捷方式提供方</string>
+    <string name="registered_actions_provider_limit">快捷方式提供方过多，暂时无法显示</string>
+    <string name="registered_actions_no_app_picker">系统应用选择器不可用</string>
+    <string name="registered_action_cancelled">已取消，未保存</string>
+    <string name="registered_action_saved">快捷操作已登记</string>
+    <string name="registered_action_target_unavailable">目标应用或组件不可用；请重新登记</string>
+    <string name="registered_action_revoke">撤销登记</string>
+    <string name="registered_action_select">绑定到按钮</string>
+    <string name="registered_action_revoked">已撤销登记</string>
+    <string name="registered_action_missing">此登记已不存在</string>
+    <string name="registered_action_limit">登记数量已达上限</string>
+    <string name="registered_action_storage_failed">保存失败，请稍后重试</string>
+    <string name="registered_action_invalid">此快捷方式的目标或参数不受支持</string>
+</resources>

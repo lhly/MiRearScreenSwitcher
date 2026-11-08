@@ -1,0 +1,1 @@
+{"scene":"rear","root":{"type":"layout.column","children":[{"type":"ui.text","value":"Battery","style":"caption"},{"type":"ui.text","value":{"bind":"data.battery.level"},"style":"title"}]}}

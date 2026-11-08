@@ -26,6 +26,7 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
+    private static final int USER_SERVICE_CONTRACT_VERSION = 57;
     @Override public String getRearDisplayState() { return RearDisplay.state(); }
     @Override public String getCompatibilityDiagnostics() {
         try { return new org.json.JSONObject(CompatibilityDiagnostics.report())
@@ -37,11 +38,20 @@ public class TaskService extends ITaskService.Stub {
         try { return RearDisplay.physicalId(); }
         catch (Exception e) { throw new IllegalStateException("Rear physical display: " + e, e); }
     }
+    private final SystemMetricsReader systemMetrics = new SystemMetricsReader();
+    @Override public String readSystemMetrics() { return systemMetrics.read(); }
     @Override public String readSystemWeather() {
         return android.os.Build.VERSION.SDK_INT >= 26 ? SystemWeatherReader.read() : "{}";
     }
     private final RearInputProxy inputProxy = new RearInputProxy(this::isTaskOnDisplay);
     private final RearVirtualCast virtualCast = new RearVirtualCast(this, inputProxy);
+
+    // Transactions 52-56 remain reserved for wire compatibility; theme operations are not part of RC1.
+    @Override public String getOfficialThemeStatus() { return "{\"availability\":\"UNSUPPORTED\",\"reason\":\"not_in_rc1\"}"; }
+    @Override public String installOfficialTheme(String id, int systemId, String title, byte[] compiledResource) { throw new UnsupportedOperationException("E_UNSUPPORTED: official themes are not part of RC1"); }
+    @Override public String removeOfficialTheme(String id) { throw new UnsupportedOperationException("E_UNSUPPORTED: official themes are not part of RC1"); }
+    @Override public void prepareOfficialThemeHost(int task, String component, android.os.IBinder owner) { throw new UnsupportedOperationException("E_UNSUPPORTED: official themes are not part of RC1"); }
+    @Override public void cancelOfficialThemeHost(android.os.IBinder owner) { throw new UnsupportedOperationException("E_UNSUPPORTED: official themes are not part of RC1"); }
 
     @Override public String getRearCastViewport() {
         if (!BuildConfig.VIRTUAL_CAST_ENABLED) throw new SecurityException("Virtual casting is unavailable");
@@ -82,6 +92,16 @@ public class TaskService extends ITaskService.Stub {
         try { return virtualCast.updateSurface(id, surface); }
         catch (Exception e) { throw new IllegalStateException("Rear output reconnect: " + e, e); }
     }
+    @Override public String setRearVirtualCastOutputAvailable(String id, boolean available, android.view.Surface replacement,
+                                                               ISceneTaskActionGate actionGate) {
+        try { return virtualCast.setOutputAvailable(id, available, replacement, actionGate); }
+        catch (Exception e) { throw new IllegalStateException("Rear output power state: " + e, e); }
+    }
+    @Override public String recoverRearVirtualCastHost(String id, int host, int rearDisplayId, int action,
+                                                       ISceneTaskActionGate actionGate) {
+        try { return virtualCast.recoverHost(id, host, rearDisplayId, action, actionGate); }
+        catch (Exception e) { throw new IllegalStateException("Rear virtual host recovery: " + e, e); }
+    }
 
     @Override public String startRearInputProxy(String path, int task, android.os.IBinder owner) {
         if (!BuildConfig.DEBUG || !BuildConfig.INPUT_PROXY_PROTOTYPE) throw new SecurityException("Direct input probe is debug-only");
@@ -101,13 +121,31 @@ public class TaskService extends ITaskService.Stub {
         this.ownerUid = ownerUid;
         RearDisplay.initializeShell();
         if (ownerUid < 0) RearAppFreezeGuard.recoverStale();
+        CompatibilityDiagnostics.record("task_service_start", "user_service_contract=" + USER_SERVICE_CONTRACT_VERSION);
     }
 
     @Override public boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) throws RemoteException {
         int caller = android.os.Binder.getCallingUid();
         if (ownerUid >= 0 && caller != ownerUid && caller != android.os.Process.myUid())
             throw new SecurityException("Caller is not the Root service owner");
-        return super.onTransact(code, data, reply, flags);
+        long startedAt = android.os.SystemClock.elapsedRealtime();
+        try {
+            return super.onTransact(code, data, reply, flags);
+        } finally {
+            long elapsed = android.os.SystemClock.elapsedRealtime() - startedAt;
+            if (elapsed >= 1000L) Log.w(TAG, "binder_slow method=" + binderMethodName(code)
+                    + " code=" + code + " elapsed_ms=" + elapsed);
+        }
+    }
+
+    /** Uses generated AIDL transaction constants; Android's runtime code includes FIRST_CALL_TRANSACTION. */
+    private static String binderMethodName(int code) {
+        if (code == ITaskService.Stub.TRANSACTION_launchSceneActivity) return "launchSceneActivity";
+        if (code == ITaskService.Stub.TRANSACTION_verifySceneActivity) return "verifySceneActivity";
+        if (code == ITaskService.Stub.TRANSACTION_inspectSceneActivityTask) return "inspectSceneActivityTask";
+        if (code == ITaskService.Stub.TRANSACTION_finishSceneActivityTask) return "finishSceneActivityTask";
+        if (code == ITaskService.Stub.TRANSACTION_presentSceneActivityTask) return "presentSceneActivityTask";
+        return "unknown";
     }
 
     void closeSessions() {
@@ -228,7 +266,10 @@ public class TaskService extends ITaskService.Stub {
             boolean success = false;
             for (int attempt = 0; invoked && attempt < 10; attempt++) {
                 if (isTaskOnDisplay(taskId, displayId)) { success = true; break; }
-                Thread.sleep(50);
+                try { Thread.sleep(50); } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
             }
             CompatibilityDiagnostics.record("move_result", "task_id=" + taskId + " display_id=" + displayId
                     + " verified=" + success + " elapsed_ms=" + (System.currentTimeMillis() - startTime));
@@ -257,11 +298,11 @@ public class TaskService extends ITaskService.Stub {
             return false;
         }
     }
-    
+
     /**
      * 根据taskId获取包名（辅助方法）
      */
-    String getPackageNameFromTaskId(int taskId) {
+    @Override public String getPackageNameFromTaskId(int taskId) {
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             Process process = pb.start();
@@ -696,6 +737,138 @@ public class TaskService extends ITaskService.Stub {
     }
 
     @Override
+    public int launchSceneActivity(String component, int displayId, String launchTicket) throws RemoteException {
+        String validated = VirtualCastRequest.component(component);
+        if (displayId < 1 || !RearDisplay.isRear(displayId)) throw new IllegalArgumentException("Scene display is not the selected rear display");
+        if (launchTicket == null || !launchTicket.matches("[A-Za-z0-9_-]{24,64}")) throw new IllegalArgumentException("Invalid scene ticket");
+        SceneTaskLaunchFlow.Result result = SceneTaskLaunchFlow.launch(validated, displayId, launchTicket,
+                SceneTaskSnapshotReader::read, SceneTaskShellRunner::run,
+                (taskId, sceneComponent, actualDisplayId) -> {
+                    SceneTaskTaskRemover.Result removal = SceneTaskTaskRemover.remove(taskId, sceneComponent, actualDisplayId);
+                    return new SceneTaskLaunchFlow.CleanupResult(removal.removed, removal.reason);
+                }, new SceneTaskLaunchFlow.Time() {
+                    @Override public long elapsedRealtime() { return android.os.SystemClock.elapsedRealtime(); }
+                    @Override public void sleep(long millis) throws InterruptedException { Thread.sleep(millis); }
+                });
+        CompatibilityDiagnostics.record("scene_launch_attempt", "component=" + validated + " display=" + displayId + " " + result.diagnostic());
+        if (result.taskId < 0) CompatibilityDiagnostics.record("scene_launch_failed", "reason=" + result.failure);
+        CompatibilityDiagnostics.record("scene_launch", "component=" + validated + " task=" + result.taskId + " display=" + displayId);
+        return result.taskId;
+    }
+
+    @Override
+    public boolean wakeRearDisplayForScene(int displayId) throws RemoteException {
+        if (displayId < 1 || !RearDisplay.isRear(displayId)) return false;
+        SceneDisplayWakeup.Result result = SceneDisplayWakeup.wakeIfNeeded(displayId, id -> {
+            Object info = RearDisplay.info(id);
+            return info.getClass().getField("state").getInt(info);
+        }, id -> SceneTaskShellRunner.run("input -d " + id + " keyevent KEYCODE_WAKEUP", 1_500L),
+                new SceneDisplayWakeup.Time() {
+                    @Override public long elapsedRealtime() { return android.os.SystemClock.elapsedRealtime(); }
+                    @Override public void sleep(long millis) throws InterruptedException { Thread.sleep(millis); }
+                });
+        CompatibilityDiagnostics.record("scene_display_wake", "display=" + displayId + " status=" + result.status
+                + " command_exit=" + result.commandExit + " awake=" + result.awake);
+        return result.awake;
+    }
+
+    @Override
+    public String presentSceneActivityTask(int taskId, String component, int displayId,
+            ISceneTaskActionGate actionGate) throws RemoteException {
+        final String expected;
+        try {
+            expected = android.content.ComponentName.unflattenFromString(VirtualCastRequest.component(component)).flattenToString();
+        } catch (Exception invalid) {
+            return new SceneTaskPresentationFlow.Result("invalid_component", "input", taskId, displayId,
+                    null, null, -1).toJson();
+        }
+        if (taskId < 0 || displayId < 1 || !RearDisplay.isRear(displayId)) {
+            return new SceneTaskPresentationFlow.Result("invalid_task_or_display", "input", taskId, displayId,
+                    null, null, -1).toJson();
+        }
+        SceneTaskPresentationFlow.Result result = SceneTaskPresentationFlow.present(taskId, expected, displayId,
+                SceneTaskSnapshotReader::read,
+                id -> {
+                    try {
+                        DisplayRotationController.Result command = DisplayRotationController.runCommand(
+                                "am", "task", "focus", Integer.toString(id));
+                        return new SceneTaskPresentationFlow.FocusResult(
+                                RearSystemBridge.commandSucceeded(command), command.exitCode, null);
+                    } catch (Exception failure) {
+                        return new SceneTaskPresentationFlow.FocusResult(false, -1,
+                                failure.getClass().getSimpleName());
+                    }
+                }, top -> SceneTaskPresentationFlow.matchesKnownRearHome(RearSystemBridge.launcherCandidates(), top),
+                () -> SceneTaskPresentationFlow.invokeRemoteActionGate(
+                        actionGate == null ? null : actionGate::isCurrent));
+        CompatibilityDiagnostics.record("scene_task_present", result.diagnostic());
+        return result.toJson();
+    }
+
+    /** Returns only a single task created by this launch attempt; never guesses among existing/user tasks. */
+    public static int uniqueFreshSceneTaskId(java.util.Map<Integer, Integer> before,
+            java.util.Map<Integer, Integer> observed, int expectedDisplayId) {
+        int candidate = -1;
+        for (java.util.Map.Entry<Integer, Integer> entry : observed.entrySet()) {
+            int task = entry.getKey();
+            if (before.containsKey(task)) continue;
+            if (candidate >= 0) return -1;
+            candidate = task;
+            if (entry.getValue() != expectedDisplayId) return -1;
+        }
+        return candidate;
+    }
+
+    @Override
+    public boolean verifySceneActivity(int taskId, String component, int displayId) throws RemoteException {
+        try { return new org.json.JSONObject(inspectSceneTaskIdentity(taskId, component, displayId, false)).optString("status").equals("VERIFIED"); }
+        catch (Exception e) { return false; }
+    }
+
+    @Override
+    public String inspectSceneActivityTask(int taskId, String component, int displayId) throws RemoteException {
+        return inspectSceneTaskIdentity(taskId, component, displayId, true);
+    }
+
+    private String inspectSceneTaskIdentity(int taskId, String component, int displayId, boolean readyReport) {
+        if (taskId < 0 || displayId < 1) return new SceneTaskIdentity.Result(
+                SceneTaskIdentity.Status.PARSE_ERROR, "input", "invalid_task_or_display", null).toJson();
+        final String expected;
+        try { expected = android.content.ComponentName.unflattenFromString(VirtualCastRequest.component(component)).flattenToString(); }
+        catch (Exception e) { return new SceneTaskIdentity.Result(SceneTaskIdentity.Status.PARSE_ERROR, "input", "invalid_component", null).toJson(); }
+
+        try {
+            java.util.List<SceneTaskIdentity.Record> records = RearSystemBridge.runningTaskSnapshot();
+            SceneTaskIdentity.Result result = readyReport
+                    ? SceneTaskIdentity.verifyReady(records, taskId, expected, displayId, "activity_task")
+                    : SceneTaskIdentity.verifyOwner(records, taskId, expected, displayId, "activity_task");
+            CompatibilityDiagnostics.record("scene_verify", "task=" + taskId + " expected_display=" + displayId + " purpose=" + (readyReport ? "ready" : "owner") + " source=activity_task status=" + result.status
+                    + (result.detail == null ? "" : " detail=" + result.detail));
+            return result.toJson();
+        } catch (Exception binderError) {
+            // Reflection/API/permission failures are distinguished from an authoritative task
+            // mismatch. Only this unavailable-query path falls back to the bounded legacy shell.
+            CompatibilityDiagnostics.record("scene_verify_query_unavailable", "type=" + binderError.getClass().getSimpleName());
+        }
+
+        SceneTaskShellRunner.Result shell = SceneTaskShellRunner.run("am stack list", 3000);
+        SceneTaskIdentity.Result result = SceneTaskIdentity.verifyShellSnapshot(shell.output, shell.exitCode,
+                shell.timedOut, shell.truncated, taskId, expected, displayId, readyReport);
+        CompatibilityDiagnostics.record("scene_verify", "task=" + taskId + " expected_display=" + displayId
+                + " purpose=" + (readyReport ? "ready" : "owner") + " source=am_stack_list status=" + result.status
+                + (result.detail == null ? "" : " detail=" + result.detail));
+        return result.toJson();
+    }
+
+    @Override
+    public boolean finishSceneActivityTask(int taskId, String component, int displayId) throws RemoteException {
+        SceneTaskTaskRemover.Result result = SceneTaskTaskRemover.remove(taskId, component, displayId);
+        CompatibilityDiagnostics.record("scene_close", "component=" + component + " task=" + taskId
+                + " removed=" + result.removed + " reason=" + result.reason);
+        return result.removed;
+    }
+
+    @Override
     public boolean isTaskOnDisplay(int taskId, int displayId) throws RemoteException {
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
@@ -775,7 +948,7 @@ public class TaskService extends ITaskService.Stub {
             return null;
         }
     }
-    
+
     @Override public String getDisplayCastOccupancy(int displayId) {
         return RearDisplayCastOccupancyReader.read(displayId).toJson();
     }

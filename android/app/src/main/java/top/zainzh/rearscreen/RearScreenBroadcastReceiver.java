@@ -59,13 +59,19 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        long timestamp = System.currentTimeMillis();
-        if (hasActiveTask()) {
+        if (ModuleDisplayRecoveryService.hasActiveLease()
+                && (Intent.ACTION_SCREEN_OFF.equals(action) || Intent.ACTION_SCREEN_ON.equals(action))) {
+            Log.d(TAG, "module display lease owns recovery; skip legacy screen receiver");
+            return;
         }
         if ("miui.intent.action.SUB_SCREEN_ON".equals(action)) {
             // 背屏点亮时的处理
             handleScreenOn(context);
         } else if ("miui.intent.action.SUB_SCREEN_OFF".equals(action)) {
+            if (ModuleDisplayRecoveryService.hasActiveLease()) {
+                ModuleDisplayRecoveryService.notifyManualRearOff(context);
+                return;
+            }
             // 背屏熄灭时的处理
             handleScreenOff(context);
         } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {

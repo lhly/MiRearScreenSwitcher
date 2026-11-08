@@ -1,0 +1,23 @@
+<resources>
+    <string name="registered_actions_title">快速操作</string>
+    <string name="registered_actions_intro">選擇要開啟的應用程式，或新增系統提供的捷徑。</string>
+    <string name="registered_actions_add_app">新增應用程式</string>
+    <string name="registered_actions_add">新增捷徑</string>
+    <string name="registered_actions_working">正在儲存…</string>
+    <string name="registered_actions_empty">尚未新增快速操作</string>
+    <string name="registered_actions_picker_title">選擇捷徑提供者</string>
+    <string name="registered_actions_provider_cancel">取消</string>
+    <string name="registered_actions_no_provider">系統沒有可用的捷徑提供者</string>
+    <string name="registered_actions_provider_limit">捷徑提供者過多，暫時無法顯示</string>
+    <string name="registered_actions_no_app_picker">系統應用程式選擇器不可用</string>
+    <string name="registered_action_cancelled">已取消，未儲存</string>
+    <string name="registered_action_saved">快速操作已登記</string>
+    <string name="registered_action_target_unavailable">目標應用程式或元件不可用；請重新登記</string>
+    <string name="registered_action_revoke">撤銷登記</string>
+    <string name="registered_action_select">綁定至按鈕</string>
+    <string name="registered_action_revoked">已撤銷登記</string>
+    <string name="registered_action_missing">此登記已不存在</string>
+    <string name="registered_action_limit">登記數量已達上限</string>
+    <string name="registered_action_storage_failed">儲存失敗，請稍後再試</string>
+    <string name="registered_action_invalid">此捷徑目標或參數不受支援</string>
+</resources>

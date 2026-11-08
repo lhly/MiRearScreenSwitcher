@@ -1,0 +1,1 @@
+{"scene":"settings","root":{"type":"layout.column","children":[{"type":"ui.text","value":"Battery status","style":"title"},{"type":"ui.text","value":{"bind":"data.battery.level"},"style":"body"}]}}

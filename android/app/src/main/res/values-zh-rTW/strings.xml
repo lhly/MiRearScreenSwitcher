@@ -16,4 +16,8 @@
     <string name="notif_running_on_rear">正在背屏運行</string>
     <string name="notif_click_to_return">點擊將 %s 切換回主屏</string>
     <string name="notif_mrss_running">ReMRSS目前正在運行</string>
+    <string name="module_recovery_notification_channel">模組顯示工作階段</string>
+    <string name="module_recovery_notification_title">計時器正在背屏執行</string>
+    <string name="module_recovery_notification_text">遮擋時暫停顯示，移開後恢復</string>
+    <string name="module_recovery_stop">結束計時並退出</string>
 </resources>

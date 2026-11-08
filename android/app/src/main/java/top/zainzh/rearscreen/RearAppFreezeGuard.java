@@ -30,10 +30,14 @@ final class RearAppFreezeGuard implements AutoCloseable {
         catch (Exception e) { Log.w("RearAppFreezeGuard", "Recovery deferred to the active guard or next cast", e); }
     }
     static RearAppFreezeGuard start(String pkg) throws Exception {
-        RearFreezeState.validatePackage(pkg);
+        return startAll(new String[]{pkg});
+    }
+    static RearAppFreezeGuard startAll(String[] packages) throws Exception {
+        if (packages.length < 1 || packages.length > 2) throw new IllegalArgumentException("Invalid freeze package count");
+        for (String pkg : packages) RearFreezeState.validatePackage(pkg);
         if (!required()) return new RearAppFreezeGuard(null, "not_needed");
         RearFreezeDirectory.prepareShellOwner(RearFreezeGuardProcess.DIRECTORY);
-        ProcessBuilder builder = shellProcess(pkg);
+        ProcessBuilder builder = shellProcess(String.join(",", packages));
         java.lang.Process process = builder.start();
         RearAppFreezeGuard guard = new RearAppFreezeGuard(process, "temporary_whitelist");
         CompletableFuture<Boolean> ready = new CompletableFuture<>();

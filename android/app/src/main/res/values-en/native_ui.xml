@@ -143,4 +143,24 @@
     <string name="ui_installer_unavailable" formatted="false">Cannot open the installer or installation settings. You can use the releases page.</string>
     <string name="ui_current_version" formatted="false">Current version: {0}</string>
     <string name="ui_update_size" formatted="false">APK size: {0}</string>
+    <string name="ui_nav_modules" formatted="false">Modules</string>
+    <string name="ui_nav_settings" formatted="false">Settings</string>
+    <string name="ui_nav_cast" formatted="false">Casting &amp; display</string>
+    <string name="ui_nav_cast_help" formatted="false">Choose where the rear screen is shown and review display options.</string>
+    <string name="ui_nav_wake" formatted="false">Wake and screen-off</string>
+    <string name="ui_nav_wake_help" formatted="false">Set how the rear screen wakes and stays available.</string>
+    <string name="ui_nav_charging" formatted="false">Charging display</string>
+    <string name="ui_nav_charging_help" formatted="false">Configure the charging animation and always-on display.</string>
+    <string name="ui_nav_screenshots" formatted="false">Screenshot tools</string>
+    <string name="ui_nav_screenshots_help" formatted="false">Set screenshot frame, composition and color.</string>
+    <string name="ui_nav_cast_virtual" formatted="false">Rear screen is shown through virtual casting.</string>
+    <string name="ui_nav_cast_direct" formatted="false">Rear screen uses direct device output.</string>
+    <string name="ui_nav_wake_state" formatted="false">Keep casting bright: {0} · Stay awake: {1} · Handle cover: {2}</string>
+    <string name="ui_nav_charging_state" formatted="false">Charging animation: {0} · Always on: {1}</string>
+    <string name="ui_status_on" formatted="false">On</string>
+    <string name="ui_status_off" formatted="false">Off</string>
+    <string name="ui_nav_about_help" formatted="false">About this app, the source and acknowledgements.</string>
+    <string name="ui_settings_runtime" formatted="false">Runtime</string>
+    <string name="ui_settings_usage" formatted="false">Use</string>
+    <string name="ui_settings_support" formatted="false">Version and support</string>
 </resources>

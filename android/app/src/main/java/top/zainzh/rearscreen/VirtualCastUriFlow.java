@@ -24,9 +24,12 @@ final class VirtualCastUriFlow {
         if (!BuildConfig.VIRTUAL_CAST_ENABLED || !("switch".equals(uri.getHost()) || "return".equals(uri.getHost()))) return false;
         try {
             JSONObject before = new JSONObject(remote.getRearVirtualCastStatus());
-            if ("return".equals(uri.getHost())) return stop(context, remote, uri, before);
+            if ("return".equals(uri.getHost())) {
+                Log.i(TAG, "cast_dispatch mode=virtual action=return state=" + before.optString("state", "unknown"));
+                return stop(context, remote, uri, before);
+            }
             if ("running".equals(before.optString("state")) || "starting".equals(before.optString("state"))) {
-                Log.i(TAG, "switch_ignored active_session=" + before.optString("id"));
+                Log.i(TAG, "cast_gate mode=virtual stage=session state=" + before.optString("state") + " result=busy");
                 toast(context, "虚拟背屏已在投放，请先停止当前投放");
                 return true;
             }
@@ -37,9 +40,10 @@ final class VirtualCastUriFlow {
             if (!RearCastMode.useVirtual(context)) {
                 // The retired physical input comparison must not leak into normal direct casting.
                 RearInputProxySession.setEnabled(context, false);
-                Log.i(TAG, "switch_direct_selected");
+                Log.i(TAG, "cast_dispatch mode=physical action=switch source=virtual_uri_router");
                 return false;
             }
+            Log.i(TAG, "cast_dispatch mode=virtual action=switch");
             VirtualCastRequest.rotation(uri.getQueryParameter("rotation"));
             int density = VirtualCastRequest.density(uri.getQueryParameter("dpi"));
             finishOldHost(remote, before);
@@ -53,12 +57,14 @@ final class VirtualCastUriFlow {
             String targetPackage, launchComponent = null;
             int task;
             if (VirtualCastRequest.yes(uri.getQueryParameter("current"))) {
-                String[] parts = awaitForeground(context, remote, null).split(":");
+                Log.i(TAG, "cast_target mode=virtual kind=main_foreground");
+                String[] parts = awaitForeground(context, remote).split(":");
                 targetPackage = VirtualCastRequest.packageName(parts[0]);
                 task = Integer.parseInt(parts[1]);
                 if (!remote.isTaskOnDisplay(task, 0)) throw new IllegalStateException("目标任务已离开主屏");
             } else {
                 String activity = uri.getQueryParameter("activity"), pkg = uri.getQueryParameter("packageName");
+                Log.i(TAG, "cast_target mode=virtual kind=" + (activity != null ? "explicit_activity" : "package_launch"));
                 if (activity != null) {
                     launchComponent = VirtualCastRequest.component(activity);
                     pkg = activity.substring(0, activity.indexOf('/'));
@@ -87,35 +93,34 @@ final class VirtualCastUriFlow {
                 if (targetPackage.equals(state.optString("package")) && !state.optString("id").equals(before.optString("id"))) {
                     if ("running".equals(state.optString("state"))) {
                         RearAnimationManager.projectionStarted(context);
-                        Log.i(TAG, "switch_running id=" + state.optString("id") + " task=" + state.optInt("task") + " display=" + state.optInt("display"));
+                        Log.i(TAG, "cast_stage mode=virtual target=owned_display status=running result=committed");
                         toast(context, "已投放到虚拟背屏");
                         return true;
                     }
-                    if ("stopped".equals(state.optString("state"))) throw new IllegalStateException(state.optString("reason"));
+                    if ("stopped".equals(state.optString("state"))) {
+                        Log.i(TAG, "cast_stage mode=virtual target=owned_display status=stopped result=not_committed");
+                        throw new IllegalStateException(state.optString("reason"));
+                    }
                 }
                 Thread.sleep(100);
             } while (SystemClock.uptimeMillis() < end);
             // Finish only the host we just requested; its queued start then scoped stop releases resources.
             remote.executeShellCommand("am start --display " + RearDisplay.requireId() + " -n " + context.getPackageName() + "/" + HOST + " --ez stop true");
+            Log.i(TAG, "cast_stage mode=virtual target=owned_display status=timeout result=cancel_requested");
             throw new IllegalStateException("虚拟背屏启动超时，已取消");
         } catch (Exception e) {
-            Log.e(TAG, "Virtual casting URI failed", e);
+            Log.e(TAG, "cast_result mode=" + (RearCastMode.useVirtual(context) ? "virtual" : "physical")
+                    + " result=failed error=" + e.getClass().getSimpleName());
             toast(context, "虚拟背屏：" + e.getMessage());
             return true; // Never silently fall through into the physical rear path on failure.
         }
     }
-    private static String awaitForeground(Context context, ITaskService remote, String expected) throws Exception {
-        long end = SystemClock.uptimeMillis() + 4000;
-        do {
-            String value = remote.getCurrentForegroundApp();
-            if (value != null && value.matches("[^:]+:[0-9]+")) {
-                String pkg = value.substring(0, value.indexOf(':'));
-                if (!pkg.equals(context.getPackageName()) && !pkg.equals("com.miui.home")
-                        && !pkg.equals("com.xiaomi.subscreencenter") && (expected == null || expected.equals(pkg))) return value;
-            }
-            Thread.sleep(100);
-        } while (SystemClock.uptimeMillis() < end);
-        throw new IllegalStateException("未找到要投放的主屏应用");
+    private static String awaitForeground(Context context, ITaskService remote) throws Exception {
+        CurrentMainTaskSelector.Result result = CurrentMainTaskSelector.await(
+                displayId -> remote.getDisplayCastOccupancy(displayId), context.getPackageName(), 4000, 100);
+        if (result.target != null) return result.target.legacyForegroundValue();
+        Log.i(TAG, "cast_target mode=virtual kind=main_foreground result=unresolved reason=" + result.reason);
+        throw new IllegalStateException("无法确认当前主屏应用，请回到目标应用后重试");
     }
     private static boolean stop(Context context, ITaskService remote, Uri uri, JSONObject state) throws Exception {
         if (!("running".equals(state.optString("state")) || "starting".equals(state.optString("state")))) {
@@ -167,7 +172,13 @@ final class VirtualCastUriFlow {
     }
     private static void finishOldHost(ITaskService remote, JSONObject state) throws Exception {
         int host = state.optInt("host", -1);
-        if (host >= 0 && remote.isTaskOnDisplay(host, RearDisplay.requireId())) {
+        int rearDisplay = RearDisplay.requireId();
+        if (host <= 0) return;
+        if (!VirtualCastRequest.mayRemoveStaleVirtualHostTask(host, rearDisplay)) {
+            Log.i(TAG, "cast_gate mode=virtual stage=old_host_cleanup result=preserve_active_scene");
+            return;
+        }
+        if (host >= 0 && remote.isTaskOnDisplay(host, rearDisplay)) {
             remote.executeShellCommand("am stack remove " + host);
             long end = SystemClock.uptimeMillis() + 2000;
             while (remote.isTaskOnDisplay(host, RearDisplay.requireId()) && SystemClock.uptimeMillis() < end) Thread.sleep(50);

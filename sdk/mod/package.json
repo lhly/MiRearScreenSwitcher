@@ -1,0 +1,15 @@
+{
+  "name": "@remrss/mod-sdk",
+  "version": "1.0.5",
+  "description": "Types and package tools for ReMRSS ZIP Mods",
+  "type": "module",
+  "exports": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,1 @@
+{"scene":"rear","root":{"type":"layout.column","children":[{"type":"ui.text","value":"Count","style":"caption"},{"type":"ui.number","value":{"bind":"state.count"},"style":"displayNumber"},{"type":"ui.text","value":{"bind":"state.stepUsed"},"style":"caption"},{"type":"ui.button","label":"+","onPress":{"type":"event","name":"counter.increment"}}]}}

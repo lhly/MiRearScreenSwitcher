@@ -145,21 +145,25 @@ public final class RearTouchRouter {
 
     public void cancel(long time) throws Exception { dismissMenu(time); awaitingAllUp = contacts > 0; notificationTap = false; reset(); touch.cancel(time); }
 
-    public void frame(List<RearTouchState.Contact> next, long time) throws Exception {
+    /** Returns true for a completed accepted contact frame, including a matched real final UP. */
+    public boolean frame(List<RearTouchState.Contact> next, long time) throws Exception {
         RearTouchState.validateContacts(next);
         int previousContacts = contacts;
         contacts = next.size();
-        if (notificationClaimed && notificationFrame(next, previousContacts)) return;
-        if (menuOpen) { menuFrame(next, time); return; }
-        if (notificationFrame(next, previousContacts)) return;
+        // A final UP belongs to a live sequence only when a prior real frame established contacts.
+        // This deliberately excludes first/repeated empty frames and the post-pause all-up drain.
+        boolean acceptedInteraction = available && !awaitingAllUp && (!next.isEmpty() || previousContacts > 0);
+        if (notificationClaimed && notificationFrame(next, previousContacts)) return acceptedInteraction;
+        if (menuOpen) { menuFrame(next, time); return acceptedInteraction; }
+        if (notificationFrame(next, previousContacts)) return acceptedInteraction;
         if (available && awaitingAllUp) {
             if (next.isEmpty()) { touch.frame(next, time); awaitingAllUp = false; }
-            return; // A dismissed menu must not create a late App DOWN from a still-held finger.
+            return false; // A dismissed menu must not create a late App DOWN from a still-held finger.
         }
         if (!navigation || !available) {
             touch.frame(next, time);
             if (next.isEmpty()) awaitingAllUp = false;
-            return;
+            return acceptedInteraction;
         }
         if (next.isEmpty()) {
             boolean consumed = claimed;
@@ -177,7 +181,7 @@ public final class RearTouchRouter {
                 } else if (perform) back.send(time);
             }
             else touch.frame(next, time);
-            return;
+            return acceptedInteraction;
         }
         RearTouchState.Contact first = next.get(0);
         if (!sequence) {
@@ -216,5 +220,6 @@ public final class RearTouchRouter {
             }
         }
         if (!claimed) touch.frame(next, time);
+        return acceptedInteraction;
     }
 }

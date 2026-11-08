@@ -1,0 +1,12 @@
+[
+  {
+    "name": "saving a new step updates derived state in the same model",
+    "state": {"count": 7, "stepUsed": 1, "previousStep": 1},
+    "previousConfig": {"step": 1},
+    "config": {"step": 4},
+    "expected": {
+      "state": {"count": 7, "stepUsed": 4, "previousStep": 1},
+      "config": {"step": 4}
+    }
+  }
+]

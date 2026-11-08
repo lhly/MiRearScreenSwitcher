@@ -58,3 +58,8 @@ The application as a whole continues to be distributed under GPL-3.0.
 Root service transport uses libsu 6.0.0 by John "topjohnwu" Wu (Apache License 2.0).
 Source: https://github.com/topjohnwu/libsu
 License: third_party/LIBSU-LICENSE.txt (also bundled in app assets).
+
+Optional isolated Mod scripting uses QuickJS 2026-06-04 by Fabrice Bellard and
+Charlie Gordon, compiled from upstream source without its `quickjs-libc` host
+wrappers. https://bellard.org/quickjs/
+License: MIT; full text is third_party/QUICKJS-LICENSE.txt and is bundled in app assets.

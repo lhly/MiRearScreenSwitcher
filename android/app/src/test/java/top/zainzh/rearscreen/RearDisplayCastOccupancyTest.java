@@ -14,6 +14,20 @@ public class RearDisplayCastOccupancyTest {
     private static final String APP = "com.example.reader";
     private static final RearDisplayCastOccupancy.SceneTaskMatcher NO_SCENE = (task, display) -> false;
 
+    @Test public void occupancySnapshotRoundTripPreservesSingleQueryPowerWindow() {
+        RearDisplayCastOccupancy.Snapshot source = new RearDisplayCastOccupancy.Snapshot(7, 0,
+                Display.STATE_ON, Display.STATE_DOZE,
+                Collections.singletonList(task(42, HOST, false, true, true)), "activity_task", null);
+        RearDisplayCastOccupancy.Snapshot parsed = RearDisplayCastOccupancy.Snapshot.parse(source.toJson(), 7);
+
+        assertEquals("activity_task", parsed.source);
+        assertNull(parsed.failure);
+        assertEquals(0, parsed.displayState);
+        assertEquals(Display.STATE_ON, parsed.powerBefore);
+        assertEquals(Display.STATE_DOZE, parsed.powerAfter);
+        assertEquals(42, parsed.tasks.get(0).taskId);
+    }
+
     @Test public void hiddenFirstTaskDoesNotObscureActualLauncherOrKeepAnEmptyDisplayBusy() {
         RearDisplayCastOccupancy.Task hidden = task(10, APP, false, false, false);
         RearDisplayCastOccupancy.Result home = evaluate(hidden, task(11, HOME, true, true, false));

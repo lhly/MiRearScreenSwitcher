@@ -69,6 +69,16 @@ public final class FreezeStateTest {
    try{g.ensure("bad; package");throw new AssertionError();}catch(IllegalArgumentException expected){}
    check(s.writes==0);
   }});
+  test("com.host.app",(s,f)->{try(RearFreezeState g=new RearFreezeState(s,f)){
+   g.ensureAll(new String[]{"com.host.app",APP});s.value+=", com.user.new";g.restore();check("com.host.app, com.user.new".equals(s.value));
+  }});
+  test(null,(s,f)->{
+   try(RearFreezeState g=new RearFreezeState(s,f)){g.ensureAll(new String[]{"com.host.app",APP});}
+   try(RearFreezeState g=new RearFreezeState(s,f)){g.restore();check(s.value==null);}
+  });
+  test("com.original.one",(s,f)->{try(RearFreezeState g=new RearFreezeState(s,f)){
+   g.ensureAll(new String[]{"com.host.app",APP});s.value="com.new.policy, com.host.app";g.ensureAll(new String[]{"com.host.app",APP});g.restore();check("com.new.policy".equals(s.value));
+  }});
   System.out.println("PASS "+passed+" freeze recovery cases: exact baseline, missing value, existing entry, crash, concurrent edits, policy rebuild, failed writes and exclusive ownership");
  }
 }'''

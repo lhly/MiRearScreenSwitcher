@@ -32,13 +32,27 @@ final class RearDisplayCastOccupancy {
     }
 
     static final class Snapshot {
-        final int displayId, displayState;
+        final int displayId, displayState, powerBefore, powerAfter;
+        final int focusedTaskId;
         final List<Task> tasks;
         final String source, failure;
 
         Snapshot(int displayId, int displayState, List<Task> tasks, String source, String failure) {
+            this(displayId, displayState, displayState, displayState, -1, tasks, source, failure);
+        }
+
+        Snapshot(int displayId, int displayState, int powerBefore, int powerAfter,
+                 List<Task> tasks, String source, String failure) {
+            this(displayId, displayState, powerBefore, powerAfter, -1, tasks, source, failure);
+        }
+
+        Snapshot(int displayId, int displayState, int powerBefore, int powerAfter, int focusedTaskId,
+                 List<Task> tasks, String source, String failure) {
             this.displayId = displayId;
             this.displayState = displayState;
+            this.powerBefore = powerBefore;
+            this.powerAfter = powerAfter;
+            this.focusedTaskId = focusedTaskId;
             this.tasks = tasks;
             this.source = source;
             this.failure = failure;
@@ -47,7 +61,9 @@ final class RearDisplayCastOccupancy {
         String toJson() {
             try {
                 JSONObject value = new JSONObject().put("display", displayId).put("power", displayState)
+                        .put("powerBefore", powerBefore).put("powerAfter", powerAfter)
                         .put("source", source).put("status", failure == null ? "ok" : "unavailable");
+                if (focusedTaskId >= 0) value.put("focusedTask", focusedTaskId);
                 if (failure != null) value.put("reason", failure);
                 JSONArray rows = new JSONArray();
                 for (Task task : tasks) rows.put(new JSONObject().put("task", task.taskId)
@@ -62,8 +78,15 @@ final class RearDisplayCastOccupancy {
         static Snapshot parse(String encoded, int expectedDisplay) {
             try {
                 JSONObject value = new JSONObject(encoded);
-                if (!"ok".equals(value.getString("status")) || value.getInt("display") != expectedDisplay)
-                    throw new IllegalArgumentException("snapshot_unavailable_or_wrong_display");
+                String source = safeSource(value.optString("source", "unavailable"));
+                int power = value.optInt("power", 0);
+                int powerBefore = value.optInt("powerBefore", power);
+                int powerAfter = value.optInt("powerAfter", power);
+                if (!"ok".equals(value.getString("status")))
+                    return unavailable(expectedDisplay, source, safeFailure(value.optString("reason", "snapshot_unavailable")),
+                            power, powerBefore, powerAfter);
+                if (value.getInt("display") != expectedDisplay)
+                    return unavailable(expectedDisplay, source, "wrong_display", power, powerBefore, powerAfter);
                 JSONArray rows = value.getJSONArray("tasks");
                 List<Task> tasks = new ArrayList<>();
                 java.util.Set<Integer> ids = new java.util.HashSet<>();
@@ -74,9 +97,35 @@ final class RearDisplayCastOccupancy {
                     tasks.add(new Task(id, optionalPackage(row, "base"), optionalPackage(row, "top"),
                             optionalBoolean(row, "visible"), optionalBoolean(row, "requested"), optionalBoolean(row, "sleeping")));
                 }
-                return new Snapshot(expectedDisplay, value.getInt("power"), tasks, value.getString("source"), null);
+                return new Snapshot(expectedDisplay, power, powerBefore, powerAfter,
+                        value.optInt("focusedTask", -1), tasks, source, null);
             } catch (Exception invalid) {
-                return unavailable(expectedDisplay, "snapshot", "unreadable");
+                return unavailable(expectedDisplay, "unavailable", "snapshot_unreadable");
+            }
+        }
+
+        private static String safeSource(String source) {
+            if ("activity_task".equals(source)) return source;
+            if ("activity_task_focused_stack".equals(source)) return source;
+            if ("activity_focused_stack".equals(source)) return source;
+            if ("am_stack_list".equals(source)) return source;
+            return "unavailable";
+        }
+
+        private static String safeFailure(String failure) {
+            switch (failure) {
+                case "invalid_display":
+                case "query_failed":
+                case "query_or_parse_failed":
+                case "wrong_display":
+                case "snapshot_unreadable":
+                case "snapshot_unavailable":
+                case "invalid_task_identity":
+                case "invalid_visibility":
+                case "encoding":
+                    return failure;
+                default:
+                    return "snapshot_unavailable";
             }
         }
 
@@ -107,12 +156,18 @@ final class RearDisplayCastOccupancy {
     private RearDisplayCastOccupancy() {}
 
     static Snapshot unavailable(int displayId, String source, String reason) {
-        return new Snapshot(displayId, 0, java.util.Collections.emptyList(), source, reason);
+        return unavailable(displayId, source, reason, 0, 0, 0);
+    }
+
+    static Snapshot unavailable(int displayId, String source, String reason,
+                                int power, int powerBefore, int powerAfter) {
+        return new Snapshot(displayId, power, powerBefore, powerAfter,
+                java.util.Collections.emptyList(), Snapshot.safeSource(source), Snapshot.safeFailure(reason));
     }
 
     static Result query(ITaskService service, String hostPackage, int displayId) throws android.os.RemoteException {
         return query(service, hostPackage, displayId,
-                (foreground, selectedDisplay) -> false);
+                top.zainzh.rearscreen.platform.RearCapabilityCore::isActiveSceneTaskForeground);
     }
 
     static Result query(ITaskService service, String hostPackage, int displayId,

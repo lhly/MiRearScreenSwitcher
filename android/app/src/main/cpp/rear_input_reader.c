@@ -16,6 +16,7 @@
 #include <sys/prctl.h>
 #include <time.h>
 #include <unistd.h>
+#include "rear_input_reader_control.h"
 
 #define MAX_CONTACTS 16
 static volatile sig_atomic_t stopping;
@@ -48,6 +49,18 @@ static void frame(int slots, const int *ids, const int *xs, const int *ys, int64
     for (int i = 0; i < slots; i++) if (ids[i] >= 0) printf(" %d:%d:%d:%d", i, ids[i], xs[i], ys[i]);
     putchar('\n');
     if (fflush(stdout) == EOF) stopping = 1;
+}
+/* Try to restore the exclusive grab only at a neutral contact boundary. The fd stays
+ * ungrabbed while waiting, so the system still receives wake gestures. */
+static int reacquire_if_idle(int fd, int slots, int *ids, struct input_absinfo *slot) {
+    struct input_event events[64];
+    while (read(fd, events, sizeof(events)) > 0) { }
+    if (ioctl(fd, EVIOCGABS(ABS_MT_SLOT), slot) || snapshot(fd, ABS_MT_TRACKING_ID, slots, ids)) return -1;
+    for (int i = 0; i < slots; i++) if (ids[i] >= 0) return 0;
+    if (ioctl(fd, EVIOCGRAB, 1)) return -1;
+    if (snapshot(fd, ABS_MT_TRACKING_ID, slots, ids)) { ioctl(fd, EVIOCGRAB, 0); return -1; }
+    for (int i = 0; i < slots; i++) if (ids[i] >= 0) { ioctl(fd, EVIOCGRAB, 0); return 0; }
+    return 1;
 }
 static int stream(int fd, const char *path, const int *expected) {
     struct input_absinfo slot, ax, ay;
@@ -84,22 +97,51 @@ static int stream(int fd, const char *path, const int *expected) {
     }
     if (!grabbed) { fprintf(stderr, "ERROR rear fingers not released\n"); return 5; }
     for (int i = 0; i < slots; i++) ids[i] = -1;
-    printf("READY %s %d %d %d %d %d\n", path, slots, ax.minimum, ax.maximum, ay.minimum, ay.maximum); fflush(stdout);
+    printf("READY2 0 %s %d %d %d %d %d\n", path, slots, ax.minimum, ax.maximum, ay.minimum, ay.maximum); fflush(stdout);
     int current_slot = slot.value, dropped = 0;
     if (current_slot < 0 || current_slot >= slots) { ioctl(fd, EVIOCGRAB, 0); return 3; }
     int64_t heartbeat = millis();
+    ReaderControlState control = {0};
     while (!stopping && millis() - heartbeat < 4000) {
         struct pollfd polls[2] = {{fd, POLLIN, 0}, {STDIN_FILENO, POLLIN | POLLHUP, 0}};
-        int status = poll(polls, 2, 200);
+        int status = poll(polls, 2, reader_watchdog_timeout_ms(heartbeat, millis()));
         if (status < 0) { if (errno == EINTR) continue; break; }
+        if (status == 0) break; /* Preserve the existing 4 s native watchdog even if stdin stays open. */
         if (polls[1].revents & (POLLHUP | POLLERR | POLLNVAL)) break;
         if (polls[1].revents & POLLIN) {
             char command[64]; ssize_t n = read(STDIN_FILENO, command, sizeof(command));
-            if (n <= 0 || memchr(command, 'Q', (size_t)n)) break;
-            heartbeat = millis();
+            if (n <= 0) break;
+            for (ssize_t i = 0; i < n; i++) {
+                enum ReaderControlAction action = reader_control_stream_byte(&control, command[i]);
+                if (action == CONTROL_IGNORE) continue;
+                if (action == CONTROL_QUIT) break; /* Q is terminal; ignore all following bytes. */
+                if (action == CONTROL_HEARTBEAT) heartbeat = millis();
+                if (action == CONTROL_PAUSE) {
+                    if (grabbed) { ioctl(fd, EVIOCGRAB, 0); grabbed = 0; }
+                    for (int slot_index = 0; slot_index < slots; slot_index++) ids[slot_index] = -1;
+                    printf("PAUSED %llu\n", control.epoch); fflush(stdout);
+                }
+            }
+            if (control.quit) break;
         }
         if (polls[0].revents & (POLLHUP | POLLERR | POLLNVAL)) break;
+        if (control.paused && control.resume_pending && (control.resume_edge || (polls[0].revents & POLLIN))) {
+            int acquired = reacquire_if_idle(fd, slots, ids, &slot);
+            if (acquired < 0) break;
+            if (acquired > 0) {
+                control.paused = 0; control.resume_pending = 0; grabbed = 1; current_slot = slot.value; dropped = 0;
+                for (int i = 0; i < slots; i++) ids[i] = -1;
+                printf("READY2 %llu %s %d %d %d %d %d\n", control.epoch, path, slots, ax.minimum, ax.maximum, ay.minimum, ay.maximum);
+                fflush(stdout);
+            }
+            control.resume_edge = 0;
+            if (control.paused && control.resume_pending && (polls[0].revents & POLLIN)) continue;
+        }
         if (!(polls[0].revents & POLLIN)) continue;
+        if (control.paused) {
+            struct input_event discarded[64]; while (read(fd, discarded, sizeof(discarded)) > 0) { }
+            continue;
+        }
         ssize_t size = read(fd, events, sizeof(events));
         if (size < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }
         if (!size || size % sizeof(struct input_event)) break;

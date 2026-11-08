@@ -1,0 +1,4 @@
+<resources>
+    <string name="timer_channel_name">阶段提醒</string><string name="timer_runtime_finished">计时已完成</string>
+    <string name="timer_alarm_caveat">Doze 和省电策略可能延迟阶段提醒。</string>
+</resources>

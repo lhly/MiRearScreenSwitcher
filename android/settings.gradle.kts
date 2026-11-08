@@ -6,3 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
 }
 include(":app")
+include(":platform-sdk")
+project(":platform-sdk").projectDir = file("../sdk/android")
+include(":platform-sdk-sample")
+project(":platform-sdk-sample").projectDir = file("../sdk/sample")

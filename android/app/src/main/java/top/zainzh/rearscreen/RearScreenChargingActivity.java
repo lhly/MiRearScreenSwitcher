@@ -104,6 +104,7 @@ public class RearScreenChargingActivity extends Activity {
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         requestId = getIntent().getLongExtra(EXTRA_REQUEST_ID, 0);
         animationId = requestId == 0 ? RearAnimationManager.getGeneration() : requestId;
+        RearAnimationManager.registerAnimationActivityTask(animationId, getTaskId());
     }
 
     protected int currentDisplayId() {

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "increment and decrement use the saved step",
+    "config": {"step": 3},
+    "initial": {"count": 4, "stepUsed": 3, "previousStep": 3},
+    "events": [
+      {"type": "counter.increment", "payload": {}},
+      {"type": "counter.increment", "payload": {}},
+      {"type": "counter.decrement", "payload": {}}
+    ],
+    "expected": {"count": 7, "stepUsed": 3, "previousStep": 3}
+  },
+  {
+    "name": "unknown event is a no-op",
+    "config": {"step": 2},
+    "initial": {"count": 9, "stepUsed": 2, "previousStep": 2},
+    "events": [{"type": "counter.unknown", "payload": {}}],
+    "expected": {"count": 9, "stepUsed": 2, "previousStep": 2}
+  }
+]

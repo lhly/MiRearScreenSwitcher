@@ -93,7 +93,9 @@ public class UriCommandService extends IntentService {
             return;
         }
 
-        Log.d(TAG, "🔗 处理URI: " + uri.toString());
+        // The URI can contain an app/component supplied by the caller. Keep diagnostics to the
+        // command class; attribution below records bounded stages without echoing that input.
+        Log.d(TAG, "uri_dispatch action=validated");
 
         // 确保TaskService已连接
         if (!ensureTaskServiceConnected()) {
@@ -159,7 +161,7 @@ public class UriCommandService extends IntentService {
     private void handleSwitch(Uri uri) {
         Log.d(TAG, "════════════════════════════════════════");
         Log.d(TAG, "🔄 处理SWITCH命令");
-        Log.d(TAG, "URI: " + uri.toString());
+        Log.d(TAG, "cast_dispatch mode=physical action=switch");
 
         try {
             // 0. 检查背屏是否已有应用在运行（拒绝重复投放）
@@ -184,7 +186,8 @@ public class UriCommandService extends IntentService {
             String packageName = uri.getQueryParameter("packageName");
             String activity = uri.getQueryParameter("activity");
 
-            Log.d(TAG, "参数 - current: " + currentParam + ", packageName: " + packageName + ", activity: " + activity);
+            Log.d(TAG, "cast_target mode=physical kind=" + ("true".equalsIgnoreCase(currentParam) || "1".equals(currentParam)
+                    ? "main_foreground" : activity != null ? "explicit_activity" : packageName != null ? "package_launch" : "missing"));
 
             if ("true".equalsIgnoreCase(currentParam) || "1".equals(currentParam)) {
                 // 切换当前应用 - 完全复用TileService逻辑
@@ -231,9 +234,14 @@ public class UriCommandService extends IntentService {
             }
 
             // 先确认目标，再改变背屏策略；空目标不启动无 owner 的前台服务。
-            String currentApp = taskService.getCurrentForegroundApp();
-            if (currentApp == null || !currentApp.contains(":")) {
+            CurrentMainTaskSelector.Result currentTarget = CurrentMainTaskSelector.await(
+                    displayId -> taskService.getDisplayCastOccupancy(displayId), getPackageName(), 4000, 100);
+            String currentApp = currentTarget.target == null ? null : currentTarget.target.legacyForegroundValue();
+            if (currentApp == null) {
+                Log.i(TAG, "cast_target mode=physical kind=main_foreground result=unresolved reason="
+                        + currentTarget.reason);
                 Log.w(TAG, "No current task; do not start an unowned foreground keeper");
+                showToast("无法确认当前主屏应用，请回到目标应用后重试");
                 return;
             }
 
@@ -274,7 +282,8 @@ public class UriCommandService extends IntentService {
                 boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
                 if (success) {
-                    RearAnimationManager.projectionStarted(this);
+                    Log.i(TAG, "cast_stage mode=physical target=main_foreground status=move_success");
+                    RearAnimationManager.projectionStarted(this, taskId, packageName);
                     Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
 
                     // 步骤5: 主动点亮背屏 (通过TaskService启动Activity，绕过BAL限制) - 关键步骤！
@@ -306,6 +315,7 @@ public class UriCommandService extends IntentService {
                     String appName = getAppName(packageName);
                     showToast(appName + " " + getString(R.string.toast_cast_to_rear));
                 } else {
+                    Log.i(TAG, "cast_stage mode=physical target=main_foreground status=move_failed result=not_committed");
                     Log.e(TAG, "❌ 切换失败");
                     showToast(getString(R.string.toast_switch_failed));
                 }
@@ -320,7 +330,28 @@ public class UriCommandService extends IntentService {
      * 切换指定应用到背屏（packageName或activity）
      */
     private void switchSpecificAppToRear(String activity, String packageName, Uri uri) {
+        final boolean isSpecificActivity = activity != null;
+        final String targetPackageName = packageName != null ? packageName
+                : activity != null && activity.contains("/") ? activity.substring(0, activity.indexOf("/")) : null;
         try {
+            if (targetPackageName != null) {
+                boolean mayContinue = true;
+                try {
+                    mayContinue = VirtualCastRequest.stopTargetPackageUnlessSceneOwned(targetPackageName, () ->
+                            taskService.executeShellCommand("am force-stop " + targetPackageName));
+                } catch (Exception stopFailure) {
+                    // Preserve the legacy best-effort cleanup contract: a failed stop still
+                    // proceeds, while an exact live Scene package is deliberately never stopped.
+                    Log.w(TAG, "Target cleanup unavailable; continuing without force-stop error="
+                            + stopFailure.getClass().getSimpleName());
+                }
+                if (!mayContinue) {
+                    Log.i(TAG, "cast_gate mode=physical stage=target_process result=busy reason=active_scene_package");
+                    showToast("该应用的背屏场景仍在运行，请先关闭场景再投放");
+                    return;
+                }
+            }
+
             // 步骤0: 先设置DPI和旋转（在启动应用前设置好背屏参数）
             applyConfigParams(uri);
 
@@ -329,24 +360,9 @@ public class UriCommandService extends IntentService {
             Thread.sleep(100);
 
             // 步骤1.5: 清理目标应用的旧task（如果存在）- 防止获取到旧task
-            String targetPackageName = packageName;
-            if (targetPackageName == null && activity != null) {
-                // 从activity中提取包名
-                if (activity.contains("/")) {
-                    targetPackageName = activity.substring(0, activity.indexOf("/"));
-                }
-            }
-
             if (targetPackageName != null) {
-                try {
-                    Log.d(TAG, "→ 检查并清理旧task: " + targetPackageName);
-                    // 尝试强制停止应用（清理所有task）
-                    taskService.executeShellCommand("am force-stop " + targetPackageName);
-                    Thread.sleep(300);
-                    Log.d(TAG, "✓ 已清理旧task");
-                } catch (Exception e) {
-                    Log.w(TAG, "清理旧task失败: " + e.getMessage());
-                }
+                Log.d(TAG, "→ 清理目标包的旧task");
+                Thread.sleep(300);
             }
 
             // 步骤2: 在主屏启动应用（先在主屏启动，才能获取taskId）
@@ -428,9 +444,15 @@ public class UriCommandService extends IntentService {
 
                     // 最后一次重试前，强制启动目标应用
                     if (retry < maxRetries - 1) {
-                        Log.w(TAG, "  强制停止当前应用并重新启动目标应用");
-                        // 先停止错误的应用
-                        taskService.executeShellCommand("am force-stop " + actualPackage);
+                        final String actualPackageToStop = actualPackage;
+                        boolean mayStopActualPackage = VirtualCastRequest.stopTargetPackageUnlessSceneOwned(actualPackageToStop, () ->
+                                taskService.executeShellCommand("am force-stop " + actualPackageToStop));
+                        if (!mayStopActualPackage) {
+                            Log.i(TAG, "cast_gate mode=physical stage=retry_process result=busy reason=active_scene_package");
+                            showToast("当前背屏场景仍在运行，未停止该应用");
+                            return;
+                        }
+                        Log.w(TAG, "  停止本次启动错配的应用并重试");
                         Thread.sleep(200);
                         // 重新执行启动命令
                         taskService.executeShellCommand(launchCmd);
@@ -473,11 +495,13 @@ public class UriCommandService extends IntentService {
             }
 
             // 步骤5: 移动到背屏
-            Log.d(TAG, "→ 步骤5: 移动Task到背屏 (taskId=" + taskId + ")");
+            Log.d(TAG, "→ 步骤5: 移动投放Task到背屏");
             boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
 
             if (success) {
-                RearAnimationManager.projectionStarted(this);
+                Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
+                        + " status=move_success");
+                RearAnimationManager.projectionStarted(this, taskId, targetApp.split(":", 2)[0]);
                 Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
 
                 // 步骤5.5: 等待应用在背屏稳定显示
@@ -575,6 +599,8 @@ public class UriCommandService extends IntentService {
                 String appName = getAppName(actualPackage);
                 showToast(appName + " " + getString(R.string.toast_cast_to_rear));
             } else {
+                Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
+                        + " status=move_failed result=not_committed");
                 Log.e(TAG, "❌ 移动到背屏失败");
                 showToast(getString(R.string.toast_switch_failed));
             }
@@ -712,7 +738,7 @@ public class UriCommandService extends IntentService {
     private void applyConfigParams(Uri uri) {
         Log.d(TAG, "────────────────────────────");
         Log.d(TAG, "🔧 开始应用配置参数");
-        Log.d(TAG, "URI: " + uri.toString());
+        Log.d(TAG, "cast_config action=config");
 
         try {
             String dpiStr = uri.getQueryParameter("dpi");
