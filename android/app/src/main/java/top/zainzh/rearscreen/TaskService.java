@@ -26,7 +26,7 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
-    private static final int USER_SERVICE_CONTRACT_VERSION = 57;
+    static final int USER_SERVICE_CONTRACT_VERSION = 59;
     @Override public String getRearDisplayState() { return RearDisplay.state(); }
     @Override public String getCompatibilityDiagnostics() {
         try { return new org.json.JSONObject(CompatibilityDiagnostics.report())
@@ -103,6 +103,56 @@ public class TaskService extends ITaskService.Stub {
         catch (Exception e) { throw new IllegalStateException("Rear virtual host recovery: " + e, e); }
     }
 
+    @Override public boolean reportOwnedNotificationActivity(int displayId, long notificationSessionId,
+                                                              long expiresAtElapsedRealtimeMs,
+                                                              long drawEventUptime,
+                                                              ISceneTaskActionGate currentGate) {
+        String result = "unavailable";
+        try {
+            if (notificationSessionId <= 0 || displayId < 1 || expiresAtElapsedRealtimeMs <= 0 ||
+                    drawEventUptime < 0 || currentGate == null ||
+                    android.os.SystemClock.elapsedRealtime() >= expiresAtElapsedRealtimeMs) {
+                result = "invalid_request";
+                return false;
+            }
+            RearDisplayUserActivity.Result report = RearDisplayUserActivity.reportOwnedNotification(
+                    this::rearUserActivitySink,
+                    targetDisplayId -> {
+                        org.json.JSONObject rear = new org.json.JSONObject(RearDisplay.state());
+                        int selectedRearId = rear.optInt("selectedId", -1);
+                        String selectedRearUniqueId = rear.optString("selectedUnique", "");
+                        Object info = RearDisplay.info(targetDisplayId);
+                        String actualDisplayUniqueId = String.valueOf(info.getClass().getField("uniqueId").get(info));
+                        boolean displayOn = info.getClass().getField("state").getInt(info) == android.view.Display.STATE_ON;
+                        return new RearDisplayUserActivity.DisplaySnapshot(
+                                selectedRearId, selectedRearUniqueId, actualDisplayUniqueId, displayOn);
+                    },
+                    currentGate::isCurrent, android.os.SystemClock::elapsedRealtime,
+                    displayId, notificationSessionId, expiresAtElapsedRealtimeMs, drawEventUptime);
+            result = report.name().toLowerCase(java.util.Locale.ROOT);
+            return report == RearDisplayUserActivity.Result.REPORTED;
+        } catch (Exception failure) {
+            result = "failed_" + failure.getClass().getSimpleName();
+            synchronized (rearUserActivitySinkLock) { rearUserActivitySink = null; }
+            return false;
+        } finally {
+            CompatibilityDiagnostics.record("owned_notification_activity",
+                    "session=" + notificationSessionId + " display=" + displayId
+                            + " draw_uptime=" + drawEventUptime + " result=" + result);
+            Log.i(TAG, "owned_notification_activity session=" + notificationSessionId +
+                    " display=" + displayId + " draw_uptime=" + drawEventUptime + " result=" + result);
+        }
+    }
+
+    private RearDisplayUserActivity.Sink rearUserActivitySink() throws Exception {
+        RearDisplayUserActivity.Sink sink = rearUserActivitySink;
+        if (sink != null) return sink;
+        synchronized (rearUserActivitySinkLock) {
+            if (rearUserActivitySink == null) rearUserActivitySink = RearDisplayUserActivity.shell();
+            return rearUserActivitySink;
+        }
+    }
+
     @Override public String startRearInputProxy(String path, int task, android.os.IBinder owner) {
         if (!BuildConfig.DEBUG || !BuildConfig.INPUT_PROXY_PROTOTYPE) throw new SecurityException("Direct input probe is debug-only");
         try { return inputProxy.start(path, task, owner); }
@@ -115,6 +165,8 @@ public class TaskService extends ITaskService.Stub {
             DisplayRotationController::runCommand, Thread::sleep, message -> { Log.i(TAG, message); CompatibilityDiagnostics.record("rotation", message); });
 
     private final int ownerUid;
+    private volatile RearDisplayUserActivity.Sink rearUserActivitySink;
+    private final Object rearUserActivitySinkLock = new Object();
     @Keep
     public TaskService() { this(-1); }
     TaskService(int ownerUid) {
@@ -786,6 +838,16 @@ public class TaskService extends ITaskService.Stub {
             return new SceneTaskPresentationFlow.Result("invalid_task_or_display", "input", taskId, displayId,
                     null, null, -1).toJson();
         }
+        SceneRecoveryPresentationAuthority.RearStateReader rearState = RearDisplay::state;
+        SceneRecoveryPresentationAuthority.CurrentGate currentGate = () ->
+                SceneTaskPresentationFlow.invokeRemoteActionGate(actionGate == null ? null : actionGate::isCurrent);
+        String rearPreflight = SceneRecoveryPresentationAuthority.preflightRear(displayId, rearState);
+        if (rearPreflight != null) {
+            SceneTaskPresentationFlow.Result rejected = new SceneTaskPresentationFlow.Result(
+                    rearPreflight, "physical_rear", taskId, displayId, expected, null, -1);
+            CompatibilityDiagnostics.record("scene_task_present", rejected.diagnostic());
+            return rejected.toJson();
+        }
         SceneTaskPresentationFlow.Result result = SceneTaskPresentationFlow.present(taskId, expected, displayId,
                 SceneTaskSnapshotReader::read,
                 id -> {
@@ -800,7 +862,9 @@ public class TaskService extends ITaskService.Stub {
                     }
                 }, top -> SceneTaskPresentationFlow.matchesKnownRearHome(RearSystemBridge.launcherCandidates(), top),
                 () -> SceneTaskPresentationFlow.invokeRemoteActionGate(
-                        actionGate == null ? null : actionGate::isCurrent));
+                        actionGate == null ? null : actionGate::isCurrent),
+                presentation -> SceneRecoveryPresentationAuthority.confirm(taskId, expected, displayId,
+                        rearState, SceneTaskSnapshotReader::read, currentGate));
         CompatibilityDiagnostics.record("scene_task_present", result.diagnostic());
         return result.toJson();
     }

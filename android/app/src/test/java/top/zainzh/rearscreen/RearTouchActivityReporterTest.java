@@ -24,7 +24,7 @@ public final class RearTouchActivityReporterTest {
         List<String> calls = new ArrayList<>();
         AtomicInteger reads = new AtomicInteger();
         RearTouchActivityReporter reporter = new RearTouchActivityReporter(
-                (display, time) -> calls.add(display + ":" + time), (display, task, pkg) -> {
+                (display, time, event) -> calls.add(display + ":" + time), (display, task, pkg) -> {
                     reads.incrementAndGet();
                     return RearTouchPresentationGate.inspect(presentedHost(), display, task, pkg, ignored -> true);
                 });
@@ -44,7 +44,7 @@ public final class RearTouchActivityReporterTest {
         List<Integer> calls = new ArrayList<>();
         AtomicBoolean current = new AtomicBoolean(true), output = new AtomicBoolean(true);
         RearTouchActivityReporter reporter = new RearTouchActivityReporter(
-                (display, time) -> calls.add(display), (display, task, pkg) -> RearTouchPresentationGate.evaluate(
+                (display, time, event) -> calls.add(display), (display, task, pkg) -> RearTouchPresentationGate.evaluate(
                         new RearDisplayCastOccupancy.Snapshot(display, Display.STATE_ON, Display.STATE_ON, Display.STATE_ON,
                                 java.util.Arrays.asList(
                                         new RearDisplayCastOccupancy.Task(task, pkg, pkg, false, false, false),
@@ -67,7 +67,7 @@ public final class RearTouchActivityReporterTest {
         AtomicBoolean current = new AtomicBoolean(true), output = new AtomicBoolean(true), ownerAlive = new AtomicBoolean(true);
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         RearTouchActivityReporter reporter = new RearTouchActivityReporter(
-                (display, time) -> calls.add(display),
+                (display, time, event) -> calls.add(display),
                 (display, task, pkg) -> RearTouchPresentationGate.inspect(presentedHost(), display, task, pkg,
                         ignored -> {
                             entered.countDown();
@@ -90,7 +90,7 @@ public final class RearTouchActivityReporterTest {
     }
 
     @Test public void defaultPhysicalInputAndMissingActivityTaskSourceFailClosed() {
-        RearTouchActivityReporter reporter = new RearTouchActivityReporter((display, time) -> fail("must not report"),
+        RearTouchActivityReporter reporter = new RearTouchActivityReporter((display, time, event) -> fail("must not report"),
                 (display, task, pkg) -> RearTouchPresentationGate.evaluate(
                         RearDisplayCastOccupancy.unavailable(display, "am_stack_list", "lossy"), display, task, pkg));
         assertEquals(RearTouchActivityReporter.Result.INPUT_NOT_VIRTUAL,

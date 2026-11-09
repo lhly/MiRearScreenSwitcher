@@ -27,7 +27,7 @@ public final class RearTouchRouterActivityTest {
     @Test public void delayedFinalUpFlowsRouterProxyReporterAndUsesReleaseUptime() throws Exception {
         List<Long> reports = new ArrayList<>();
         RearTouchActivityReporter reporter = new RearTouchActivityReporter(
-                (display, time) -> reports.add(time),
+                (display, time, event) -> reports.add(time),
                 (display, task, pkg) -> RearTouchPresentationGate.Decision.ALLOW);
         RearTouchRouter router = new RearTouchRouter(state(), 1000, 2000, 160, true, time -> { });
         RearInputProxy.AcceptedInteraction effect = time -> assertEquals(RearTouchActivityReporter.Result.REPORTED,

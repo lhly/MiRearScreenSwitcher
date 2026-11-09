@@ -5,6 +5,10 @@
             android:exported="false"
             android:theme="@style/MiuixHostTheme" />
         <activity
+            android:name=".NotificationConsentPreviewActivity"
+            android:exported="false"
+            android:theme="@style/MiuixHostTheme" />
+        <activity
             android:name=".platform.mods.ModDebugReloadActivity"
             android:exported="true"
             android:label="Mod 开发重载"

@@ -15,7 +15,7 @@ def minimal_scenes(project):
     (project/'tests'/'config-changes.json').unlink(missing_ok=True)
 
 class ModToolTests(unittest.TestCase):
-    def test_runtime_schema_freezes_clock_effect_and_schedule_tick_wire(self):
+    def test_runtime_schema_freezes_clock_effect_schedule_and_notification_wire(self):
         schema=json.loads((SDK/'runtime.schema.json').read_text())
         self.assertEqual(schema['$id'],'urn:remrss:mod:runtime:v1')
         self.assertEqual(schema['$defs']['clock']['required'],['wallTimeMs','elapsedRealtimeMs','timezoneId','bootId'])
@@ -23,7 +23,7 @@ class ModToolTests(unittest.TestCase):
         self.assertEqual(schema['$defs']['clock']['properties']['elapsedRealtimeMs']['maximum'],9007199254740991)
         effects=schema['$defs']['effect']['oneOf']
         self.assertEqual({item['properties']['type']['const'] for item in effects},
-            {'rear.open','schedule.visible.register','schedule.visible.cancel','action.invoke'})
+            {'rear.open','schedule.visible.register','schedule.visible.cancel','action.invoke','rear.notification.publish','rear.notification.cancel'})
         action=next(item for item in effects if item['properties']['type']['const']=='action.invoke')
         self.assertEqual(action['properties']['ref']['properties']['id']['pattern'],'^[a-f0-9]{48}$')
         self.assertIn(':',schema['$defs']['effectResult']['properties']['effectId']['pattern'])
@@ -31,6 +31,17 @@ class ModToolTests(unittest.TestCase):
         self.assertEqual(schedule['anyOf'],[{'required':['intervalMs']},{'required':['deadlineElapsedRealtimeMs']}])
         self.assertEqual(schedule['properties']['intervalMs']['maximum'],9007199254740991)
         self.assertEqual(schedule['properties']['deadlineElapsedRealtimeMs']['maximum'],9007199254740991)
+        notification=next(item for item in effects if item['properties']['type']['const']=='rear.notification.publish')
+        self.assertEqual(notification['required'],['type','notificationId','title'])
+        self.assertEqual(notification['properties']['notificationId']['pattern'],r'^[A-Za-z0-9._:-]{1,64}$')
+        self.assertEqual(notification['properties']['durationMs']['maximum'],15000)
+        self.assertEqual(notification['properties']['priority']['enum'],['LOW','NORMAL','HIGH'])
+        self.assertEqual(notification['properties']['privacy']['enum'],['STANDARD','HIDE_TITLE','HIDE_TEXT'])
+        self.assertEqual(schema['$defs']['notificationResult']['required'],['effectId','requestEventId','notificationId','status'])
+        self.assertEqual(schema['$defs']['notificationResult']['properties']['status']['enum'],['DISPLAYED','SUPPRESSED','ENDED','FAILED'])
+        ended_by=schema['$defs']['notificationResult']['properties']['endedBy']['enum']
+        self.assertIn('SCENE_TAKEOVER',ended_by)
+        self.assertNotIn('SCENE_TAKOVER',ended_by)
         self.assertEqual(schema['$defs']['scheduleTick']['required'],['id','scheduledElapsedRealtimeMs','actualElapsedRealtimeMs','missedCount','causes'])
         self.assertEqual(schema['$defs']['scheduleTick']['properties']['actualElapsedRealtimeMs']['maximum'],9007199254740991)
         tick={'id':'phase','scheduledElapsedRealtimeMs':1000,'actualElapsedRealtimeMs':1020,'missedCount':0,'causes':['interval','deadline']}
@@ -61,6 +72,22 @@ class ModToolTests(unittest.TestCase):
         validate({'type':'action.invoke','ref':{'id':'0'+'a'*47,'version':1}},capabilities,'effect')
         for action_id in ('abc','A'*48,'g'*48):
             with self.assertRaises(ValueError): validate({'type':'action.invoke','ref':{'id':action_id,'version':1}},capabilities,'effect')
+
+    def test_notification_effects_are_bounded_and_require_the_independent_capability(self):
+        validate=runpy.run_path(str(CLI))['validate_effect_intent']
+        capabilities={'rear.notification'}
+        validate({'type':'rear.notification.publish','notificationId':'timer:main','title':'完成','text':'查看结果','durationMs':8000,'priority':'HIGH','privacy':'HIDE_TEXT'},capabilities,'effect')
+        validate({'type':'rear.notification.cancel','notificationId':'timer:main'},capabilities,'effect')
+        for effect in (
+            {'type':'rear.notification.publish','notificationId':'timer/main','title':'x'},
+            {'type':'rear.notification.publish','notificationId':'timer','title':'x'*81},
+            {'type':'rear.notification.publish','notificationId':'timer','title':'x','durationMs':15001},
+            {'type':'rear.notification.publish','notificationId':'timer','title':'x','text':'bad\u0000text'},
+            {'type':'rear.notification.cancel','notificationId':'timer','owner':'someone-else'},
+        ):
+            with self.assertRaises(ValueError): validate(effect,capabilities,'effect')
+        with self.assertRaises(ValueError):
+            validate({'type':'rear.notification.cancel','notificationId':'timer'},set(),'effect')
 
     def test_ui_lists_conditions_icons_deadlines_and_registered_action_picker(self):
         with tempfile.TemporaryDirectory() as td:
@@ -182,6 +209,27 @@ class ModToolTests(unittest.TestCase):
             (project/'manifest.json').write_text(json.dumps(manifest))
             self.assertIn('越界路径',run('check',project,ok=False).stderr)
 
+    def test_rear_notification_is_a_separately_declared_optional_capability(self):
+        with tempfile.TemporaryDirectory() as td:
+            project=Path(td)/'project'
+            run('create','sample.notifications','--template','blank','--out',project)
+            manifest=json.loads((project/'manifest.json').read_text())
+            self.assertNotIn('rear.notification', {c['name'] for c in manifest['capabilities']['required'] + manifest['capabilities']['optional']})
+            manifest['capabilities']['optional'].append({'name':'rear.notification','minimumVersion':1})
+            (project/'manifest.json').write_text(json.dumps(manifest))
+            run('check',project)
+            manifest['capabilities']['optional'][-1]['minimumVersion']=2
+            (project/'manifest.json').write_text(json.dumps(manifest))
+            self.assertIn('不支持请求版本',run('check',project,ok=False).stderr)
+
+    def test_notification_template_runs_publish_update_cancel_effect_cases(self):
+        with tempfile.TemporaryDirectory() as td:
+            project=Path(td)/'notification'
+            run('create','sample.notification','--template','notification','--out',project)
+            manifest=json.loads((project/'manifest.json').read_text())
+            self.assertIn({'name':'rear.notification','minimumVersion':1},manifest['capabilities']['optional'])
+            run('test',project)
+
     def test_system_metrics_bindings_are_limited_to_live_provider_fields(self):
         with tempfile.TemporaryDirectory() as td:
             project=Path(td)/'project'
@@ -258,7 +306,10 @@ class ModToolTests(unittest.TestCase):
             ordinary=json.loads((project/'tests'/'cases.json').read_text())
             ordinary[0]['events']=[{'type':'host.configChanged'}]
             (project/'tests'/'cases.json').write_text(json.dumps(ordinary))
-            self.assertIn('不得伪造 host.configChanged',run('test',project,ok=False).stderr)
+            self.assertIn('不得伪造宿主事件',run('test',project,ok=False).stderr)
+            ordinary[0]['events']=[{'type':'host.notificationResult','payload':{'status':'DISPLAYED'}}]
+            (project/'tests'/'cases.json').write_text(json.dumps(ordinary))
+            self.assertIn('不得伪造宿主事件',run('test',project,ok=False).stderr)
             ordinary[0]['events']=[]
             (project/'tests'/'cases.json').write_text(json.dumps(ordinary))
             invalid=json.loads((project/'tests'/'config-changes.json').read_text())

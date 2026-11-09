@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the RC3 Android SDK as a narrowly allowlisted, standalone bundle."""
+"""Export the RC4 Android SDK as a narrowly allowlisted, standalone bundle."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
@@ -27,9 +28,11 @@ CAPABILITIES = [
     {"name": "data.battery", "version": 1},
     {"name": "data.systemMetrics", "version": 1},
     {"name": "action.invoke", "version": 1},
+    {"name": "rear.notification", "version": 1},
 ]
 FEATURES = ["rear-info", "scene-lifecycle", "keep-visible", "consent-gated-battery-and-system-metrics",
-            "publisher-scoped-registered-actions", "per-invocation-host-confirmation"]
+            "publisher-scoped-registered-actions", "per-invocation-host-confirmation",
+            "publisher-owned-rear-notifications", "notification-authorization", "notification-result-events"]
 RUNTIME_DEPENDENCIES = ["Android framework (minSdk 24)", "org.json (Android platform)", "Kotlin standard library"]
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 TEMPLATE_FILES = (
@@ -83,6 +86,57 @@ def validate_archive(path: Path, label: str, required_entries: set[str]) -> set[
     if missing:
         raise PackageError(f"{label} is missing required entries: {', '.join(sorted(missing))}")
     return names
+
+
+def find_aapt(repo: Path) -> Path:
+    """Locate the Android SDK's official APK badging tool without guessing an APK identity."""
+    roots: list[Path] = []
+    for variable in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
+        value = os.environ.get(variable)
+        if value:
+            roots.append(Path(value).expanduser())
+    local_properties = repo / "android/local.properties"
+    if local_properties.is_file():
+        sdk_dir = parse_properties(local_properties).get("sdk.dir")
+        if sdk_dir:
+            configured = Path(sdk_dir).expanduser()
+            roots.append(configured if configured.is_absolute() else local_properties.parent / configured)
+    for sdk in roots:
+        build_tools = sdk / "build-tools"
+        if not build_tools.is_dir():
+            continue
+        versions = []
+        for directory in build_tools.iterdir():
+            if not directory.is_dir() or not re.fullmatch(r"\d+(?:\.\d+)+", directory.name):
+                continue
+            version = tuple(int(part) for part in directory.name.split("."))
+            binary = directory / ("aapt.exe" if os.name == "nt" else "aapt")
+            if binary.is_file():
+                versions.append((version, binary))
+        if versions:
+            return max(versions, key=lambda item: item[0])[1]
+    from_path = shutil.which("aapt")
+    if from_path:
+        return Path(from_path)
+    raise PackageError("Android SDK build-tools aapt is required to inspect the sample APK applicationId")
+
+
+def apk_application_id(path: Path, aapt: Path) -> str:
+    """Read the packaged application identity through Google's Android aapt metadata reader."""
+    try:
+        result = subprocess.run(
+            [str(aapt), "dump", "badging", str(path)],
+            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PackageError(f"cannot read sample APK metadata with aapt: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit={result.returncode}"
+        raise PackageError(f"aapt could not inspect sample APK: {detail}")
+    match = re.search(r"^package:\s+name='([^']+)'", result.stdout, re.MULTILINE)
+    if not match:
+        raise PackageError("aapt output does not contain the sample APK package name")
+    return match.group(1)
 
 
 def validate_aar(path: Path) -> int:
@@ -188,9 +242,12 @@ def _resolved_inside(path: Path, parent: Path) -> bool:
 def _prepare_destination(destination: Path, repo: Path) -> None:
     # The default location is ignored planning state. Custom destinations are
     # accepted only outside the repository or under this ignored delivery root.
-    ignored_root = repo / ".planning/2026-11-05-platform-implementation/rc3-common-capabilities/delivery"
-    if _resolved_inside(destination, repo) and not _resolved_inside(destination, ignored_root):
-        raise PackageError("output inside the repository must stay under the ignored RC3 delivery directory")
+    ignored_roots = (
+        repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/delivery",
+        repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/host-sdk/delivery",
+    )
+    if _resolved_inside(destination, repo) and not any(_resolved_inside(destination, root) for root in ignored_roots):
+        raise PackageError("output inside the repository must stay under an ignored RC4 delivery directory")
     if destination.is_symlink():
         raise PackageError(f"output path may not be a symbolic link: {destination}")
     if destination.exists():
@@ -207,8 +264,8 @@ def _prepare_destination(destination: Path, repo: Path) -> None:
 
 def package(
     repo: Path, aar: Path, sample_apk: Path, output: Path,
-    host_service: int = 57, host_compiled: bool = False, host_debug_compiled: bool = False,
-    host_release_compiled: bool = False, host_apk_produced: bool = False,
+    host_service: int = 59, host_compiled: bool = False, host_debug_compiled: bool = False,
+    host_release_compiled: bool = False, host_apk_produced: bool = False, aapt_path: Path | None = None,
 ) -> tuple[Path, Path, dict]:
     repo = repo.resolve()
     aar = aar.absolute()
@@ -218,6 +275,7 @@ def package(
     require_regular_file(sample_apk, "sample APK")
     min_compile_sdk = validate_aar(aar)
     validate_archive(sample_apk, "sample APK", {"AndroidManifest.xml", "classes.dex"})
+    actual_application_id = apk_application_id(sample_apk, aapt_path or find_aapt(repo))
     version_props = parse_properties(repo / SDK_VERSION_FILE)
     sdk_version = version_props.get("sdkVersion", "")
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", sdk_version):
@@ -225,16 +283,16 @@ def package(
     host_props = parse_properties(repo / HOST_VERSION_FILE)
     host_name = host_props.get("versionName", "")
     host_code = host_props.get("versionCode", "")
-    if host_name != "4.0.0-rc.3" or host_code != "2024":
-        raise PackageError(f"expected tested Host 4.0.0-rc.3/2024, got {host_name}/{host_code}")
-    if host_service != 57:
-        raise PackageError("RC3 SDK is validated only against internal service contract 57")
+    if host_name != "4.0.0-rc.4" or host_code != "2025":
+        raise PackageError(f"expected RC4 Host 4.0.0-rc.4/2025, got {host_name}/{host_code}")
+    if host_service != 59:
+        raise PackageError("RC4 SDK reference metadata must match internal service contract 59")
     if host_apk_produced and not (host_compiled or host_debug_compiled or host_release_compiled):
         raise PackageError("recording a Host APK requires verified Host compilation")
     service_text = (repo / HOST_SERVICE_SOURCE).read_text(encoding="utf-8")
     match = re.search(r"USER_SERVICE_CONTRACT_VERSION\s*=\s*(\d+)\s*;", service_text)
     if not match or int(match.group(1)) != host_service:
-        raise PackageError("Host TaskService service contract does not match the tested service 57")
+        raise PackageError(f"Host TaskService service contract does not match internal service {host_service}")
     sdk_build = (repo / SDK_BUILD_FILE).read_text(encoding="utf-8")
     if not re.search(r"minSdk\s*=\s*24\b", sdk_build):
         raise PackageError("SDK minSdk declaration is not 24")
@@ -261,6 +319,11 @@ def package(
     if not app_id_match or not host_match:
         raise PackageError("standalone sample must declare a literal applicationId and production Host default")
     application_id = app_id_match.group(1)
+    if actual_application_id != application_id:
+        raise PackageError(
+            f"sample APK applicationId mismatch: standalone consumer declares {application_id}, "
+            f"but APK metadata reports {actual_application_id}"
+        )
     default_host = host_match.group(1)
     if default_host != "top.zainzh.rearscreen":
         raise PackageError("standalone sample must default to the production Host package")
@@ -337,6 +400,7 @@ def package(
             "hostSdkInteroperability": {"status": "not-verified",
                                          "note": "未完成该版本实机互通；referenceHost为源码版本参考，不是运行验证结果。"},
             "sample": {"directory": "sample", "applicationId": application_id,
+                       "apkApplicationId": actual_application_id, "applicationIdVerified": True,
                        "aarDependency": "app/libs/platform-sdk-release.aar",
                        "apk": "sample/apk/rear-sdk-sample-debug.apk", "apkVariant": "debug",
                        "defaultHostPackage": default_host, "hostSigningRequired": False},
@@ -385,8 +449,8 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--aar", type=Path, required=True, help="built platform-sdk-release.aar")
     parser.add_argument("--sample-apk", type=Path, required=True, help="independently built sample debug APK")
-    parser.add_argument("--output", type=Path, help="bundle directory; defaults to ignored RC3 planning delivery path")
-    parser.add_argument("--host-service", type=int, default=57)
+    parser.add_argument("--output", type=Path, help="bundle directory; defaults to ignored RC4 planning delivery path")
+    parser.add_argument("--host-service", type=int, default=59)
     parser.add_argument("--host-compile-verified", action="store_true",
                         help="legacy shorthand: record only after both Host debug and release compilation passed")
     parser.add_argument("--host-debug-compile-verified", action="store_true",
@@ -399,7 +463,7 @@ def main() -> int:
     try:
         repo = args.repo.resolve()
         sdk_version = parse_properties(repo / SDK_VERSION_FILE).get("sdkVersion", "unknown")
-        output = args.output or repo / ".planning/2026-11-05-platform-implementation/rc3-common-capabilities/delivery" / f"remrss-platform-sdk-{sdk_version}"
+        output = args.output or repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/delivery" / f"remrss-platform-sdk-{sdk_version}"
         bundle, archive, meta = package(
             repo, args.aar, args.sample_apk, output, args.host_service,
             host_compiled=args.host_compile_verified,

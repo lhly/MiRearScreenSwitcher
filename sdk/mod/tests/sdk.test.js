@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReducerSource, createReducerModule, defineMod, event, host, HOST_CONFIG_CHANGED_EVENT } from '../src/index.js';
+import { buildReducerSource, createReducerModule, defineMod, event, host, HOST_CONFIG_CHANGED_EVENT, HOST_NOTIFICATION_RESULT_EVENT } from '../src/index.js';
 
 test('public schedule and registered action helpers create bounded host effects', () => {
   assert.deepEqual(host.schedule.visible.register('clock.phase', 1000), {
@@ -15,6 +15,26 @@ test('public schedule and registered action helpers create bounded host effects'
   assert.throws(() => host.action.invoke({ id: 'intent://unsafe', version: 1 }), /reference/);
   assert.throws(() => host.action.invoke({ id: 'abc', version: 1 }), /reference/);
   assert.throws(() => host.action.invoke({ id: 'A'.repeat(48), version: 1 }), /reference/);
+});
+
+test('notification helpers create owner-scoped publish, upsert, and cancel effects', () => {
+  assert.deepEqual(host.notification.publish({ id: 'timer.main', title: '计时结束', text: '查看结果', durationMs: 8000 }), {
+    type: 'rear.notification.publish', notificationId: 'timer.main', title: '计时结束', text: '查看结果', durationMs: 8000,
+  });
+  assert.deepEqual(host.notification.publish({ id: 'timer.main', title: '计时结束', priority: 'HIGH', privacy: 'HIDE_TEXT' }), {
+    type: 'rear.notification.publish', notificationId: 'timer.main', title: '计时结束', priority: 'HIGH', privacy: 'HIDE_TEXT',
+  });
+  assert.deepEqual(host.notification.cancel('timer.main'), { type: 'rear.notification.cancel', notificationId: 'timer.main' });
+  assert.deepEqual(host.notification.publish({ id: 'id', title: '😀'.repeat(80), text: '第一行\n第二行' }).text, '第一行\n第二行');
+  assert.throws(() => host.notification.publish({ id: 'bad/id', title: 'x' }), /Notification id/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: '' }), /title/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: 'x'.repeat(81) }), /title/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: 'x', durationMs: 999 }), /durationMs/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: 'x', priority: 'URGENT' }), /priority/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: 'x', owner: 'other' }), /unknown fields/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: '😀'.repeat(81) }), /title/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: 'x', text: 'bad\u0000text' }), /plain text/);
+  assert.throws(() => host.notification.publish({ id: 'id', title: '\ud800' }), /valid Unicode/);
 });
 
 test('builder emits the isolated runtime global ABI', () => {
@@ -82,7 +102,9 @@ test('event builder keeps data separate from host access', () => {
   assert.deepEqual(event('counter.add', { amount: 2 }), { type: 'counter.add', amount: 2 });
   assert.throws(() => event('Bad Event'));
   assert.equal(HOST_CONFIG_CHANGED_EVENT, 'host.configChanged');
-  assert.throws(() => event(HOST_CONFIG_CHANGED_EVENT), /reserved for the host settings-save transaction/);
+  assert.throws(() => event(HOST_CONFIG_CHANGED_EVENT), /reserved for host events/);
+  assert.equal(HOST_NOTIFICATION_RESULT_EVENT, 'host.notificationResult');
+  assert.throws(() => event(HOST_NOTIFICATION_RESULT_EVENT), /reserved for host events/);
 });
 
 test('host config change can derive UI state from new and previous config', () => {

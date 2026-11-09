@@ -77,6 +77,10 @@ class SceneTaskPresentationFlowTest {
             { SceneTaskPresentationFlow.FocusResult(true, 0, null) }, { it == launcher })
         assertEquals("scene_not_visible_after_focus", result.status)
         assertTrue("command acceptance alone is not foreground proof", result.commandExitCode == 0)
+        val recovery = sceneRecoveryResultForPresentationStatus(result.status)
+        assertTrue("an exact-task snapshot race is pending visibility, not display failure", recovery.awaitSceneVisible)
+        assertEquals(null, recovery.error)
+        assertFalse(recovery.awaitDisplayOn)
     }
 
     @Test fun visibilityUnknownFromLegacySnapshotFailsClosedInsteadOfTreatingOwnedAsFront() {
@@ -84,6 +88,36 @@ class SceneTaskPresentationFlowTest {
             QueueSnapshots(snapshot(record(56091, 1, scene, scene))),
             { SceneTaskPresentationFlow.FocusResult(true, 0, null) }, { true })
         assertEquals("task_visibility_unsupported", result.status)
+    }
+
+    @Test fun ambiguousSnapshotRequestsOneCoordinatorRecheckButUnknownAndOtherStatesDoNot() {
+        val ambiguous = sceneRecoveryResultForPresentationStatus("display_visibility_ambiguous")
+        assertTrue(ambiguous.awaitTaskVisibilityClassification)
+        assertFalse(ambiguous.awaitSceneVisible)
+        assertEquals(null, ambiguous.error)
+
+        assertFalse("unknown visibility is not silently treated as a retryable known Home",
+            sceneRecoveryResultForPresentationStatus("display_visibility_unknown").awaitTaskVisibilityClassification)
+        assertFalse("a known unrelated top remains a terminal preservation result",
+            sceneRecoveryResultForPresentationStatus("unrelated_top_preserved").awaitTaskVisibilityClassification)
+    }
+
+    @Test fun rearDisplayNotOnDistinguishesPhysicalPreflightFromPostClassificationAuthority() {
+        val preflight = sceneRecoveryResultForPresentationStatus(
+            "rear_display_not_on", source = "physical_rear", commandExitCode = -1)
+        assertTrue(preflight.awaitDisplayOn)
+        assertFalse("preflight refused before task classification", preflight.taskVisibilityClassificationComplete)
+
+        val postFocus = sceneRecoveryResultForPresentationStatus(
+            "rear_display_not_on", source = "activity_task_fake", commandExitCode = 0)
+        assertTrue("final authority still rejects physical OFF", postFocus.awaitDisplayOn)
+        assertFalse("exit 0 is not presentation success", postFocus.verifiedPhysicalPresentation)
+        assertTrue("snapshot classification and focus already occurred", postFocus.taskVisibilityClassificationComplete)
+
+        val missingStageEvidence = sceneRecoveryResultForPresentationStatus(
+            "rear_display_not_on", source = null, commandExitCode = 0)
+        assertFalse("exit 0 without a TaskFlow source is not enough to infer the stage",
+            missingStageEvidence.taskVisibilityClassificationComplete)
     }
 
     @Test fun leaseGateIsRecheckedAfterBlockingTaskInspectionAndLauncherLookupImmediatelyBeforeFocus() {

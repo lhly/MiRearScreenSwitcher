@@ -311,6 +311,34 @@ class RearClient private constructor(
         }
     }
 
+    /** Opens the host's independent per-publisher grant screen from a focused Activity. */
+    fun requestNotificationAuthorization(activity: Activity, callback: (Result<Unit>) -> Unit = {}) {
+        if (Looper.myLooper() != Looper.getMainLooper() || activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
+            dispatchResult(callback, Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED))); return
+        }
+        onBinder<PendingIntent>({ result -> result.fold(onSuccess = { pending ->
+            if (activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
+                callback(Result.failure(IllegalStateException(RearSdkErrorCode.FOREGROUND_REQUIRED)))
+            } else try {
+                activity.startIntentSenderForResult(pending.intentSender, NOTIFICATION_CONSENT_REQUEST_CODE, null, 0, 0, 0)
+                callback(Result.success(Unit))
+            } catch (error: IntentSender.SendIntentException) { callback(Result.failure(error)) }
+        }, onFailure = { callback(Result.failure(it)) }) }) { service ->
+            service.service.requestNotificationAuthorization(callerPackage, service.callback)
+        }
+    }
+
+    /** Publish a new notice or replace this publisher's notice with the same id. */
+    fun publishNotification(request: RearNotificationRequest, callback: (Result<RearNotificationSubmitResult>) -> Unit) =
+        onBinder(callback) { service ->
+            RearNotificationSubmitResult.fromJson(service.service.publishNotification(callerPackage, request.toJson(), service.callback))
+        }
+
+    /** Cancel only this SDK connection's notice with the given id. */
+    fun cancelNotification(id: String, callback: (Result<RearNotificationSubmitResult>) -> Unit) = onBinder(callback) { service ->
+        RearNotificationSubmitResult.fromJson(service.service.cancelNotification(callerPackage, id, service.callback))
+    }
+
     fun queryData(fields: Set<RearDataField>, callback: (Result<RearDataSnapshot>) -> Unit) = onBinder(callback) { service ->
         val payload = JSONArray().apply { fields.sortedBy { it.name }.forEach { put(it.name) } }.toString()
         RearDataSnapshot.fromJson(service.service.queryData(callerPackage, payload, service.callback))
@@ -466,6 +494,7 @@ class RearClient private constructor(
         const val EXTRA_LAUNCH_TICKET = "remrss_scene_ticket"
         const val ACTIVATION_REQUEST_CODE = 0x524D
         const val DATA_CONSENT_REQUEST_CODE = 0x524E
+        const val NOTIFICATION_CONSENT_REQUEST_CODE = 0x524F
 
         /** For local host-debug variants; production callers should use the default constructor. */
         @JvmStatic fun forHostPackage(
@@ -474,6 +503,61 @@ class RearClient private constructor(
             eventExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
             onEvent: (RearPlatformEvent) -> Unit
         ) = RearClient(context, hostPackageName, eventExecutor, onEvent)
+    }
+}
+
+enum class RearNotificationPriority { LOW, NORMAL, HIGH }
+enum class RearNotificationPrivacy { STANDARD, HIDE_TITLE, HIDE_TEXT }
+enum class RearNotificationSubmitStatus { ACCEPTED, SUPPRESSED, REJECTED }
+enum class RearNotificationEventStatus { DISPLAYED, SUPPRESSED, ENDED, FAILED }
+enum class RearNotificationEndReason {
+    TIMEOUT, REPLACED, CANCELLED, OWNER_CLOSED, OWNER_DIED, AUTH_REVOKED, GLOBAL_DISABLED,
+    PRIVACY_POLICY, DND, COVERED, DISPLAY_UNAVAILABLE, SCENE_TAKEOVER, SERVICE_STOPPED, RENDER_FAILED, HOST_ERROR
+}
+
+data class RearNotificationRequest(
+    val id: String,
+    val title: String,
+    val text: String = "",
+    val durationMs: Long = 8_000L,
+    val priority: RearNotificationPriority = RearNotificationPriority.NORMAL,
+    val privacy: RearNotificationPrivacy = RearNotificationPrivacy.STANDARD,
+) {
+    internal fun toJson(): String = JSONObject().put("id", id).put("title", title).put("text", text)
+        .put("durationMs", durationMs).put("priority", priority.name).put("privacy", privacy.name).toString()
+}
+
+data class RearNotificationSubmitResult(
+    val status: RearNotificationSubmitStatus,
+    val id: String,
+    val requestId: String?,
+    val reason: String?,
+) {
+    companion object {
+        fun fromJson(json: String): RearNotificationSubmitResult {
+            val value = JSONObject(json)
+            return RearNotificationSubmitResult(
+                RearNotificationSubmitStatus.valueOf(value.getString("status")), value.getString("id"),
+                value.optString("requestId").takeUnless { it.isBlank() || it == "null" },
+                value.optString("reason").takeUnless { it.isBlank() || it == "null" }
+            )
+        }
+    }
+}
+
+data class RearNotificationEvent(
+    val requestId: String,
+    val id: String,
+    val status: RearNotificationEventStatus,
+    val reason: String?,
+    val endedBy: RearNotificationEndReason?,
+) {
+    companion object {
+        internal fun fromJson(value: JSONObject): RearNotificationEvent = RearNotificationEvent(
+            value.getString("requestId"), value.getString("id"), RearNotificationEventStatus.valueOf(value.getString("status")),
+            value.optString("reason").takeUnless { it.isBlank() || it == "null" },
+            value.optString("endedBy").takeUnless { it.isBlank() || it == "null" }?.let(RearNotificationEndReason::valueOf)
+        )
     }
 }
 
@@ -635,12 +719,20 @@ data class RearDataSnapshot(val fields: Map<RearDataField, RearDataValue>, val s
     }
 }
 
-data class RearPlatformEvent(val type: String, val sessionId: String? = null, val generation: Long? = null, val data: JSONObject = JSONObject()) {
+data class RearPlatformEvent(
+    val type: String,
+    val sessionId: String? = null,
+    val generation: Long? = null,
+    val data: JSONObject = JSONObject(),
+    val notificationEvent: RearNotificationEvent? = null,
+) {
     companion object {
         fun fromJson(json: String): RearPlatformEvent {
             val root = JSONObject(json)
-            return RearPlatformEvent(root.getString("type"), root.optString("sessionId").takeUnless(String::isEmpty),
-                root.optLong("generation").takeIf { root.has("generation") }, root)
+            val type = root.getString("type")
+            return RearPlatformEvent(type, root.optString("sessionId").takeUnless(String::isEmpty),
+                root.optLong("generation").takeIf { root.has("generation") }, root,
+                if (type == "notificationEvent") RearNotificationEvent.fromJson(root) else null)
         }
     }
 }

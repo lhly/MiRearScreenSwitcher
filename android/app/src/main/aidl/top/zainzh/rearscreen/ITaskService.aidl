@@ -191,5 +191,9 @@ interface ITaskService {
             ISceneTaskActionGate actionGate) = 58;
     /** Read-only cast admission snapshot; legacy foreground/ownership queries retain their semantics. */
     String getDisplayCastOccupancy(int displayId) = 59;
+    /** One-shot non-touch idle-deadline reset after a verified owned rear notification draw. */
+    boolean reportOwnedNotificationActivity(int displayId, long notificationSessionId,
+            long expiresAtElapsedRealtimeMs, long drawEventUptime,
+            ISceneTaskActionGate currentGate) = 60;
 }
 

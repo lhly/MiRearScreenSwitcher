@@ -65,18 +65,44 @@ public class NotificationService extends NotificationListenerService {
     private final java.util.concurrent.ExecutorService animationWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private PowerManager.WakeLock wakeLock;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private static final class OwnedNotificationRender {
+        final RearAnimationManager.Session session;
+        final String packageName, title, text;
+        final long expiresAtElapsedRealtimeMs;
+        final top.zainzh.rearscreen.platform.notifications.NotificationRenderListener listener;
+        final OwnedNotificationActivityReset activityReset;
+        volatile boolean cancelled, covered;
+        volatile boolean prepared;
+        boolean launchScheduled;
+        boolean restored;
+        OwnedNotificationRender(RearAnimationManager.Session session, String packageName, String title, String text,
+                long expiresAtElapsedRealtimeMs,
+                top.zainzh.rearscreen.platform.notifications.NotificationRenderListener listener) {
+            this.session = session; this.packageName = packageName; this.title = title; this.text = text;
+            this.expiresAtElapsedRealtimeMs = expiresAtElapsedRealtimeMs; this.listener = listener;
+            this.activityReset = new OwnedNotificationActivityReset(session.id, expiresAtElapsedRealtimeMs);
+        }
+    }
     
     // 主屏接近传感器相关
     private SensorManager sensorManager;
     private Sensor mainProximitySensor; // 主屏接近传感器
     private boolean mainProximityRegistered;
-    private boolean isMainScreenCovered = false; // 主屏是否被遮盖
+    private volatile boolean isMainScreenCovered = false; // 主屏是否被遮盖
     
     // 静态实例，供外部访问
     private static NotificationService instance;
+    private final java.util.concurrent.ConcurrentHashMap<Long, OwnedNotificationRender> ownedNotificationRenders =
+            new java.util.concurrent.ConcurrentHashMap<>();
     
     public static ITaskService getTaskService() {
         return instance != null ? instance.taskService : null;
+    }
+
+    /** Reads the existing notification sensor state without registering or keeping a sensor active. */
+    public static boolean isMainScreenCoveredForNotifications() {
+        NotificationService service = instance;
+        return service != null && service.isMainScreenCovered;
     }
     
     // 广播接收器：监听设置重新加载
@@ -87,6 +113,9 @@ public class NotificationService extends NotificationListenerService {
                 Log.d(TAG, "🔄 收到重新加载设置的广播");
                 loadNotificationServiceSettings(); // 重新加载开关状态
                 loadSettings(); // 重新加载其他设置
+                top.zainzh.rearscreen.platform.RearCapabilityCore.get(NotificationService.this).onNotificationGlobalPolicyChanged();
+            } else if (android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED.equals(intent.getAction())) {
+                top.zainzh.rearscreen.platform.RearCapabilityCore.get(NotificationService.this).onNotificationGlobalPolicyChanged();
             }
         }
     };
@@ -97,6 +126,7 @@ public class NotificationService extends NotificationListenerService {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             Log.d(TAG, "✓ TaskService connected");
             taskService = ITaskService.Stub.asInterface(binder);
+            schedulePendingOwnedRenders();
             
             // 初始化显示屏信息缓存
             try {
@@ -125,6 +155,7 @@ public class NotificationService extends NotificationListenerService {
         
         // 注册广播接收器（监听设置变化）
         IntentFilter filter = new IntentFilter(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS");
+        filter.addAction(android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED);
         androidx.core.content.ContextCompat.registerReceiver(this, settingsReceiver, filter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, "✓ 广播接收器已注册");
@@ -183,6 +214,8 @@ public class NotificationService extends NotificationListenerService {
     }
 
     void closeNotificationDisplaysForServiceOff() {
+        try { top.zainzh.rearscreen.platform.RearCapabilityCore.get(this).onNotificationGlobalPolicyChanged(); }
+        catch (Exception ignored) { }
         long sessionId = RearAnimationManager.captureSessionId(RearAnimationManager.AnimationType.NOTIFICATION);
         disabledNotificationSessionId = sessionId;
         postNotificationFinishForSession(this, mainHandler, sessionId);
@@ -212,6 +245,8 @@ public class NotificationService extends NotificationListenerService {
     void closeOwnedDisplaysOnDestroy() {
         if (instance != this) return;
         closeNotificationDisplaysForServiceOff();
+        for (Long token : new java.util.ArrayList<>(ownedNotificationRenders.keySet()))
+            finishOwnedNotificationRender(token, "SERVICE_STOPPED", true);
         instance = null;
     }
     
@@ -349,6 +384,247 @@ public class NotificationService extends NotificationListenerService {
         }
     }
     
+    /** Positive tokens identify physical animation sessions; negative tokens identify virtual capsules. */
+    public static final long OWNED_RENDER_DEFERRED = Long.MIN_VALUE;
+    public static Long offerOwnedNotification(String packageName, String title, String text, long expiresAtElapsedRealtimeMs,
+            top.zainzh.rearscreen.platform.notifications.NotificationRenderListener listener) {
+        NotificationService service = instance;
+        if (service == null || service.taskServiceReleased || !service.serviceEnabled) return null;
+        if (android.os.SystemClock.elapsedRealtime() >= expiresAtElapsedRealtimeMs) return null;
+
+        // A virtual source notification/charging capsule is a higher-level owner too; the cast
+        // target atomically reports deferred instead of replacing its message.
+        long capsule = RearCastNotification.offerOwned(packageName, title, text, expiresAtElapsedRealtimeMs,
+                service.prefs.getBoolean("notification_dark_mode", false), new RearCastNotification.Listener() {
+                    @Override public void onDisplayed() { listener.onDisplayed(); }
+                    @Override public void onEnded(String reason) { listener.onEnded(reason); }
+                });
+        if (capsule == RearCastNotification.OWNED_DEFERRED) return OWNED_RENDER_DEFERRED;
+        if (capsule != 0) return capsule;
+
+        RearAnimationManager.Session session = RearAnimationManager.beginOwnedNotificationIfIdle();
+        if (session == null) return OWNED_RENDER_DEFERRED;
+        OwnedNotificationRender render = new OwnedNotificationRender(session, packageName, title, text,
+                expiresAtElapsedRealtimeMs, listener);
+        service.ownedNotificationRenders.put(session.id, render);
+        service.disabledNotificationSessionId = Long.MIN_VALUE;
+        service.scheduleOwnedRender(render);
+        return session.id;
+    }
+
+    public static void cancelOwnedNotification(long token, String reason) {
+        if (token == OWNED_RENDER_DEFERRED || token == 0) return;
+        if (token < 0) { RearCastNotification.clearNotification(-token, reason); return; }
+        NotificationService service = instance;
+        if (service != null) service.invalidateOwnedNotificationRender(token, reason, false);
+    }
+
+    /** Suspend an owned handle under a higher-priority owned item without terminating its TTL. */
+    public static void suspendOwnedNotification(long token) {
+        if (token < 0) { RearCastNotification.suspendOwnedNotification(-token); return; }
+        if (token <= 0) return;
+        NotificationService service = instance;
+        if (service == null) return;
+        OwnedNotificationRender render = service.ownedNotificationRenders.get(token);
+        if (render == null || render.cancelled || render.covered) return;
+        render.covered = true;
+        boolean current = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION, token);
+        postNotificationFinishForSession(service, service.mainHandler, token);
+        if (current) service.disabledNotificationSessionId = token;
+    }
+
+    /** Retires a stale physical token immediately before the router issues its resumed render. */
+    public static void abandonOwnedNotification(long token) {
+        if (token <= 0) return;
+        NotificationService service = instance;
+        if (service == null) return;
+        OwnedNotificationRender render = service.ownedNotificationRenders.remove(token);
+        if (render != null) render.cancelled = true;
+    }
+
+    public static Long resumeOwnedCapsule(long token, long expiresAtElapsedRealtimeMs) {
+        if (android.os.SystemClock.elapsedRealtime() >= expiresAtElapsedRealtimeMs) return null;
+        long result = RearCastNotification.resumeOwnedNotification(token);
+        if (result == RearCastNotification.OWNED_DEFERRED) return OWNED_RENDER_DEFERRED;
+        return result == 0 ? null : result;
+    }
+
+    public static void ownedNotificationDisplayed(long sessionId, int displayId, boolean displayOnAtDraw,
+                                                  long drawEventUptime) {
+        NotificationService service = instance;
+        if (service == null) return;
+        OwnedNotificationRender render = service.ownedNotificationRenders.get(sessionId);
+        if (render == null || render.cancelled || render.covered ||
+                android.os.SystemClock.elapsedRealtime() >= render.expiresAtElapsedRealtimeMs ||
+                !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, sessionId)) return;
+        try {
+            service.animationWorker.execute(() -> {
+                int selectedRearDisplayId = RearDisplay.id();
+                long now = android.os.SystemClock.elapsedRealtime();
+                OwnedNotificationActivityReset.Result result = render.activityReset.afterDraw(
+                        sessionId, () -> service.isOwnedNotificationRenderCurrent(render), true,
+                        displayId, selectedRearDisplayId, displayOnAtDraw, now, drawEventUptime,
+                        (targetDisplayId, targetSessionId, deadline, eventUptime) -> {
+                            ITaskService taskService = service.taskService;
+                            ISceneTaskActionGate currentGate = new ISceneTaskActionGate.Stub() {
+                                @Override public boolean isCurrent() {
+                                    return service.isOwnedNotificationRenderCurrent(render);
+                                }
+                            };
+                            return taskService != null && taskService.reportOwnedNotificationActivity(
+                                    targetDisplayId, targetSessionId, deadline, eventUptime, currentGate);
+                        });
+                Log.i(TAG, "owned_activity_refresh session=" + sessionId + " display=" + displayId
+                        + " draw_uptime=" + drawEventUptime + " worker_uptime=" + android.os.SystemClock.uptimeMillis()
+                        + " result=" + result.name().toLowerCase(java.util.Locale.ROOT));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            Log.i(TAG, "owned_activity_refresh session=" + sessionId + " display=" + displayId + " result=worker_unavailable");
+        }
+        render.listener.onDisplayed();
+    }
+
+    public static boolean isOwnedNotificationRenderCurrent(long sessionId) {
+        NotificationService service = instance;
+        if (service == null) return false;
+        OwnedNotificationRender render = service.ownedNotificationRenders.get(sessionId);
+        return render != null && service.isOwnedNotificationRenderCurrent(render);
+    }
+
+    public static void ownedNotificationEnded(long sessionId, String reason) {
+        NotificationService service = instance;
+        if (service == null) return;
+        OwnedNotificationRender render = service.ownedNotificationRenders.get(sessionId);
+        if (render == null || render.cancelled) return;
+        if ("COVERED".equals(reason)) {
+            if (!render.covered) {
+                render.covered = true;
+                render.listener.onEnded(reason);
+            }
+            return;
+        }
+        if (render.covered) return;
+        if (service.ownedNotificationRenders.remove(sessionId, render)) {
+            render.cancelled = true;
+            render.listener.onEnded(reason);
+        }
+    }
+
+    private boolean isOwnedNotificationRenderCurrent(OwnedNotificationRender render) {
+        return !render.cancelled && !render.covered && ownedNotificationRenders.get(render.session.id) == render &&
+                !taskServiceReleased && serviceEnabled &&
+                android.os.SystemClock.elapsedRealtime() < render.expiresAtElapsedRealtimeMs &&
+                RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, render.session.id);
+    }
+
+    private void schedulePendingOwnedRenders() {
+        for (OwnedNotificationRender render : ownedNotificationRenders.values()) scheduleOwnedRender(render);
+    }
+
+    private void scheduleOwnedRender(OwnedNotificationRender render) {
+        synchronized (render) {
+            if (render.launchScheduled || render.cancelled || taskService == null ||
+                    ownedNotificationRenders.get(render.session.id) != render) return;
+            render.launchScheduled = true;
+        }
+        try {
+            animationWorker.execute(() -> RearAnimationManager.runDisplayAction(() -> launchOwnedNotification(render)));
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            finishOwnedNotificationRender(render.session.id, "RENDER_FAILED", true);
+        }
+    }
+
+    private void finishOwnedNotificationRender(long sessionId, String reason, boolean report) {
+        OwnedNotificationRender render = ownedNotificationRenders.remove(sessionId);
+        if (render == null) return;
+        render.cancelled = true;
+        boolean current = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION, sessionId);
+        postNotificationFinishForSession(this, mainHandler, sessionId);
+        if (current) restoreOwnedPreparation(render, taskService != null ? taskService : ChargingService.getTaskService());
+        if (report) render.listener.onEnded(reason);
+    }
+
+    private void invalidateOwnedNotificationRender(long sessionId, String reason, boolean report) {
+        finishOwnedNotificationRender(sessionId, reason, report);
+    }
+
+    private void launchOwnedNotification(OwnedNotificationRender render) {
+        ITaskService service = null;
+        boolean prepared = false;
+        long sessionId = render.session.id;
+        try {
+            if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); return; }
+            if (taskService == null) {
+                synchronized (render) { render.launchScheduled = false; }
+                bindTaskService();
+                return;
+            }
+            if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); return; }
+            service = taskService;
+            if (service == null) throw new IllegalStateException("TaskService unavailable");
+            acquireWakeLock(6000);
+            RearScreenKeeperService.pauseMonitoring();
+            prepared = true;
+            RearAnimationDisplay.prepare(service, render.session, getPackageName());
+            render.prepared = true;
+            if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
+            String component = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
+            String command = "am start --display " + RearDisplay.requireId() + " -n " + component
+                    + " --es packageName " + RearAnimationDisplay.quote(render.packageName)
+                    + " --es title " + RearAnimationDisplay.quote(render.title)
+                    + " --es text " + RearAnimationDisplay.quote(render.text)
+                    + " --el when " + android.os.SystemClock.uptimeMillis()
+                    + " --ez darkMode " + prefs.getBoolean("notification_dark_mode", false)
+                    + " --ez ownedNotification true"
+                    + " --el expiresAtElapsedRealtimeMs " + render.expiresAtElapsedRealtimeMs
+                    + " --ei rearTaskId " + render.session.rearTaskId
+                    + " --el " + RearAnimationManager.EXTRA_SESSION_ID + " " + sessionId;
+            if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
+            boolean started = service.executeShellCommand(command);
+            if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
+            if (!started || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(),
+                    () -> isOwnedNotificationRenderCurrent(render))) {
+                if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
+                throw new IllegalStateException("Notification is not foreground on rear display");
+            }
+            Log.i(TAG, "owned_launch_verified display_id=" + RearDisplay.requireId() + " session=" + sessionId);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            if (isOwnedNotificationRenderCurrent(render))
+                finishOwnedNotificationRender(sessionId, "RENDER_FAILED", true);
+            else reportOwnedInvalidation(render);
+            restoreOwnedPreparation(render, service);
+        } catch (Exception error) {
+            if (isOwnedNotificationRenderCurrent(render)) {
+                Log.e(TAG, "owned_launch_failed session=" + sessionId, error);
+                finishOwnedNotificationRender(sessionId, "RENDER_FAILED", true);
+                restoreOwnedPreparation(render, service);
+            } else {
+                reportOwnedInvalidation(render);
+                restoreOwnedPreparation(render, service);
+            }
+        } finally { releaseWakeLock(); }
+    }
+
+    private void reportOwnedInvalidation(OwnedNotificationRender render) {
+        if (render.cancelled || ownedNotificationRenders.get(render.session.id) != render) return;
+        if (android.os.SystemClock.elapsedRealtime() >= render.expiresAtElapsedRealtimeMs) {
+            finishOwnedNotificationRender(render.session.id, "TIMEOUT", true);
+        } else if (!render.covered && !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, render.session.id)) {
+            ownedNotificationEnded(render.session.id, "COVERED");
+            postNotificationFinishForSession(this, mainHandler, render.session.id);
+        }
+    }
+
+    private void restoreOwnedPreparation(OwnedNotificationRender render, ITaskService service) {
+        if (service == null || !render.prepared || !RearAnimationManager.isIdle(render.session.id) || render.session.rearTaskId <= 0) return;
+        synchronized (render) {
+            if (render.restored) return;
+            render.restored = true;
+        }
+        ChargingService.restoreAfterAnimation(service, render.session.rearTaskId, render.session.id);
+    }
+
     void showNotificationOnRearScreen(String packageName, String title, String text, long when) {
         // The existing host can present a passive capsule without changing display or input ownership.
         if (!RearAnimationManager.isAnimationPlaying() && RearCastNotification.offer(packageName, title, text,
@@ -404,6 +680,7 @@ public class NotificationService extends NotificationListenerService {
                     + " --es text " + RearAnimationDisplay.quote(text)
                     + " --el when " + when
                     + " --ez darkMode " + prefs.getBoolean("notification_dark_mode", false)
+                    + " --ez ownedNotification false"
                     + " --ei rearTaskId " + session.rearTaskId
                     + " --el " + RearAnimationManager.EXTRA_SESSION_ID + " " + session.id;
             if (!service.executeShellCommand(command)

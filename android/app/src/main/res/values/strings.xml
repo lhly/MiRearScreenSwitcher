@@ -36,4 +36,10 @@
     <string name="module_recovery_notification_title">计时器正在背屏运行</string>
     <string name="module_recovery_notification_text">遮挡时暂停显示，移开后恢复</string>
     <string name="module_recovery_stop">结束计时并退出</string>
+    <string name="notification_publisher_consent_title">允许发布背屏通知？</string>
+    <string name="notification_publisher_consent_intro">%1$s 请求在背屏显示其自行发布的通知。此授权独立于你选择接收系统通知的应用。</string>
+    <string name="notification_publisher_consent_access">发布自己的背屏通知</string>
+    <string name="notification_publisher_consent_detail">仅限纯文本；该应用只能更新或取消自己发布的通知。</string>
+    <string name="notification_publisher_consent_footer">你可随时关闭授权。全局通知开关、勿扰和隐私设置仍会生效。</string>
+    <string name="notification_publisher_consent_save">保存选择</string>
 </resources>

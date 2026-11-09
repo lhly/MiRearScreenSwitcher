@@ -1,10 +1,11 @@
 /** Capability names that the current host actually implements. A known future
  * capability is intentionally not part of this authoring contract yet. */
-export type CapabilityName = 'rear.scene' | 'rear.scene.keep_visible' | 'data.battery' | 'data.systemMetrics' | 'model.local' | 'ui.native' | 'ui.dialog' | 'action.invoke' | 'schedule.visible' | 'clock.snapshot';
+export type CapabilityName = 'rear.scene' | 'rear.scene.keep_visible' | 'rear.notification' | 'data.battery' | 'data.systemMetrics' | 'model.local' | 'ui.native' | 'ui.dialog' | 'action.invoke' | 'schedule.visible' | 'clock.snapshot';
 export interface CapabilityRequirement { name: CapabilityName; minimumVersion: 1 }
 export interface CapabilityDeclaration { required: CapabilityRequirement[]; optional: CapabilityRequirement[] }
 
 export const HOST_CONFIG_CHANGED_EVENT: 'host.configChanged';
+export const HOST_NOTIFICATION_RESULT_EVENT: 'host.notificationResult';
 export interface ModEvent {
   type: string;
   payload?: Record<string, unknown>;
@@ -40,11 +41,22 @@ export type ModEffect = {
 } | { type: 'schedule.visible.register'; id: string; intervalMs: number; deadlineElapsedRealtimeMs?: number }
   | { type: 'schedule.visible.register'; id: string; deadlineElapsedRealtimeMs: number; intervalMs?: number }
   | { type: 'schedule.visible.cancel'; id: string }
-  | { type: 'action.invoke'; ref: { id: string; version: number } };
+  | { type: 'action.invoke'; ref: { id: string; version: number } }
+  | { type: 'rear.notification.publish'; id?: string; notificationId: string; title: string; text?: string; durationMs?: number; priority?: NotificationPriority; privacy?: NotificationPrivacy }
+  | { type: 'rear.notification.cancel'; id?: string; notificationId: string };
+export type NotificationPriority = 'LOW' | 'NORMAL' | 'HIGH';
+export type NotificationPrivacy = 'STANDARD' | 'HIDE_TITLE' | 'HIDE_TEXT';
+export interface NotificationRequest { id: string; title: string; text?: string; durationMs?: number; priority?: NotificationPriority; privacy?: NotificationPrivacy }
 export interface HostEffectResultEvent extends ModEvent {
   type: 'host.effectResult';
-  /** Original declarative id, host UUID, or epoch-qualified action invocation id. */
-  payload: { effectId: string; requestEventId: string; status: 'accepted' | 'rejected'; code?: string };
+  /** Original declarative id or host-generated id. */
+  payload: { effectId: string; requestEventId: string; status: 'accepted' | 'suppressed' | 'rejected'; code?: string };
+}
+export type NotificationEndReason = 'TIMEOUT' | 'REPLACED' | 'CANCELLED' | 'OWNER_CLOSED' | 'OWNER_DIED' | 'AUTH_REVOKED' | 'GLOBAL_DISABLED' | 'PRIVACY_POLICY' | 'DND' | 'COVERED' | 'DISPLAY_UNAVAILABLE' | 'SCENE_TAKEOVER' | 'SERVICE_STOPPED' | 'RENDER_FAILED' | 'HOST_ERROR';
+export interface HostNotificationResultEvent extends ModEvent {
+  type: 'host.notificationResult';
+  /** Emitted after render evidence or an asynchronous owner/policy event. */
+  payload: { effectId: string; requestEventId: string; notificationId: string; status: 'DISPLAYED' | 'SUPPRESSED' | 'ENDED' | 'FAILED'; reason?: string; endedBy?: NotificationEndReason };
 }
 export interface HostScheduleTickEvent extends ModEvent {
   type: 'host.schedule.tick';
@@ -102,6 +114,7 @@ export type UiNode =
 
 export function defineMod<T extends Record<string, unknown>>(descriptor: T): Readonly<T>;
 export const host: {
+  notification: { publish(request: NotificationRequest): ModEffect; cancel(id: string): ModEffect };
   schedule: { visible: { register(id: string, intervalMs: number): ModEffect; registerDeadline(id: string, deadlineElapsedRealtimeMs: number): ModEffect; cancel(id: string): ModEffect } };
   action: { invoke(ref: RegisteredActionRef): ModEffect };
 };

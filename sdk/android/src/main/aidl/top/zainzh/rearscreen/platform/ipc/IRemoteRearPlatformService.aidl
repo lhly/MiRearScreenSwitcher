@@ -33,4 +33,8 @@ interface IRemoteRearPlatformService {
             IRemoteRearPlatformCallback callback);
     PendingIntent requestRegisteredActionInvocation(String callerPackageName, String refId, int refVersion,
             IRemoteRearPlatformCallback callback);
+    /** Independently consented SDK-owned rear notifications; namespace is derived from Binder identity. */
+    PendingIntent requestNotificationAuthorization(String callerPackageName, IRemoteRearPlatformCallback callback);
+    String publishNotification(String callerPackageName, String requestJson, IRemoteRearPlatformCallback callback);
+    String cancelNotification(String callerPackageName, String notificationId, IRemoteRearPlatformCallback callback);
 }

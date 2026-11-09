@@ -66,6 +66,7 @@ class ModRearSceneActivity : ComponentActivity() {
     private var windowActuallyVisible by mutableStateOf(false)
     private var coordinatorVisible by mutableStateOf(false)
     private lateinit var windowLifecycleGate: ModSceneWindowLifecycleGate
+    private val windowPolicyTraceGate = ModSceneWindowPolicyTraceGate()
     private val decorAttachListener = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) { reportActualWindowVisibility() }
         override fun onViewDetachedFromWindow(view: View) { reportActualWindowVisibility() }
@@ -523,8 +524,23 @@ class ModRearSceneActivity : ComponentActivity() {
     private fun isSceneContentVisible(): Boolean = windowPolicy().showSceneContent
 
     private fun applyWindowPolicy() {
-        if (windowPolicy().keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val policy = windowPolicy()
+        val requested = launch?.request?.keepVisible == true
+        val expected = policy.keepScreenOn
+        val keepFlag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        val before = (window.attributes.flags and keepFlag) != 0
+        if (expected) window.addFlags(keepFlag) else window.clearFlags(keepFlag)
+        val after = (window.attributes.flags and keepFlag) != 0
+        val gate = if (::windowLifecycleGate.isInitialized) windowLifecycleGate.currentState() else null
+        val displayId = window.decorView.display?.displayId ?: -1
+        val stateKey = "task=$taskId display=$displayId sceneReady=$sceneReady " +
+            "windowVisible=${isWindowActuallyVisible()} coreVisible=$coordinatorVisible requested=$requested expected=$expected " +
+            "expected=$expected epoch=${gate?.windowRequestEpoch ?: -1L} revision=${gate?.presentationRevision ?: -1L}"
+        // Log only policy-state changes, observed Window flag transitions, or an actual
+        // before/after application. Repeated frame/layout callbacks with stable state stay quiet.
+        if (windowPolicyTraceGate.shouldLog(stateKey, before, after)) {
+            Log.i("ModSceneKeepPolicy", "apply $stateKey windowAttrKeepBefore=$before windowAttrKeepAfter=$after")
+        }
     }
 
     private fun windowPolicy() = ModSceneWindowPolicy(

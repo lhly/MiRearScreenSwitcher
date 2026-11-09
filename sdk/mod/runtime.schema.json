@@ -145,6 +145,79 @@
               }
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "notificationId",
+            "title"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "rear.notification.publish"
+            },
+            "notificationId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 80,
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 240,
+              "default": ""
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 15000,
+              "default": 8000
+            },
+            "priority": {
+              "enum": [
+                "LOW",
+                "NORMAL",
+                "HIGH"
+              ],
+              "default": "NORMAL"
+            },
+            "privacy": {
+              "enum": [
+                "STANDARD",
+                "HIDE_TITLE",
+                "HIDE_TEXT"
+              ],
+              "default": "STANDARD"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "notificationId"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "type": {
+              "const": "rear.notification.cancel"
+            },
+            "notificationId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            }
+          }
         }
       ]
     },
@@ -175,6 +248,7 @@
         "status": {
           "enum": [
             "accepted",
+            "suppressed",
             "rejected"
           ]
         },
@@ -224,6 +298,64 @@
               "deadline"
             ]
           }
+        }
+      }
+    },
+    "notificationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectId",
+        "requestEventId",
+        "notificationId",
+        "status"
+      ],
+      "properties": {
+        "effectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?:[A-Za-z0-9_.-]{1,64}|[0-9]+:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$"
+        },
+        "requestEventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "notificationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+        },
+        "status": {
+          "enum": [
+            "DISPLAYED",
+            "SUPPRESSED",
+            "ENDED",
+            "FAILED"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "endedBy": {
+          "enum": [
+            "TIMEOUT",
+            "REPLACED",
+            "CANCELLED",
+            "OWNER_CLOSED",
+            "OWNER_DIED",
+            "AUTH_REVOKED",
+            "GLOBAL_DISABLED",
+            "PRIVACY_POLICY",
+            "DND",
+            "COVERED",
+            "DISPLAY_UNAVAILABLE",
+            "SCENE_TAKEOVER",
+            "SERVICE_STOPPED",
+            "RENDER_FAILED",
+            "HOST_ERROR"
+          ]
         }
       }
     }

@@ -39,12 +39,17 @@ public class RearScreenNotificationActivity extends Activity {
     private String packageName;
     private long animationId;
     private long acceptedAnimationId;
+    private long expiresAtElapsedRealtimeMs = Long.MAX_VALUE;
     private int rearTaskId = -1;
     private final android.os.Handler lifecycleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable autoFinish = this::finish;
     private final java.util.concurrent.ExecutorService wakeupWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean contentInitialized = false;  // 标记内容是否已初始化
     private boolean rearWindowConfigured;
+    private long ownedRenderReportedSession = Long.MIN_VALUE;
+    private long ownedRenderDrawObservedSession = Long.MIN_VALUE;
+    private android.view.ViewTreeObserver.OnDrawListener ownedRenderDrawListener;
+    private android.view.ViewTreeObserver ownedRenderDrawObserver;
     
     // 通知动画期间短时保亮，保留官方进程。
     private android.os.Handler wakeupHandler;
@@ -85,8 +90,13 @@ public class RearScreenNotificationActivity extends Activity {
         super.onCreate(savedInstanceState);
         animationId = getIntent().getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, RearAnimationManager.getGeneration());
         acceptedAnimationId = animationId;
+        expiresAtElapsedRealtimeMs = getIntent().getLongExtra("expiresAtElapsedRealtimeMs", Long.MAX_VALUE);
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
+            finish(); return;
+        }
+        if (isOwnedNotification() && android.os.SystemClock.elapsedRealtime() >= expiresAtElapsedRealtimeMs) {
+            NotificationService.ownedNotificationEnded(animationId, "TIMEOUT");
             finish(); return;
         }
         RearAnimationManager.registerAnimationActivityTask(animationId, getTaskId());
@@ -119,10 +129,8 @@ public class RearScreenNotificationActivity extends Activity {
             (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitNotificationContent());
 
         // V3.2: 保持常亮 + 锁屏显示
-        getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-        );
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+            (isOwnedNotification() ? 0 : android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
         
         // 适配新API：锁屏时显示
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -217,6 +225,7 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 开始动画
         startNotificationAnimation(appIconCenter, appNameContainer, contentContainer);
+        reportOwnedNotificationDisplayedWhenVisible();
         
         // 点击跳转到应用（优先在背屏启动）
         container.setOnClickListener(v -> {
@@ -313,9 +322,7 @@ public class RearScreenNotificationActivity extends Activity {
         });
         
         // V3.4: 根据设置的时间自动关闭
-        int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
-        lifecycleHandler.removeCallbacks(autoFinish);
-        lifecycleHandler.postDelayed(autoFinish, duration * 1000L);
+        scheduleAutomaticFinish();
         
         long onCreateEndTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ✓ onCreate完成 (总耗时%dms)", 
@@ -420,14 +427,13 @@ public class RearScreenNotificationActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        reportOwnedNotificationDisplayedWhenVisible();
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
         
         // V3.2: 再次确保Window flags（保持常亮 + 锁屏显示）
-        getWindow().addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-        );
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+            (isOwnedNotification() ? 0 : android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
         
         // 确保锁屏显示设置持续生效
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -520,6 +526,7 @@ public class RearScreenNotificationActivity extends Activity {
                 
                 // 启动动画
                 startNotificationAnimation(appIconCenter, appNameContainer, contentContainer);
+                reportOwnedNotificationDisplayedWhenVisible();
                 
                 // 设置点击事件和自动关闭
                 container.setOnClickListener(v -> {
@@ -613,9 +620,7 @@ public class RearScreenNotificationActivity extends Activity {
                 });
                 
                 // V3.4: 根据设置的时间自动关闭
-                int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
-                lifecycleHandler.removeCallbacks(autoFinish);
-        lifecycleHandler.postDelayed(autoFinish, duration * 1000L);
+                scheduleAutomaticFinish();
                 
                 // 启动wakeup循环
                 startWakeupLoop();
@@ -646,6 +651,90 @@ public class RearScreenNotificationActivity extends Activity {
         }
     }
     
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) reportOwnedNotificationDisplayedWhenVisible();
+    }
+
+    private void reportOwnedNotificationDisplayedWhenVisible() {
+        if (!getIntent().getBooleanExtra("ownedNotification", false)) return;
+        View root = findViewById(R.id.notification_root);
+        if (root == null) return;
+        long targetSession = acceptedAnimationId;
+        root.post(() -> {
+            if (!isValidOwnedNotificationWindow(root, targetSession) || ownedRenderReportedSession == targetSession ||
+                    ownedRenderDrawListener != null) return;
+            android.view.ViewTreeObserver observer = root.getViewTreeObserver();
+            if (!observer.isAlive()) return;
+            ownedRenderDrawObserver = observer;
+            android.view.ViewTreeObserver.OnDrawListener[] once = new android.view.ViewTreeObserver.OnDrawListener[1];
+            once[0] = () -> {
+                if (ownedRenderDrawObservedSession == targetSession) return;
+                ownedRenderDrawObservedSession = targetSession;
+                long drawEventUptime = android.os.SystemClock.uptimeMillis();
+                Runnable afterDraw = () -> {
+                    // ViewTreeObserver forbids mutating its draw-listener set from inside onDraw.
+                    if (ownedRenderDrawObserver == observer && ownedRenderDrawListener == once[0]) {
+                        if (observer.isAlive()) observer.removeOnDrawListener(once[0]);
+                        ownedRenderDrawObserver = null;
+                        ownedRenderDrawListener = null;
+                    }
+                    if (!isValidOwnedNotificationWindow(root, targetSession) || ownedRenderReportedSession == targetSession) return;
+                    ownedRenderReportedSession = targetSession;
+                    NotificationService.ownedNotificationDisplayed(targetSession, currentDisplayId(), currentDisplayIsOn(),
+                            drawEventUptime);
+                };
+                if (!root.post(afterDraw)) lifecycleHandler.post(afterDraw);
+            };
+            ownedRenderDrawListener = once[0];
+            observer.addOnDrawListener(ownedRenderDrawListener);
+            root.invalidate();
+        });
+    }
+
+    private boolean isValidOwnedNotificationWindow(View root, long targetSession) {
+        boolean current = RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, targetSession) &&
+                NotificationService.isOwnedNotificationRenderCurrent(targetSession);
+        return OwnedNotificationDrawEvidence.qualifies(current, acceptedAnimationId == targetSession,
+                !isFinishing() && !isDestroyed() && hasWindowFocus() && contentInitialized,
+                RearDisplay.isRear(currentDisplayId()) && currentDisplayIsOn(), true,
+                root.getWidth() > 0 && root.getHeight() > 0,
+                root.isAttachedToWindow(), root.isShown(), root.getWindowVisibility() == View.VISIBLE);
+    }
+
+    private boolean currentDisplayIsOn() {
+        android.view.Display display = getDisplay();
+        return display != null && display.isValid() && display.getState() == android.view.Display.STATE_ON;
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        if (isOwnedNotification()) {
+            int displayId = currentDisplayId();
+            Log.i(TAG, "owned_window_pause session=" + acceptedAnimationId + " uptime=" + android.os.SystemClock.uptimeMillis()
+                    + " display=" + displayId + " on=" + currentDisplayIsOn() + " finishing=" + isFinishing()
+                    + " current=" + NotificationService.isOwnedNotificationRenderCurrent(acceptedAnimationId));
+        }
+    }
+
+    @Override protected void onStop() {
+        super.onStop();
+        if (isOwnedNotification()) {
+            int displayId = currentDisplayId();
+            Log.i(TAG, "owned_window_stop session=" + acceptedAnimationId + " uptime=" + android.os.SystemClock.uptimeMillis()
+                    + " display=" + displayId + " on=" + currentDisplayIsOn() + " finishing=" + isFinishing()
+                    + " current=" + NotificationService.isOwnedNotificationRenderCurrent(acceptedAnimationId));
+        }
+    }
+
+    private void clearOwnedRenderDrawListener() {
+        android.view.ViewTreeObserver observer = ownedRenderDrawObserver;
+        android.view.ViewTreeObserver.OnDrawListener listener = ownedRenderDrawListener;
+        ownedRenderDrawObserver = null;
+        ownedRenderDrawListener = null;
+        if (observer != null && observer.isAlive() && listener != null) observer.removeOnDrawListener(listener);
+    }
+
     protected int currentDisplayId() { return getWindowManager().getDefaultDisplay().getDisplayId(); }
 
     private void scheduleDeferredFinish() {
@@ -658,12 +747,27 @@ public class RearScreenNotificationActivity extends Activity {
         });
     }
 
+    private void scheduleAutomaticFinish() {
+        lifecycleHandler.removeCallbacks(autoFinish);
+        long durationMs = isOwnedNotification()
+                ? Math.max(0L, expiresAtElapsedRealtimeMs - android.os.SystemClock.elapsedRealtime())
+                : getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10) * 1000L;
+        lifecycleHandler.postDelayed(autoFinish, durationMs);
+    }
+
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         long nextId = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, nextId)) return;
+        long previousId = acceptedAnimationId;
+        if (previousId != nextId && getIntent().getBooleanExtra("ownedNotification", false))
+            NotificationService.ownedNotificationEnded(previousId, "COVERED");
         acceptedAnimationId = nextId;
+        ownedRenderReportedSession = Long.MIN_VALUE;
+        ownedRenderDrawObservedSession = Long.MIN_VALUE;
+        clearOwnedRenderDrawListener();
         setIntent(intent);
+        expiresAtElapsedRealtimeMs = intent.getLongExtra("expiresAtElapsedRealtimeMs", Long.MAX_VALUE);
         lifecycleHandler.removeCallbacks(autoFinish);
         stopWakeupLoop();
         recreate();
@@ -671,12 +775,21 @@ public class RearScreenNotificationActivity extends Activity {
 
     @Override protected void onDestroy() {
         lifecycleHandler.removeCallbacksAndMessages(null);
+        clearOwnedRenderDrawListener();
+        if (isOwnedNotification() && ownedRenderReportedSession != acceptedAnimationId && !isChangingConfigurations())
+            NotificationService.ownedNotificationEnded(acceptedAnimationId, "RENDER_FAILED");
         stopWakeupLoop();
         wakeupWorker.shutdown();
         try { unregisterReceiver(interruptReceiver); } catch (IllegalArgumentException ignored) { }
         super.onDestroy();
         if (this != currentInstance || isChangingConfigurations()) return;
         currentInstance = null;
+        if (getIntent().getBooleanExtra("ownedNotification", false)) {
+            String endReason = !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)
+                    ? (RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NONE ? "DISPLAY_UNAVAILABLE" : "COVERED")
+                    : "TIMEOUT";
+            NotificationService.ownedNotificationEnded(animationId, endReason);
+        }
         if (!RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) return;
         if (RearAnimationManager.shouldResumeChargingAnimation()) {
             RearAnimationManager.clearChargingAlwaysOnFlag();
@@ -686,6 +799,7 @@ public class RearScreenNotificationActivity extends Activity {
         ITaskService service = NotificationService.getTaskService();
         if (service == null) service = ChargingService.getTaskService();
         if (service != null) ChargingService.restoreAfterAnimation(service, rearTaskId, animationId);
+        top.zainzh.rearscreen.platform.RearCapabilityCore.get(this).onNotificationPresentationAvailable();
     }
 
     @Override
@@ -903,7 +1017,10 @@ public class RearScreenNotificationActivity extends Activity {
     /**
      * 启动通知动画期间的唤醒循环
      */
+    private boolean isOwnedNotification() { return getIntent().getBooleanExtra("ownedNotification", false); }
+
     private void startWakeupLoop() {
+        if (isOwnedNotification()) return;
         if (isWakeupRunning) {
             Log.w(TAG, "⚠️ Wakeup loop already running");
             return;

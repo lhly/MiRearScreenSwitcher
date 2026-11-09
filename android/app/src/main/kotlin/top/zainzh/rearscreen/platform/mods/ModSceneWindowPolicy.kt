@@ -22,6 +22,19 @@ internal data class ModSceneWindowPolicy(
         get() = showSceneContent && keepVisibleRequested
 }
 
+/** Deduplicates bounded state/attribute diagnostics for the current Activity Window policy. */
+internal class ModSceneWindowPolicyTraceGate {
+    private var lastStateKey: String? = null
+    private var lastAppliedKeepFlag: Boolean? = null
+
+    fun shouldLog(stateKey: String, flagBefore: Boolean, flagAfter: Boolean): Boolean {
+        val shouldLog = lastStateKey != stateKey || lastAppliedKeepFlag != flagBefore || flagBefore != flagAfter
+        lastStateKey = stateKey
+        lastAppliedKeepFlag = flagAfter
+        return shouldLog
+    }
+}
+
 /** Shared by the real rear Activity and its instrumentation check: hidden scenes are fully black. */
 @Composable
 internal fun ModSceneVisibilitySurface(visible: Boolean, content: @Composable () -> Unit) {
@@ -99,7 +112,12 @@ internal class ModSceneWindowLifecycleGate(
         presentationValid = true
         presentationVisible = snapshot.visible
         presentationRevision = snapshot.revision
+        val previousState = lastState
         update()
+        // A platform Window flag can be lost independently of this in-memory gate. Every
+        // accepted Core snapshot is also an effect-reconciliation point, even when the logical
+        // state compares equal and update() would otherwise suppress its callback.
+        if (lastState == previousState) onStateChanged(state())
         return true
     }
 

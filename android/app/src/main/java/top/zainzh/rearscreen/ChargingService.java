@@ -47,6 +47,7 @@ public class ChargingService extends Service {
     private volatile boolean destroyed;
     private boolean powerConnected;
     private boolean capsuleConnectionHandled;
+    private volatile long castChargingToken;
     private volatile ChargingRequest activeRequest;
     private PowerManager.WakeLock wakeLock;
     private boolean wakeupRunning;
@@ -110,7 +111,7 @@ public class ChargingService extends Service {
     private final BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (!prefs.getBoolean("charging_animation_enabled", true)) {
-                RearCastNotification.clearCharging();
+                clearCastChargingCapsule();
                 cancelRequest();
                 finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);
             } else if (activeRequest != null && isCurrent(activeRequest)) {
@@ -143,7 +144,7 @@ public class ChargingService extends Service {
             } else if (Intent.ACTION_POWER_DISCONNECTED.equals(intent.getAction())) {
                 powerConnected = false;
                 capsuleConnectionHandled = false;
-                RearCastNotification.clearCharging();
+                clearCastChargingCapsule();
                 cancelRequest();
                 RearAnimationManager.clearChargingAlwaysOnFlag();
                 finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);
@@ -201,8 +202,10 @@ public class ChargingService extends Service {
         int level = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
         String title = getString(level >= 100 ? R.string.cast_charging_full : R.string.cast_charging_title);
         String text = level >= 0 && level <= 100 ? getString(R.string.cast_charging_percentage, level) : "";
-        if (!RearCastNotification.offerCharging(getPackageName(), title, text, SystemClock.elapsedRealtime(),
-                prefs.getBoolean("notification_dark_mode", false))) return false;
+        long chargingToken = RearCastNotification.offerCharging(getPackageName(), title, text, SystemClock.elapsedRealtime(),
+                prefs.getBoolean("notification_dark_mode", false));
+        if (chargingToken == 0) return false;
+        castChargingToken = chargingToken;
         capsuleConnectionHandled = true;
         ChargingRequest previous = activeRequest;
         cancelRequest();
@@ -211,6 +214,12 @@ public class ChargingService extends Service {
             RearScreenKeeperService.resumeMonitoring();
         }
         return true;
+    }
+
+    private void clearCastChargingCapsule() {
+        long token = castChargingToken;
+        castChargingToken = 0;
+        RearCastNotification.clearCharging(token);
     }
 
     private void cancelRequest() {
@@ -465,7 +474,7 @@ public class ChargingService extends Service {
 
     @Override public void onDestroy() {
         destroyed = true;
-        RearCastNotification.clearCharging();
+        clearCastChargingCapsule();
         cancelRequest();
         RearAnimationManager.clearChargingAlwaysOnFlag();
         finishChargingAnimation(activeRequest != null ? activeRequest.id : 0);

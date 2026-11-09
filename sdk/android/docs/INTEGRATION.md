@@ -1,6 +1,6 @@
 # Android SDK 接入指南
 
-这份指南覆盖 SDK `0.2.0` 的已交付接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据，以及登记和逐次确认调用快捷操作。它不代表 cast、通知、clock 或 FULL/region 能力已开放。
+这份指南覆盖 SDK `0.3.0` 的已交付接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据，以及登记和逐次确认调用快捷操作、独立授权后发布自己的背屏通知。它不代表 cast、clock 或 FULL/region 能力已开放。
 
 ## 1. 引用本地 AAR
 
@@ -278,3 +278,51 @@ rear.requestRegisteredActionInvocation(actionRef) { result ->
 ## 本版可用范围
 
 本版提供：rear info/能力查询；前台用户确认的独立 Scene；Ready、viewport、可见性、当前 presentation 与受约束的 keep-visible；battery 与 system metrics 的授权、查询和可见订阅；用户登记、publisher隔离并逐次确认的快捷操作。它不提供 cast session、应用自有 rear notification、clock、FULL/region，也不嵌入 Root/Shizuku/QuickJS/Miuix/ROM实现。请按运行时 capability 与返回状态处理目标设备，不把未开放能力包装成可用接口。
+
+
+## 9. 发布自己的背屏通知
+
+只有用户对当前应用及其签名明确授予发布权后，通知才会进入宿主队列。它与“选择哪些 App 的系统通知可镜像”是两项独立授权。前台 Activity 调用授权入口会打开宿主的 Miuix 确认页；用户可在同一页面关闭已有授权。SDK 的 `onEvent` 收到 `type == "notificationAuthorization"` 表示用户的选择已生效，`data.granted` 是最新状态。
+
+```kotlin
+rear.requestNotificationAuthorization(activity) { result ->
+    result.onFailure(::showError) // 成功仅表示授权页已打开
+}
+```
+
+发布请求仅包含有界纯文本。相同连接与 ID 的再次发布会更新该项；关闭 client 只清理该连接发布的项目。Host 按 Binder UID、包名、签名证书和连接代际认领发布者，不接受调用方传入所有者。每条通知 TTL 为 1–15 秒（默认 8 秒）；每发布者最多 4 项、全局最多 16 项，并实施每 10 秒 10 次、每秒突发 4 次限速。超过额度返回明确错误，不会悄悄替换队列中的其他项目。
+
+```kotlin
+val notice = RearNotificationRequest(
+    id = "timer.main", // 只在本 SDK client 的 namespace 内去重
+    title = "计时结束",
+    text = "可以查看结果",
+    durationMs = 8_000,
+)
+rear.publishNotification(notice) { result ->
+    result.onSuccess { outcome ->
+        when (outcome.status) {
+            RearNotificationSubmitStatus.ACCEPTED -> showStatus("已进入宿主队列")
+            RearNotificationSubmitStatus.SUPPRESSED -> showStatus("当前策略未显示：${outcome.reason}")
+            RearNotificationSubmitStatus.REJECTED -> showStatus("请求被拒绝：${outcome.reason}")
+        }
+    }.onFailure(::showError)
+}
+```
+
+`ACCEPTED` 只表示进入有界队列，不是已显示。通过 `RearPlatformEvent.notificationEvent` 观察后续结果：`DISPLAYED` 只在通知 Activity 实际出现在后屏且窗口可见，或投放胶囊完成可见布局后返回；`SUPPRESSED` 会说明全局开关、勿扰、撤权或显示策略原因；`ENDED`/`FAILED` 带有 `endedBy` 结束原因。临时通知/充电覆盖会在 TTL 未到期时恢复仍有效的自有通知；用户显式切屏/投放不会被通知重新夺回。
+
+```kotlin
+RearClient(this) { event ->
+    event.notificationEvent?.let { noticeEvent ->
+        when (noticeEvent.status) {
+            RearNotificationEventStatus.DISPLAYED -> showStatus("已在背屏显示 ${noticeEvent.id}")
+            RearNotificationEventStatus.SUPPRESSED -> showStatus("未显示：${noticeEvent.reason}")
+            RearNotificationEventStatus.ENDED, RearNotificationEventStatus.FAILED ->
+                showStatus("${noticeEvent.id} 已结束：${noticeEvent.endedBy}")
+        }
+    }
+}
+```
+
+`cancelNotification(id)` 只取消同一 client epoch 名下的 ID；未知 ID 返回 `REJECTED/NOT_FOUND`。关闭 client、Binder callback 死亡、连接代际替换或撤销授权，会清理该连接自己的通知，不影响其他发布者、系统通知、充电提示或场景。宿主全局通知开关、系统勿扰和隐私设置始终优先。SDK 不读取镜像系统通知，不请求通知监听权限，不支持任意图像、URI、PendingIntent、跳转动作或后台轮询/常亮。

@@ -75,10 +75,20 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
             main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.offer(message); });
         }
         public void clearNotification(long token) {
-            main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismiss(token); });
+            clearNotification(token, "CANCELLED");
+        }
+        public void clearNotification(long token, String reason) {
+            main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismiss(token, reason); });
         }
         public void clearCharging() {
             main.post(() -> { if (!ending && instance == VirtualRearHostActivity.this && castNotification != null) castNotification.dismissCharging(); });
+        }
+        public void presentationAvailable() {
+            main.post(() -> {
+                if (!ending && instance == VirtualRearHostActivity.this && session != null)
+                    top.zainzh.rearscreen.platform.RearCapabilityCore.get(VirtualRearHostActivity.this)
+                            .onNotificationPresentationAvailable();
+            });
         }
     };
     private boolean menuVisible, menuBusy;
@@ -759,7 +769,8 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         if (castNotification == null || root == null) return;
         int[] origin = new int[2]; root.getLocationOnScreen(origin);
         castNotification.hostState(safeViewport, origin[0], origin[1], hostResumed && !ending && session != null
-                && viewportPlaced && holder != null && !resizing && !reconnecting && !menuVisible && !menuBusy);
+                && viewportPlaced && holder != null && !resizing && !reconnecting && !menuVisible && !menuBusy,
+                31 * java.util.Objects.hashCode(session) + outputGeneration + (viewport == null ? 0 : viewport.key().hashCode()));
     }
     @Override protected void onResume() {
         super.onResume();

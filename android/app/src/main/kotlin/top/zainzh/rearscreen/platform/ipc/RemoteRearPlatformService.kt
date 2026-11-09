@@ -18,6 +18,15 @@ import top.zainzh.rearscreen.platform.data.DataSnapshot
 import top.zainzh.rearscreen.platform.data.DataValue
 import top.zainzh.rearscreen.SceneActivationConfirmationActivity
 import top.zainzh.rearscreen.DataAccessConfirmationActivity
+import top.zainzh.rearscreen.NotificationAccessConfirmationActivity
+import top.zainzh.rearscreen.platform.notifications.NotificationEndReason
+import top.zainzh.rearscreen.platform.notifications.NotificationEvent
+import top.zainzh.rearscreen.platform.notifications.NotificationEventStatus
+import top.zainzh.rearscreen.platform.notifications.NotificationPriority
+import top.zainzh.rearscreen.platform.notifications.NotificationPrivacy
+import top.zainzh.rearscreen.platform.notifications.NotificationRequest
+import top.zainzh.rearscreen.platform.notifications.NotificationSubmitStatus
+import top.zainzh.rearscreen.platform.notifications.NotificationObserver
 import top.zainzh.rearscreen.platform.actions.PlatformRegisteredActionRegistry
 import top.zainzh.rearscreen.platform.actions.RegisteredActionRef
 import top.zainzh.rearscreen.platform.actions.ActionResolveResult
@@ -50,6 +59,10 @@ class RemoteRearPlatformService : Service() {
     private data class PendingDataConsent(
         val nonce: String, val owner: SessionOwner, val fields: Set<DataField>,
         val connection: ClientConnection, val expiresAt: Long
+    )
+    private data class PendingNotificationConsent(
+        val nonce: String, val owner: SessionOwner, val connection: ClientConnection, val expiresAt: Long,
+        val pendingIntent: PendingIntent
     )
     private data class PendingActionInvocation(
         val nonce: String,
@@ -84,7 +97,9 @@ class RemoteRearPlatformService : Service() {
                     granted.containsAll(setOf(DataField.SYSTEM_CPU_UTILIZATION_PERCENT, DataField.SYSTEM_MEMORY_AVAILABLE_BYTES,
                         DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported"),
                 CapabilityState("action.invoke", 1, CapabilityAvailability.AVAILABLE,
-                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked })
+                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked }),
+                CapabilityState("rear.notification", 1, CapabilityAvailability.AVAILABLE,
+                    core.isSdkNotificationPublisherGranted(owner))
             )
             return encodeCapabilities(snapshot.copy(capabilities = snapshot.capabilities + dataCaps)).toString()
         }
@@ -101,7 +116,9 @@ class RemoteRearPlatformService : Service() {
                     granted.containsAll(setOf(DataField.SYSTEM_CPU_UTILIZATION_PERCENT, DataField.SYSTEM_MEMORY_AVAILABLE_BYTES,
                         DataField.SYSTEM_MEMORY_TOTAL_BYTES)), reasonCode = "gpu_field_unsupported"),
                 CapabilityState("action.invoke", 1, CapabilityAvailability.AVAILABLE,
-                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked })
+                    PlatformRegisteredActionRegistry.get(this@RemoteRearPlatformService).listForOwner(owner).any { it.available && !it.revoked }),
+                CapabilityState("rear.notification", 1, CapabilityAvailability.AVAILABLE,
+                    core.isSdkNotificationPublisherGranted(owner))
             ))
             val displayId = runCatching { top.zainzh.rearscreen.RearDisplay.id() }.getOrDefault(-1)
             val displayManager = getSystemService(DISPLAY_SERVICE) as? DisplayManager
@@ -149,11 +166,13 @@ class RemoteRearPlatformService : Service() {
                 client.dead = true
                 pendingActivations.entries.removeAll { it.value.connection === client }
                 pendingDataConsents.entries.removeAll { it.value.connection === client }
+                closeNotificationConsents(client)
                 pendingActionInvocations.entries.removeAll { it.value.connection === client }
                 sessions.entries.removeAll { (_, value) -> value === client }
                 connections.remove(client.binder, client)
             }
             core().displaySessions.closeOwnerSessions(client.owner, SceneCloseReason.CLIENT_CLOSED)
+            closeOwnedNotifications(client, NotificationEndReason.OWNER_CLOSED)
             core().closePlatformData(client.owner)
             closeDataSubscriptions(client)
             client.deathRecipient?.let { runCatching { client.binder.unlinkToDeath(it, 0) } }
@@ -296,6 +315,61 @@ class RemoteRearPlatformService : Service() {
                 PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        override fun requestNotificationAuthorization(callerPackageName: String, callback: IRemoteRearPlatformCallback): PendingIntent {
+            val client = clientConnection(callerPackageName, Binder.getCallingUid(), callback)
+            pruneNotificationConsents()
+            synchronized(pendingNotificationConsents) {
+                val ownerCount = pendingNotificationConsents.values.count { it.connection === client }
+                if (ownerCount >= MAX_PENDING_NOTIFICATION_CONSENTS_PER_CLIENT ||
+                    pendingNotificationConsents.size >= MAX_PENDING_NOTIFICATION_CONSENTS)
+                    throw IllegalStateException("E_QUOTA_EXCEEDED: notification authorization requests")
+            }
+            val nonce = newOpaqueId()
+            val intent = Intent(this@RemoteRearPlatformService, NotificationAccessConfirmationActivity::class.java)
+                .putExtra(EXTRA_NOTIFICATION_CONSENT_NONCE, nonce)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            val pendingIntent = PendingIntent.getActivity(this@RemoteRearPlatformService,
+                nextPendingIntentRequestCode.incrementAndGet().toInt(), intent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
+            synchronized(pendingNotificationConsents) {
+                // Recheck under the insertion lock so simultaneous requests cannot exceed the cap.
+                val ownerCount = pendingNotificationConsents.values.count { it.connection === client }
+                if (ownerCount >= MAX_PENDING_NOTIFICATION_CONSENTS_PER_CLIENT ||
+                    pendingNotificationConsents.size >= MAX_PENDING_NOTIFICATION_CONSENTS)
+                    throw IllegalStateException("E_QUOTA_EXCEEDED: notification authorization requests").also { pendingIntent.cancel() }
+                pendingNotificationConsents[nonce] = PendingNotificationConsent(nonce, client.owner, client,
+                    SystemClock.elapsedRealtime() + NOTIFICATION_CONSENT_TTL_MS, pendingIntent)
+            }
+            return pendingIntent
+        }
+
+        override fun publishNotification(callerPackageName: String, requestJson: String, callback: IRemoteRearPlatformCallback): String {
+            val uid = Binder.getCallingUid()
+            val client = clientConnection(callerPackageName, uid, callback)
+            val request = parseNotificationRequest(requestJson)
+            val stillCurrent = {
+                synchronized(connections) { !client.dead && connections[client.binder] === client } && isCurrentClientIdentity(client)
+            }
+            val owner = core().sdkNotificationOwner(client.owner, stillCurrent)
+            val observer = NotificationObserver { event ->
+                if (stillCurrent()) send(client, encodeNotificationEvent(event))
+            }
+            val result = core().ownedNotifications.publish(owner, request, observer)
+            return JSONObject().put("status", result.status.name).put("id", result.id)
+                .put("requestId", result.requestId ?: JSONObject.NULL).put("reason", result.reason ?: JSONObject.NULL).toString()
+        }
+
+        override fun cancelNotification(callerPackageName: String, notificationId: String, callback: IRemoteRearPlatformCallback): String {
+            val client = clientConnection(callerPackageName, Binder.getCallingUid(), callback)
+            val stillCurrent = {
+                synchronized(connections) { !client.dead && connections[client.binder] === client } && isCurrentClientIdentity(client)
+            }
+            val owner = core().sdkNotificationOwner(client.owner, stillCurrent)
+            val result = core().ownedNotifications.cancel(owner, notificationId, NotificationEndReason.CANCELLED)
+            return JSONObject().put("status", result.status.name).put("id", result.id)
+                .put("requestId", result.requestId ?: JSONObject.NULL).put("reason", result.reason ?: JSONObject.NULL).toString()
+        }
+
         override fun queryData(callerPackageName: String, fieldsJson: String, callback: IRemoteRearPlatformCallback): String {
             val client = clientConnection(callerPackageName, Binder.getCallingUid(), callback)
             val fields = parseDataFields(fieldsJson)
@@ -433,10 +507,12 @@ class RemoteRearPlatformService : Service() {
     override fun onDestroy() {
         pendingActivations.clear()
         pendingDataConsents.clear()
+        closeNotificationConsents()
         pendingActionInvocations.clear()
         val active = synchronized(connections) { connections.values.distinctBy { it.owner }.toList().also { connections.clear() } }
         active.forEach {
             core().displaySessions.closeOwnerSessions(it.owner, SceneCloseReason.HOST_DIED)
+            closeOwnedNotifications(it, NotificationEndReason.OWNER_DIED)
             core().closePlatformData(it.owner)
             closeDataSubscriptions(it)
         }
@@ -447,6 +523,32 @@ class RemoteRearPlatformService : Service() {
     }
 
     private fun core() = RearCapabilityCore.get(this)
+
+    private fun closeOwnedNotifications(client: ClientConnection, reason: NotificationEndReason) {
+        runCatching {
+            val owner = core().sdkNotificationOwner(client.owner) { false }
+            core().ownedNotifications.closeOwner(owner, reason)
+        }
+    }
+
+    private fun parseNotificationRequest(json: String): NotificationRequest {
+        require(json.toByteArray(Charsets.UTF_8).size <= 2_048) { "E_LIMIT_EXCEEDED: notification request" }
+        val value = JSONObject(json)
+        require(value.keys().asSequence().toSet().all { it in setOf("id", "title", "text", "durationMs", "priority", "privacy") }) {
+            "E_INVALID_ARGUMENT: notification fields"
+        }
+        val duration = value.optLong("durationMs", 8_000L)
+        val priority = runCatching { NotificationPriority.valueOf(value.optString("priority", "NORMAL")) }
+            .getOrElse { throw IllegalArgumentException("E_INVALID_ARGUMENT: priority") }
+        val privacy = runCatching { NotificationPrivacy.valueOf(value.optString("privacy", "STANDARD")) }
+            .getOrElse { throw IllegalArgumentException("E_INVALID_ARGUMENT: privacy") }
+        return NotificationRequest(value.getString("id"), value.getString("title"), value.optString("text", ""), duration, priority, privacy)
+    }
+
+    private fun encodeNotificationEvent(event: NotificationEvent): JSONObject = JSONObject()
+        .put("type", "notificationEvent").put("requestId", event.requestId).put("id", event.id)
+        .put("status", event.status.name).put("reason", event.reason ?: JSONObject.NULL)
+        .put("endedBy", event.endedBy?.name ?: JSONObject.NULL)
 
     private fun closeDataSubscriptions(client: ClientConnection) {
         dataSubscriptions.entries.filter { it.value.connection === client }.forEach { (id, subscription) ->
@@ -484,10 +586,12 @@ class RemoteRearPlatformService : Service() {
                     connection.dead = true
                     pendingActivations.entries.removeAll { it.value.connection === connection }
                     pendingDataConsents.entries.removeAll { it.value.connection === connection }
+                    closeNotificationConsents(connection)
                     sessions.entries.removeAll { (_, value) -> value === connection }
                     connections.remove(clientBinder, connection)
                 }
                 core().displaySessions.closeOwnerSessions(owner, SceneCloseReason.CLIENT_DIED)
+                closeOwnedNotifications(connection, NotificationEndReason.OWNER_DIED)
                 core().closePlatformData(owner)
                 closeDataSubscriptions(connection)
             }
@@ -635,10 +739,14 @@ class RemoteRearPlatformService : Service() {
         const val EXTRA_ACTIVATION_NONCE = "remrss_scene_activation_nonce"
         const val EXTRA_DATA_CONSENT_NONCE = "remrss_data_consent_nonce"
         const val EXTRA_ACTION_INVOCATION_NONCE = "remrss_registered_action_invocation_nonce"
+        const val EXTRA_NOTIFICATION_CONSENT_NONCE = "remrss_notification_consent_nonce"
         const val ACTIVATION_INTENT_TTL_MS = 60_000L
         const val DATA_CONSENT_TTL_MS = 60_000L
         const val ACTION_INVOCATION_TTL_MS = 60_000L
+        const val NOTIFICATION_CONSENT_TTL_MS = 60_000L
         const val MAX_PENDING_ACTION_INVOCATIONS_PER_CLIENT = 16
+        private const val MAX_PENDING_NOTIFICATION_CONSENTS_PER_CLIENT = 4
+        private const val MAX_PENDING_NOTIFICATION_CONSENTS = 64
         private const val MAX_REQUEST_JSON_LENGTH = 4096
         private const val MAX_WINDOW_JSON_LENGTH = 8192
         private const val MAX_REQUIREMENTS = 16
@@ -647,8 +755,57 @@ class RemoteRearPlatformService : Service() {
         private val nextPendingIntentRequestCode = AtomicLong(0)
         private val pendingActivations = ConcurrentHashMap<String, PendingActivation>()
         private val pendingDataConsents = ConcurrentHashMap<String, PendingDataConsent>()
+        private val pendingNotificationConsents = ConcurrentHashMap<String, PendingNotificationConsent>()
         private val pendingActionInvocations = ConcurrentHashMap<String, PendingActionInvocation>()
         @Volatile private var activeService: RemoteRearPlatformService? = null
+
+        private fun pruneNotificationConsents() {
+            val now = SystemClock.elapsedRealtime()
+            synchronized(pendingNotificationConsents) {
+                val expired = pendingNotificationConsents.values.filter { now >= it.expiresAt || it.connection.dead }
+                expired.forEach { pending ->
+                    if (pendingNotificationConsents.remove(pending.nonce, pending)) pending.pendingIntent.cancel()
+                }
+            }
+        }
+
+        private fun closeNotificationConsents(connection: ClientConnection? = null) {
+            synchronized(pendingNotificationConsents) {
+                val owned = pendingNotificationConsents.values.filter { connection == null || it.connection === connection }
+                owned.forEach { pending ->
+                    if (pendingNotificationConsents.remove(pending.nonce, pending)) pending.pendingIntent.cancel()
+                }
+            }
+        }
+
+        internal fun notificationConsentDetails(nonce: String): Pair<String, Boolean>? = activeService?.let { service ->
+            pruneNotificationConsents()
+            val pending = pendingNotificationConsents[nonce] ?: return@let null
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || !service.isCurrentClientIdentity(pending.connection)) return@let null
+            val label = runCatching { service.packageManager.getApplicationLabel(
+                service.packageManager.getApplicationInfo(pending.owner.transportPackageName, 0)).toString() }
+                .getOrDefault(pending.owner.transportPackageName)
+            val granted = service.core().isSdkNotificationPublisherGranted(pending.owner)
+            label to granted
+        }
+
+        internal fun completeNotificationConsent(nonce: String, granted: Boolean?) {
+            val service = activeService ?: return
+            pruneNotificationConsents()
+            val pending = pendingNotificationConsents.remove(nonce) ?: return
+            pending.pendingIntent.cancel()
+            if (SystemClock.elapsedRealtime() >= pending.expiresAt || !service.isCurrentClientIdentity(pending.connection)) {
+                service.send(pending.connection, JSONObject().put("type", "notificationAuthorization").put("code", "E_STALE_SESSION"))
+                return
+            }
+            if (granted == null) {
+                service.send(pending.connection, JSONObject().put("type", "notificationAuthorization").put("code", "E_USER_CANCELLED"))
+                return
+            }
+            service.core().grantSdkNotificationPublisher(pending.owner.transportPackageName,
+                pending.owner.transportSigningCertificateDigest, granted)
+            service.send(pending.connection, JSONObject().put("type", "notificationAuthorization").put("granted", granted))
+        }
 
         internal fun activationDetails(nonce: String): Triple<String, String, Boolean>? = activeService?.let { service ->
             val pending = pendingActivations[nonce] ?: return@let null

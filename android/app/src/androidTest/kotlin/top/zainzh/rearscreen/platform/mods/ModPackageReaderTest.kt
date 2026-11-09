@@ -594,6 +594,11 @@ class ModPackageReaderTest {
         assertEquals(ModPackageError.UNKNOWN_CAPABILITY, error.code)
     }
 
+    @Test fun rearNotificationCapabilityIsRecognizedAsItsOwnGrant() {
+        val pkg = ModPackageReader.read(ByteArrayInputStream(signedArchiveWithCapability("rear.notification")))
+        assertTrue(pkg.requiredCapabilities.any { it.name == "rear.notification" && it.minimumVersion == 1 })
+    }
+
     private fun rewriteZip(input: ByteArray, transform: (String, ByteArray) -> ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
         ZipInputStream(ByteArrayInputStream(input)).use { source ->

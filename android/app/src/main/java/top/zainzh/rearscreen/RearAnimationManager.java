@@ -65,6 +65,12 @@ public class RearAnimationManager {
         return session;
     }
 
+    /** Owned notices may begin only when no legacy source notification or charging animation owns the display. */
+    static synchronized Session beginOwnedNotificationIfIdle() {
+        if (currentAnimation != AnimationType.NONE) return null;
+        return beginAnimation(AnimationType.NOTIFICATION);
+    }
+
     public static synchronized AnimationType startAnimation(AnimationType type) {
         return type == AnimationType.NONE ? AnimationType.NONE : beginAnimation(type).previous;
     }

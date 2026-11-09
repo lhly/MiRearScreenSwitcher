@@ -42,6 +42,14 @@ internal object ModConfigPickerState {
     }
 }
 
+/** Window focus is global input state, not proof that a resumed settings window is hidden. */
+internal fun isModConfigSceneVisible(
+    resumed: Boolean,
+    attached: Boolean,
+    shown: Boolean,
+    windowVisible: Boolean,
+): Boolean = resumed && attached && shown && windowVisible
+
 /** Settings scene Activity for a single installed, trusted Mod. */
 class ModConfigActivity : ComponentActivity() {
     private var modId: String = ""
@@ -138,8 +146,12 @@ class ModConfigActivity : ComponentActivity() {
 
     private fun updateSceneVisibility() {
         val decor = window.decorView
-        sceneVisible = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
-            decor.isAttachedToWindow && decor.isShown && decor.windowVisibility == View.VISIBLE && window.decorView.hasWindowFocus()
+        sceneVisible = isModConfigSceneVisible(
+            resumed = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED),
+            attached = decor.isAttachedToWindow,
+            shown = decor.isShown,
+            windowVisible = decor.windowVisibility == View.VISIBLE,
+        )
         if (modId.isNotEmpty()) broker.setObserverVisible(modId, brokerListener, sceneVisible)
     }
 

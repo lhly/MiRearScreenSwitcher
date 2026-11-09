@@ -37,7 +37,8 @@ object ModPackageReader {
     private val versionPattern = Regex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
     private val capabilities = mapOf(
         "rear.scene" to 1, "rear.scene.keep_visible" to 1, "data.battery" to 1, "data.systemMetrics" to 1,
-        "model.local" to 1, "ui.native" to 1, "ui.dialog" to 1, "action.invoke" to 1, "schedule.visible" to 1, "clock.snapshot" to 1
+        "model.local" to 1, "ui.native" to 1, "ui.dialog" to 1, "action.invoke" to 1, "schedule.visible" to 1, "clock.snapshot" to 1,
+        "rear.notification" to 1
     )
     private val nodeFields = mapOf(
         "layout.column" to setOf("type", "children", "gap", "horizontalAlignment", "verticalAlignment"),

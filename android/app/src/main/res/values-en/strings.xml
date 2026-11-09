@@ -36,4 +36,10 @@
     <string name="module_recovery_notification_title">Timer running on rear screen</string>
     <string name="module_recovery_notification_text">Display pauses when covered and resumes when uncovered</string>
     <string name="module_recovery_stop">End timer and exit</string>
+    <string name="notification_publisher_consent_title">Allow rear notifications?</string>
+    <string name="notification_publisher_consent_intro">%1$s wants to show notifications it publishes on the rear screen. This is separate from the apps you chose to mirror.</string>
+    <string name="notification_publisher_consent_access">Publish its own rear notifications</string>
+    <string name="notification_publisher_consent_detail">Text only. The app can update or cancel only its own notifications.</string>
+    <string name="notification_publisher_consent_footer">You can turn this off at any time. The global notification switch, Do Not Disturb, and privacy settings still apply.</string>
+    <string name="notification_publisher_consent_save">Save choice</string>
 </resources>

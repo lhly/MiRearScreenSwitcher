@@ -32,7 +32,8 @@ internal class SceneAnimationOverlayAdapter(
         // make an old task eligible again after Scene/cast ownership changed while Core was lazy.
         val inheritedReturnWasSuppressed = inheritsLegacyReturn && activeId == replacesOverlayId &&
             (suppressAtStart || sceneEpoch != sceneEpochAtStart || displayEpoch != displayEpochAtStart)
-        val suppress = (coordinator()?.beginTransientOverlay(overlayId, inheritedReturnWasSuppressed) == true) ||
+        val coordinatorReplacement = replacesOverlayId?.takeUnless { it == Long.MIN_VALUE }
+        val suppress = (coordinator()?.beginTransientOverlay(overlayId, coordinatorReplacement, inheritedReturnWasSuppressed) == true) ||
             inheritedReturnWasSuppressed
         activeId = overlayId
         sceneEpochAtStart = sceneEpoch

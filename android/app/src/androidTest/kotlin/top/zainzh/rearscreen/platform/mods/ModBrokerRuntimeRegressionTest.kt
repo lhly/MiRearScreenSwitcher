@@ -74,6 +74,10 @@ class ModBrokerRuntimeRegressionTest {
         try {
             broker.open(installed.id, direct, listener, visible = true)
             assertTrue("QuickJS init", ready.await(8, TimeUnit.SECONDS))
+            assertFalse("notification result is a reserved host-only event",
+                broker.submitEvent(installed.id, ModEventBroker.HOST_NOTIFICATION_RESULT_EVENT, JSONObject().put("status", "DISPLAYED")))
+            assertFalse("visible button input cannot impersonate the host notification callback",
+                broker.submitUserEvent(installed.id, ModEventBroker.HOST_NOTIFICATION_RESULT_EVENT, JSONObject().put("status", "DISPLAYED")))
             val now = android.os.SystemClock.elapsedRealtime()
             val effects = JSONArray()
                 .put(JSONObject().put("type", "schedule.visible.register").put("id", "periodic").put("intervalMs", 10_000))

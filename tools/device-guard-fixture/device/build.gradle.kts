@@ -34,3 +34,10 @@ tasks.register("installDebug") { doLast { marker("install") } }
 tasks.register("uninstallAll") { doLast { marker("uninstall") } }
 tasks.register("lintDebug") { doLast { marker("lint-debug") } }
 tasks.register("lintAnalyzeDebugAndroidTest") { doLast { marker("lint-androidtest") } }
+tasks.register("javaPreCompileDebugAndroidTest") { doLast { marker("java-precompile-androidtest") } }
+tasks.register("compileDebugAndroidTestKotlin") { doLast { marker("compile-androidtest-kotlin") } }
+tasks.register("packageDebugAndroidTest") { doLast { marker("package-androidtest") } }
+tasks.register("assembleDebugAndroidTest") {
+    dependsOn("javaPreCompileDebugAndroidTest", "compileDebugAndroidTestKotlin", "packageDebugAndroidTest")
+    doLast { marker("assemble-androidtest") }
+}

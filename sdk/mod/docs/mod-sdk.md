@@ -27,15 +27,16 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out author-private
 
 作者身份由公钥 DER 的 SHA-256 指纹确定。维护者私钥不能代表作者签包。同一个 Mod ID 一经安装会永久绑定其作者指纹；不同作者不能接管。更新需要更高 `versionCode`，同作者更新保留逻辑会话身份和数据。旧 `.remodule` / schema 1 不兼容此协议。
 
-作者声明的能力、宿主识别的声明、用户实际授权是三件事：未知能力或高于宿主支持版本的 `minimumVersion` 会在打包/导入时拒绝；必需能力须逐项授权，可选能力默认关闭；撤权不会改写模型。当前CLI与host开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`data.battery@1`、`data.systemMetrics@1` 与宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`、`action.invoke@1`、`clock.snapshot@1` 与 `schedule.visible@1`。数据能力仅提供通过授权的可见原生 UI 绑定：`data.battery` 有 `data.battery.level`、`.scale`、`.charging`；`data.systemMetrics` 有 CPU 利用率百分比和内存可用/总字节数绑定。provider按需共享低频采集，页面不可见时停止订阅；数据不会默认周期性传入 JavaScript。GPU 当前标为不支持，不提供伪值。设计中的 `rear.region@1`（当前FULL返回UNSUPPORTED）、`rear.cast@1`、`rear.notification@1`、其余尚未接入的能力仍不会因为写入设计文档就被工具视为可用。`rear.scene` 只有在用户已授权后才能从设置页的真实“显示到背屏”点击触发；一次点击签发单次短期激活票据。Reducer 不能自行签发票据、开场景或调用 Android 服务。
+作者声明的能力、宿主识别的声明、用户实际授权是三件事：未知能力或高于宿主支持版本的 `minimumVersion` 会在打包/导入时拒绝；必需能力须逐项授权，可选能力默认关闭；撤权不会改写模型。当前CLI与host开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`rear.notification@1`、`data.battery@1`、`data.systemMetrics@1` 与宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`、`action.invoke@1`、`clock.snapshot@1` 与 `schedule.visible@1`。数据能力仅提供通过授权的可见原生 UI 绑定：`data.battery` 有 `data.battery.level`、`.scale`、`.charging`；`data.systemMetrics` 有 CPU 利用率百分比和内存可用/总字节数绑定。provider按需共享低频采集，页面不可见时停止订阅；数据不会默认周期性传入 JavaScript。GPU 当前标为不支持，不提供伪值。设计中的 `rear.region@1`（当前FULL返回UNSUPPORTED）、`rear.cast@1`及其余尚未接入的能力仍不会因为写入设计文档就被工具视为可用。`rear.scene` 只有在用户已授权后才能从设置页的真实“显示到背屏”点击触发；一次点击签发单次短期激活票据。Reducer 不能自行签发票据、开场景或调用 Android 服务。
 
 ## 两种 Mod：声明式与 reducer
 
 - `blank`：真正空 state 的空白原生页面。
 - `info`：无脚本电量信息示例。UI `data.*` binding 只读对应宿主数据源；不加载 VM。
 - `counter`：通用状态事务与事件测试示例，不含记分牌规则，也不依赖 host 特判。
+- `notification`：独立自有通知示例，按钮发布、更新同一通知 ID、取消自己的通知，并区分进入队列与真实显示。
 
-三个模板的默认 manifest 都声明必需的 `rear.scene@1`，让其rear场景在用户授权后可投放；`rear.scene.keep_visible@1` 为可选能力，声明不是授权。
+四个模板的默认 manifest 都声明必需的 `rear.scene@1`，让其rear场景在用户授权后可投放；`rear.scene.keep_visible@1` 为可选能力，声明不是授权。
 
 UI 文件 `settings.ui.json` 和 `rear.ui.json` 都是有界 JSON 节点树，在设置/背屏共用 Kotlin Compose 与 Miuix renderer。可用容器为 `layout.column`、`layout.row`、`layout.box`；显示节点包括 `ui.text`、`ui.number`、`ui.list`、`ui.icon`、`ui.deadlineText`、`ui.image`、`ui.divider`、`ui.progress`、`ui.button` 与 `ui.confirm`。设置节点有 `settings.row/input/action/number/toggle/select/save/discard`。列表只绑定 schema 声明的标量数组，显示 1..32 项；条件用 `visibleWhen: {bind, equals}`，格式与语义 tone/字号/图标/布局对齐均使用宿主白名单。`ui.deadlineText`绑定 elapsedRealtime 毫秒截止值，仅可见时原生刷新，不运行 JS 或保持常亮。`layout.row` 先扣除子项间距，再将可用宽度平均分配为有界单元；嵌套列、文本和铺满宽度的控件会在各自单元内换行和测量，不会裁掉后续兄弟。按钮可发命名 reducer event，或在真实原生点击时调用宿主核验的登记动作引用；不传任意宿主函数、Intent 或 `hostAction`。
 
@@ -73,7 +74,13 @@ globalThis.__remrss = {
 
 保存设置时，QuickJS Mod 会收到宿主保留的 `host.configChanged` reducer 事件；输入携带旧 state、新 schema 校验后的 `config`、旧提交的 `previousConfig` 和事件元数据。返回的 `{state}` 通过 schema 校验后，state 与新 config 在同一 revision 提交，再同时通知可见观察者。脚本异常只拒绝本次 Save，旧模型/配置和逻辑观察者保持；宿主会确认关闭旧 worker，再从已提交模型启动新 worker，以涵盖普通异常及 native 分配/栈失败。设置页显示错误并保留草稿，新 worker恢复后可原地重试；关闭或恢复失败、预算耗尽、worker死亡或传输故障仍按终态收尾。
 
-Config reducer 的 Effect 需要按类型、能力与来源预校验，且只能在 state/config 事务提交后派发。Save 不签发用户激活：目前 `rear.open` 要求明确的用户手势，在配置事件中会因缺少激活而拒绝，不会自动投放。未来非激活 Effect 只有在其宿主合同实际实现后才可能通过；当前 RC3 支持 `schedule.visible`：周期至少 1000ms，每 owner 最多 4 个 key；单次 deadline 与周期可组合在同一 key，数值为非负 JavaScript 安全整数。隐藏不补积压周期；过期 deadline 最多立即触发一次。`host.effectResult`区分接受/拒绝，schedule回调为`host.schedule.tick`。派发失败发生在提交之后，不回滚已保存模型。`remrss test` 的 `expected.effects` 只校验作者 reducer 产生的 Effect 意图，不代表宿主授权/激活/派发验收。无脚本 Mod 仍直接保存配置而不启动 VM，首次 init 规则不变。作者可用 `tests/config-changes.json` 检查成功派生、拒绝分支和Effect输出；CLI 会校验配置和输出结构。
+Config reducer 的 Effect 需要按类型、能力与来源预校验，且只能在 state/config 事务提交后派发。Save 不签发用户激活：`rear.open` 需要明确用户手势，因此保存配置时会拒绝该 Effect，不会自动投放。
+
+`schedule.visible` 的周期至少 1000ms，每 owner 最多 4 个 key；周期与单次 deadline 可组合，数值为安全整数。隐藏不补积压周期，过期 deadline 最多触发一次。`host.effectResult` 区分接受/拒绝，调度回调为 `host.schedule.tick`。
+
+`rear.notification@1` 通过 `host.notification.publish({id,title,text?,durationMs?,priority?,privacy?})` 发布或更新当前 Mod 自己的同 ID 通知；`host.notification.cancel(id)` 只取消自己的通知。能力须单独声明并授权。SDK 中的 `host.notification` 方法只是构造 JSON Effect，不访问宿主服务；手写 `main.js` 也可直接返回等价 Effect 字面量，由宿主在 reducer 事务提交后经 broker 校验。标题为 1–80、正文为 0–240 个 Unicode 字符，纯文本请求最多 2 KiB；默认时长 8000ms、范围 1000–15000ms，队列最多 4 条。`host.effectResult` 的 `accepted` 仅表示入队，`suppressed` 和 `rejected` 分别报告策略抑制与请求失败。之后宿主通过不可伪造的 `host.notificationResult` 报告 `DISPLAYED`（真实可见证据）、`SUPPRESSED`、`ENDED` 或 `FAILED` 及原因。宿主不为通知常驻或唤醒 worker；停用、卸载、撤权和 Mod 故障只清理该 Mod 的通知。
+
+`remrss test` 可通过 `tests/cases.json` 的 `expectedEffects` 检查普通 reducer 事件的 Effect 意图；`tests/config-changes.json` 也可检查配置事件产生的 Effect。CLI 校验能力声明与通知字段；这些作者侧测试不代表宿主授权、策略或实际显示验收。无脚本 Mod 保存配置仍不启动 VM，首次 init 规则不变。
 
 ```js
 reduce({ state, config, previousConfig, event }) {

@@ -283,6 +283,7 @@ public class RearScreenChargingActivity extends Activity {
         if (service == null) service = NotificationService.getTaskService();
         if (service == null) service = restoreService;
         if (service != null) ChargingService.restoreAfterAnimation(service, rearTaskId, animationId);
+        top.zainzh.rearscreen.platform.RearCapabilityCore.get(this).onNotificationPresentationAvailable();
     }
 
     /**

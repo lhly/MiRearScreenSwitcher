@@ -20,11 +20,48 @@ import top.zainzh.rearscreen.platform.actions.PlatformRegisteredActionRegistry
 import top.zainzh.rearscreen.platform.actions.RegisteredActionActivation
 import top.zainzh.rearscreen.platform.actions.RegisteredActionActivationAuthority
 import top.zainzh.rearscreen.platform.actions.RegisteredActionRef
+import top.zainzh.rearscreen.platform.notifications.AndroidOwnedNotificationPresentation
+import top.zainzh.rearscreen.platform.notifications.NotificationAuthorizationStore
+import top.zainzh.rearscreen.platform.notifications.NotificationEndReason
+import top.zainzh.rearscreen.platform.notifications.NotificationOwner
+import top.zainzh.rearscreen.platform.notifications.OwnedNotificationQueue
+import top.zainzh.rearscreen.platform.notifications.OwnedNotificationPolicy
+import top.zainzh.rearscreen.platform.notifications.notificationOwnerForMod
+import top.zainzh.rearscreen.platform.notifications.notificationOwnerForSdk
 
 /** Maps the privileged presentation IPC outcome without conflating transport loss with a stale lease. */
-internal fun sceneRecoveryResultForPresentationStatus(status: String): SceneRecoveryResult = when (status) {
-    "already_scene_visible", "scene_task_presented" -> SceneRecoveryResult()
+internal fun sceneRecoveryResultForPresentationStatus(
+    status: String,
+    source: String? = null,
+    commandExitCode: Int = -1,
+): SceneRecoveryResult = when (status) {
+    "already_scene_visible", "scene_task_presented" -> SceneRecoveryResult(
+        verifiedPhysicalPresentation = true,
+        taskVisibilityClassificationComplete = true,
+    )
     "cancelled_before_focus" -> SceneRecoveryResult(deferredByOverlay = true)
+    // The typed TaskService snapshot was available but its current rear-display visible set
+    // was not uniquely classifiable. Keep this same authorized cause for one settled re-read;
+    // the coordinator will still require the original exact owner/Home decision before focus.
+    "display_visibility_ambiguous" -> SceneRecoveryResult(awaitTaskVisibilityClassification = true)
+    "rear_display_not_on", "rear_state_unknown" -> SceneRecoveryResult(
+        error = SceneError.DISPLAY_UNAVAILABLE,
+        awaitDisplayOn = true,
+        // TaskService uses source=physical_rear and exit=-1 only for the preflight refusal,
+        // before it reads/classifies the target task. The same status after TaskFlow carries
+        // its snapshot source and nonnegative focus marker (0 also covers already-visible),
+        // so the single classification opportunity has been consumed. Exit 0 is not itself
+        // treated as presentation success; the status remains an awaited physical failure.
+        taskVisibilityClassificationComplete = source != null && source != "physical_rear" && commandExitCode >= 0,
+    )
+    // Focus can be accepted while the exact Activity/window snapshot is still racing its
+    // lifecycle. Keep the lease and let the coordinator do one bounded confirmation, then
+    // wait for a real hidden→visible report rather than discarding the recovery cause.
+    "scene_not_visible_after_focus" -> SceneRecoveryResult(
+        awaitSceneVisible = true,
+        taskVisibilityClassificationComplete = true,
+    )
+    "rear_display_replaced" -> SceneRecoveryResult(SceneError.STALE_SESSION)
     "action_gate_unavailable" -> SceneRecoveryResult(SceneError.BACKEND_UNAVAILABLE)
     else -> if (status.startsWith("owner_") || status.startsWith("post_owner_"))
         SceneRecoveryResult(SceneError.STALE_SESSION)
@@ -37,12 +74,20 @@ class RearCapabilityCore private constructor(context: Context) {
     internal val activationAuthority = SceneActivationAuthority()
     private val registeredActionActivationAuthority = RegisteredActionActivationAuthority()
     private val modData = ModPlatformDataAccess(appContext)
+    private val notificationAuthorization = NotificationAuthorizationStore(appContext)
+    private val notificationPolicy = OwnedNotificationPolicy(appContext)
+    internal val ownedNotifications = OwnedNotificationQueue(
+        AndroidOwnedNotificationPresentation(appContext),
+        notificationPolicy::decide,
+        notificationPolicy::ownerIsCurrent,
+    )
     private val sceneGateway = PrivilegedRearSceneGateway(appContext)
     val displaySessions: DisplaySessionCoordinator = RearSceneCoordinator(
         gateway = sceneGateway,
         activationVerifier = activationAuthority,
         lifecycleMonitor = AndroidSceneDisplayLifecycleMonitor(appContext),
-        legacyServiceLease = AppSceneLegacyLeasePort
+        legacyServiceLease = AppSceneLegacyLeasePort,
+        onSceneCommitted = { ownedNotifications.closeAll(NotificationEndReason.SCENE_TAKEOVER) }
     )
 
     /** The process-shared provider is internal; grants must be resolved by this Core facade. */
@@ -50,6 +95,31 @@ class RearCapabilityCore private constructor(context: Context) {
 
     /** Returns an owner only for an installed, enabled, author-trusted Mod. */
     internal fun modDataOwner(modId: String): SessionOwner? = modData.ownerForMod(modId)
+
+    /** Owner exists only while the exact installed Mod is enabled, trusted and granted this capability. */
+    internal fun modNotificationOwner(modId: String): NotificationOwner? {
+        val owner = modData.ownerForMod(modId) ?: return null
+        val principal = owner.principal as? SessionPrincipal.SignedMod ?: return null
+        val installed = top.zainzh.rearscreen.platform.mods.ModPackageStore.installed(appContext, modId) ?: return null
+        if ("rear.notification" !in installed.grantedCapabilities || !installed.enabled ||
+            installed.authorFingerprint != principal.authorFingerprint || installed.logicalSessionId != principal.logicalSessionId ||
+            !top.zainzh.rearscreen.platform.mods.ModPackageStore.isAuthorTrusted(appContext, installed.authorFingerprint)) return null
+        return notificationOwnerForMod(owner) { modData.ownerForMod(modId) == owner }
+    }
+
+    /** Called only after Binder UID/package/certificate/callback generation have been resolved. */
+    internal fun sdkNotificationOwner(owner: SessionOwner, isCurrent: () -> Boolean): NotificationOwner =
+        notificationOwnerForSdk(owner, isCurrent)
+
+    internal fun isSdkNotificationPublisherGranted(owner: SessionOwner): Boolean = notificationAuthorization.isGranted(owner)
+
+    internal fun grantSdkNotificationPublisher(packageName: String, signingDigest: String, granted: Boolean) {
+        notificationAuthorization.setGranted(packageName, signingDigest, granted)
+        if (!granted) ownedNotifications.closeOwnerSessionsForSdk(packageName, signingDigest, NotificationEndReason.AUTH_REVOKED)
+    }
+
+    fun onNotificationGlobalPolicyChanged() = ownedNotifications.policyChanged()
+    fun onNotificationPresentationAvailable() = ownedNotifications.presentationAvailable()
 
     /** Host UI calls this synchronously from a native action-button click callback. */
     internal fun issueRegisteredActionActivationAfterHostClick(
@@ -114,7 +184,10 @@ class RearCapabilityCore private constructor(context: Context) {
     internal fun closeModDataSessions(owner: SessionOwner) = modData.revoke(owner)
 
     /** Package/grant/trust transitions use this to clear all visible Mod data immediately. */
-    internal fun closeModDataSessionsForMod(modId: String) = modData.revokeMod(modId)
+    internal fun closeModDataSessionsForMod(modId: String) {
+        modData.revokeMod(modId)
+        ownedNotifications.closeMod(modId, NotificationEndReason.OWNER_CLOSED)
+    }
 
     /** Call only from the positive action of a host-owned, visible user confirmation UI. */
     fun issueSceneActivationAfterUserConfirmation(owner: SessionOwner, request: SceneRequest): UserActivationToken =
@@ -187,6 +260,7 @@ class RearCapabilityCore private constructor(context: Context) {
             val target = if (mode == "physical") "moved_task" else "virtual_host_running"
             android.util.Log.i("RearSceneCast", "cast_commit mode=$mode target=$target result=committed")
             instance?.let { core ->
+                core.ownedNotifications.closeAll(NotificationEndReason.SCENE_TAKEOVER)
                 preemptActiveScenesForLegacyCast(core.displaySessions)
             }
         }
@@ -303,8 +377,8 @@ private class PrivilegedRearSceneGateway(private val context: Context) : RearSce
     }
 
     override fun prepareDisplay(owner: SessionOwner, request: SceneRequest): SceneError? {
-        // Every explicitly confirmed new Scene must be visible at launch. keepVisible only
-        // controls the Activity's subsequent screen-on flag and restoration eligibility.
+        // Every explicitly confirmed new Scene must be visible at launch. keepVisible controls
+        // the Activity's subsequent screen-on policy and one-shot OFF recovery, not ON return.
         val displayId = runCatching { RearDisplay.requireId() }.getOrNull() ?: return SceneError.DISPLAY_UNAVAILABLE
         val remote = awaitService() ?: return SceneError.BACKEND_UNAVAILABLE
         return try {
@@ -318,10 +392,14 @@ private class PrivilegedRearSceneGateway(private val context: Context) : RearSce
         owner: SessionOwner,
         request: SceneRequest,
         task: LaunchedScene,
+        cachedRearOn: Boolean?,
         isCurrent: () -> Boolean,
-        onWakeAttempt: () -> SceneRecoveryWakeDecision
+        onWakeAttempt: (physicalRearOn: Boolean?) -> SceneRecoveryWakeDecision
     ): SceneRecoveryResult {
-        val remote = awaitService() ?: return SceneRecoveryResult(SceneError.BACKEND_UNAVAILABLE)
+        val remote = awaitService() ?: run {
+            android.util.Log.i("RearSceneRecovery", "gateway phase=service result=unavailable task=${task.taskId} display=${task.displayId}")
+            return SceneRecoveryResult(SceneError.BACKEND_UNAVAILABLE)
+        }
         fun stillOwnsTask(): Boolean = runCatching {
             val json = JSONObject(remote.inspectSceneActivityTask(
                 task.taskId, task.component.flattenToString(), task.displayId))
@@ -330,17 +408,34 @@ private class PrivilegedRearSceneGateway(private val context: Context) : RearSce
                 json.optString("baseComponent") == task.component.flattenToString()
         }.getOrDefault(false)
         if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
+        if (!stillOwnsTask()) {
+            android.util.Log.i("RearSceneRecovery", "gateway phase=task_verify result=not_owned task=${task.taskId} display=${task.displayId}")
+            return SceneRecoveryResult(SceneError.STALE_SESSION)
+        }
+        if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
+        val physicalRear = runCatching { sceneRecoveryRearPower(remote.getRearDisplayState(), task.displayId) }
+            .getOrDefault(SceneRecoveryRearPower.UNKNOWN)
+        android.util.Log.i("RearSceneRecovery", "gateway phase=physical_probe result=${physicalRear.name.lowercase()} cachedOn=$cachedRearOn task=${task.taskId} display=${task.displayId}")
+        when (physicalRear) {
+            SceneRecoveryRearPower.UNKNOWN -> return SceneRecoveryResult(SceneError.BACKEND_UNAVAILABLE)
+            SceneRecoveryRearPower.REPLACED -> return SceneRecoveryResult(SceneError.STALE_SESSION)
+            SceneRecoveryRearPower.ON, SceneRecoveryRearPower.OFF -> Unit
+        }
+        if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
         if (!stillOwnsTask()) return SceneRecoveryResult(SceneError.STALE_SESSION)
         if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
         // The cause is consumed only after the blocking task inspection and immediately before
-        // an actual wake. If the display already woke, present the same task without another wake.
-        when (onWakeAttempt()) {
+        // an actual wake. Transaction 40 is authoritative; cached targetOn is not physical state.
+        when (onWakeAttempt(physicalRear == SceneRecoveryRearPower.ON)) {
             SceneRecoveryWakeDecision.STALE -> return if (!isCurrent()) SceneRecoveryResult(deferredByOverlay = true)
                 else SceneRecoveryResult(SceneError.STALE_SESSION)
+            SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY -> return SceneRecoveryResult(
+                SceneError.DISPLAY_UNAVAILABLE, awaitDisplayOn = true)
             SceneRecoveryWakeDecision.ALREADY_ON -> Unit
             SceneRecoveryWakeDecision.CLAIMED -> {
                 val awakened = runCatching { remote.wakeRearDisplayForScene(task.displayId) }.getOrDefault(false)
-                if (!awakened) return SceneRecoveryResult(SceneError.DISPLAY_UNAVAILABLE)
+                android.util.Log.i("RearSceneRecovery", "gateway phase=one_shot_wake result=${if (awakened) "on" else "display_unavailable"} task=${task.taskId} display=${task.displayId}")
+                if (!awakened) return SceneRecoveryResult(error = SceneError.DISPLAY_UNAVAILABLE, awaitDisplayOn = true)
             }
         }
         // Power listeners can report ON inside wakeRearDisplayForScene. Lease/cause validity
@@ -355,17 +450,30 @@ private class PrivilegedRearSceneGateway(private val context: Context) : RearSce
         val presentation = runCatching {
             JSONObject(remote.presentSceneActivityTask(task.taskId, task.component.flattenToString(), task.displayId, actionGate))
         }.getOrNull() ?: return SceneRecoveryResult(SceneError.DISPLAY_UNAVAILABLE)
+        if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
         val presentationStatus = presentation.optString("status")
-        val presentationResult = sceneRecoveryResultForPresentationStatus(presentationStatus)
-        if (presentationResult.deferredByOverlay || presentationResult.error != null) {
-            android.util.Log.w("RearSceneRecovery", "present rejected status=$presentationStatus task=${task.taskId} display=${task.displayId} top=${presentation.optString("topComponent", "unknown")}")
+        val presentationResult = sceneRecoveryResultForPresentationStatus(
+            presentationStatus,
+            source = presentation.optString("source").takeUnless { it == "" || it == "null" },
+            commandExitCode = presentation.optInt("commandExitCode", -1),
+        )
+        if (presentationResult.deferredByOverlay || presentationResult.error != null || presentationResult.awaitSceneVisible) {
+            val phase = if (presentationResult.awaitSceneVisible) "present pending" else "present rejected"
+            val top = if (presentationResult.awaitTaskVisibilityClassification) "" else
+                " top=${presentation.optString("topComponent", "unknown")}"
+            android.util.Log.w("RearSceneRecovery", "$phase status=$presentationStatus task=${task.taskId} display=${task.displayId}$top")
+        } else if (presentationResult.awaitTaskVisibilityClassification) {
+            android.util.Log.i("RearSceneRecovery", "present pending status=$presentationStatus task=${task.taskId} display=${task.displayId}")
+            return presentationResult
+        }
+        if (presentationResult.deferredByOverlay || presentationResult.error != null || presentationResult.awaitSceneVisible) {
             return presentationResult
         }
         if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
         if (!stillOwnsTask()) return SceneRecoveryResult(SceneError.STALE_SESSION)
         if (!isCurrent()) return SceneRecoveryResult(deferredByOverlay = true)
         android.util.Log.i("RearSceneRecovery", "task_presented status=$presentationStatus task=${task.taskId} display=${task.displayId}; SDK window visibility remains separately reported")
-        return SceneRecoveryResult()
+        return presentationResult
     }
 
     override fun launchNewTask(owner: SessionOwner, request: SceneRequest, launchTicket: String, expiresAtElapsedRealtimeMs: Long): LaunchedScene? {

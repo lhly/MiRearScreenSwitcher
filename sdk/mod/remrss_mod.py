@@ -15,7 +15,8 @@ TOKEN = re.compile(r"^[a-z][A-Za-z0-9._-]{0,63}$")
 SCHEMA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 CAPABILITY_NAMES = {
     "rear.scene": 1, "rear.scene.keep_visible": 1, "data.battery": 1, "data.systemMetrics": 1,
-"model.local": 1, "ui.native": 1, "ui.dialog": 1, "action.invoke": 1, "schedule.visible": 1, "clock.snapshot": 1,
+    "model.local": 1, "ui.native": 1, "ui.dialog": 1, "action.invoke": 1, "schedule.visible": 1, "clock.snapshot": 1,
+    "rear.notification": 1,
 }
 DATA_BINDINGS = {
     "data.battery": {"battery.level", "battery.scale", "battery.charging"},
@@ -303,6 +304,27 @@ def validate_effect_intent(effect, capabilities, field):
         if deadline is not None and (isinstance(deadline,bool) or not isinstance(deadline,int) or not 0 <= deadline <= 9007199254740991): fail(f"{field} elapsedRealtime deadline 必须为非负安全整数")
     elif kind=="schedule.visible.cancel":
         if "schedule.visible" not in capabilities or set(effect)!={"type","id"} or not isinstance(effect["id"],str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",effect["id"]): fail(f"{field} schedule cancel 无效或未声明能力")
+    elif kind in ("rear.notification.publish", "rear.notification.cancel"):
+        if "rear.notification" not in capabilities: fail(f"{field} rear.notification 必须声明该能力")
+        allowed_publish={"type","id","notificationId","title","text","durationMs","priority","privacy"}
+        allowed_cancel={"type","id","notificationId"}
+        if set(effect)- (allowed_publish if kind.endswith("publish") else allowed_cancel): fail(f"{field} rear.notification 含未知字段")
+        if "id" in effect and (not isinstance(effect["id"],str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",effect["id"])): fail(f"{field} Effect id 无效")
+        notification_id=effect.get("notificationId")
+        if not isinstance(notification_id,str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,64}",notification_id): fail(f"{field} notificationId 无效")
+        if kind.endswith("publish"):
+            if not isinstance(effect.get("title"),str) or not 1 <= len(effect["title"]) <= 80: fail(f"{field} title 长度应为 1..80")
+            text=effect.get("text","")
+            if not isinstance(text,str) or len(text)>240: fail(f"{field} text 长度应为 0..240")
+            for label,value,allow_newline in (("title",effect["title"],False),("text",text,True)):
+                if any((ord(ch)<32 or 127<=ord(ch)<=159) and not (allow_newline and ch=="\n") for ch in value): fail(f"{field} {label} 含控制字符")
+            duration=effect.get("durationMs",8000)
+            if isinstance(duration,bool) or not isinstance(duration,int) or not 1000 <= duration <= 15000: fail(f"{field} durationMs 应为 1000..15000")
+            if effect.get("priority","NORMAL") not in ("LOW","NORMAL","HIGH"): fail(f"{field} priority 无效")
+            if effect.get("privacy","STANDARD") not in ("STANDARD","HIDE_TITLE","HIDE_TEXT"): fail(f"{field} privacy 无效")
+        try:
+            if len(json.dumps(effect,ensure_ascii=False,separators=(",",":" )).encode("utf-8")) > 2048: fail(f"{field} 通知 Effect 超过 2 KiB")
+        except UnicodeEncodeError: fail(f"{field} 通知文本不是有效 UTF-8")
     elif kind=="rear.open":
         if "rear.scene" not in capabilities or set(effect)-{"type","id","scene","region","keepVisible"} or not {"type","scene","region","keepVisible"}.issubset(effect): fail(f"{field} rear.open 字段无效或未声明 rear.scene")
         if effect["scene"]!="rear" or effect["region"]!="CAMERA_SAFE" or not isinstance(effect["keepVisible"],bool): fail(f"{field} rear.open 参数不受支持")
@@ -489,12 +511,18 @@ def init_project(target: Path, mod_id: str, template: str, author: str):
     for item in source.iterdir():
         if item.is_file(): shutil.copyfile(item, target/item.name)
         elif item.is_dir(): shutil.copytree(item, target/item.name)
-    is_logic = template == "counter"
+    is_logic = template in ("counter", "notification")
     required_capabilities = [{"name":"rear.scene", "minimumVersion":1}]
     optional_capabilities = [{"name":"rear.scene.keep_visible", "minimumVersion":1}]
+    if template == "notification":
+        optional_capabilities.append({"name":"rear.notification", "minimumVersion":1})
     if template == "info":
         required_capabilities.append({"name":"data.battery", "minimumVersion":1})
     state_schema = ({"type":"object","properties":{
+                        "status":{"type":"string","maxLength":64},
+                        "detail":{"type":"string","maxLength":240}},
+                     "required":["status","detail"],"additionalProperties":False}
+                    if template == "notification" else {"type":"object","properties":{
                         "count":{"type":"integer","minimum":-1000000000,"maximum":1000000000},
                         "stepUsed":{"type":"integer","minimum":1,"maximum":10},
                         "previousStep":{"type":"integer","minimum":1,"maximum":10}},
@@ -502,7 +530,7 @@ def init_project(target: Path, mod_id: str, template: str, author: str):
                     if is_logic else {"type":"object","properties":{},"additionalProperties":False})
     config_schema = ({"type":"object","properties":{"step":{"type":"integer","minimum":1,"maximum":10,"default":1}},
                       "required":["step"],"additionalProperties":False}
-                     if is_logic else {"type":"object","properties":{},"additionalProperties":False})
+                     if template == "counter" else {"type":"object","properties":{},"additionalProperties":False})
     manifest = {
         "format": FORMAT, "formatVersion": FORMAT_VERSION, "id": mod_id,
         "name": mod_id.replace("-", " ").title(), "version": "0.1.0", "versionCode": 1,
@@ -613,15 +641,18 @@ def run_tests(root: Path):
         prepared=[]
         for index,test in enumerate(cases):
             field=f"tests.cases[{index}]"
-            if not isinstance(test,dict) or set(test)-{"name","initial","events","expected","config"}: fail(f"{field} 字段无效")
+            if not isinstance(test,dict) or set(test)-{"name","initial","events","expected","config","expectedEffects"}: fail(f"{field} 字段无效")
             if not isinstance(test.get("name"),str) or not test["name"]: fail(f"{field}.name 必须为非空文字")
             if not isinstance(test.get("expected"),dict): fail(f"{field}.expected 必须为 state object")
             if "initial" in test and not isinstance(test["initial"],dict): fail(f"{field}.initial 必须为 state object")
             events=test.get("events",[])
             if not isinstance(events,list) or len(events)>128 or any(not isinstance(event,dict) for event in events): fail(f"{field}.events 必须为有界 event object 数组")
-            if any(event.get("type") == "host.configChanged" for event in events): fail(f"{field}.events 不得伪造 host.configChanged；请用 tests/config-changes.json")
+            if any(event.get("type") in ("host.configChanged", "host.notificationResult") for event in events): fail(f"{field}.events 不得伪造宿主事件")
             if "initial" in test: validate_schema(state_schema,test["initial"],field+".initial")
             validate_schema(state_schema,test["expected"],field+".expected")
+            expected_effects=test.get("expectedEffects",[])
+            if not isinstance(expected_effects,list) or len(expected_effects)>8: fail(f"{field}.expectedEffects 必须为最多 8 个 effect object")
+            for effect_index,effect in enumerate(expected_effects): validate_effect_intent(effect,capabilities,f"{field}.expectedEffects[{effect_index}]")
             override=test.get("config",{})
             if not isinstance(override,dict): fail(f"{field}.config 必须为 object")
             config=merge_test_config(defaults,override)
@@ -670,7 +701,7 @@ const context=vm.createContext({}); context.__env={clock:{wallTimeMs:17000000000
 context.__cases=cases; context.__migrations=migrations; context.__configChanges=configChanges; context.__defaultConfig=JSON.parse(fs.readFileSync(process.argv[6],'utf8'));
 vm.runInContext(`const api=globalThis.__remrss; const env=globalThis.__env; if(!api||typeof api.init!=='function'||typeof api.reduce!=='function') throw new Error('main.js must define globalThis.__remrss={init,reduce}');
 if(globalThis.__cases.length===0){const state=api.init({config:globalThis.__defaultConfig,env});if(!state||typeof state!=='object'||Array.isArray(state))throw new Error('init must return object state');}
-for(const test of globalThis.__cases){const config=JSON.parse(JSON.stringify(test.config));const initialized=api.init({config,env});if(!initialized||typeof initialized!=='object'||Array.isArray(initialized))throw new Error(test.name+': init must return object state');let current=JSON.parse(JSON.stringify(test.initial??initialized));for(const event of test.events??[]){const result=api.reduce({state:current,config,env,event});if(!result||!('state'in result))throw new Error(test.name+': reduce must return {state}');current=result.state;}if(JSON.stringify(current)!==JSON.stringify(test.expected))throw new Error(test.name+': expected '+JSON.stringify(test.expected)+', got '+JSON.stringify(current));}
+for(const test of globalThis.__cases){const config=JSON.parse(JSON.stringify(test.config));const initialized=api.init({config,env});if(!initialized||typeof initialized!=='object'||Array.isArray(initialized))throw new Error(test.name+': init must return object state');let current=JSON.parse(JSON.stringify(test.initial??initialized));const emitted=[];for(const event of test.events??[]){const result=api.reduce({state:current,config,env,event});if(!result||!('state'in result)||Object.keys(result).some(key=>!['state','effects'].includes(key))||('effects'in result&&(!Array.isArray(result.effects)||result.effects.length>8)))throw new Error(test.name+': reduce must return {state,effects?}');current=result.state;emitted.push(...(result.effects??[]));}if(JSON.stringify(current)!==JSON.stringify(test.expected))throw new Error(test.name+': expected '+JSON.stringify(test.expected)+', got '+JSON.stringify(current));if(JSON.stringify(emitted)!==JSON.stringify(test.expectedEffects??[]))throw new Error(test.name+': expected effects '+JSON.stringify(test.expectedEffects??[])+', got '+JSON.stringify(emitted));}
 for(const test of globalThis.__migrations){if(typeof api.migrate!=='function')throw new Error('dataVersion update requires migrate');const result=api.migrate({state:test.state,config:test.config,fromVersion:test.fromVersion,toVersion:test.toVersion,env});if(!result||Object.keys(result).sort().join(',')!=='config,state'||'effects'in result)throw new Error(test.name+': migrate must return only {state,config}; effects are forbidden');if(test.state!==null&&result.state===null)throw new Error(test.name+': migrate cannot discard an initialized state');if(JSON.stringify(result.state)!==JSON.stringify(test.expected.state)||JSON.stringify(result.config)!==JSON.stringify(test.expected.config))throw new Error(test.name+': migration result mismatch');}
 for(const test of globalThis.__configChanges){const input={state:JSON.parse(JSON.stringify(test.state)),config:JSON.parse(JSON.stringify(test.config)),previousConfig:JSON.parse(JSON.stringify(test.previousConfig)),event:{type:'host.configChanged',payload:{},eventId:'sdk-config-change',revision:7,logicalSessionId:'sdk-test'},env};let result;let failure;try{result=api.reduce(input);}catch(error){failure=String(error&&error.message||error);}if(test.expectError){if(!failure||!failure.includes(test.expectError))throw new Error(test.name+': expected reducer error containing '+test.expectError+', got '+failure);continue;}if(failure)throw new Error(test.name+': reducer failed: '+failure);if(!result||typeof result!=='object'||!('state'in result)||Object.keys(result).some(key=>!['state','effects'].includes(key)))throw new Error(test.name+': reduce must return {state,effects?} without extra fields');if('effects'in result&&(!Array.isArray(result.effects)||result.effects.length>8||result.effects.some(effect=>!effect||typeof effect!=='object'||Array.isArray(effect))))throw new Error(test.name+': Effects must be a bounded array of objects');if(!result.state||typeof result.state!=='object'||Array.isArray(result.state))throw new Error(test.name+': state must be an object');const canonical=value=>JSON.stringify(value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,JSON.parse(canonical(value[key]))])):Array.isArray(value)?value.map(item=>JSON.parse(canonical(item))):value);if(canonical(result.state)!==canonical(test.expected.state)||canonical(input.config)!==canonical(test.expected.config)||canonical(result.effects??[])!==canonical(test.expected.effects??[]))throw new Error(test.name+': config-change result mismatch');}`,context,{timeout:1000});
 console.log(`PASS: init/reduce ABI, ${cases.length} reducer case(s), ${migrations.length} migration case(s), ${configChanges.length} config-change case(s) (Node author-side check only)`);
@@ -720,7 +751,7 @@ def dev_reload_package(root: Path, key: Path, installed: Path, output: Path):
 def main():
     parser=argparse.ArgumentParser(prog="remrss",description="ReMRSS ZIP Mod author tools")
     sub=parser.add_subparsers(dest="cmd",required=True)
-    c=sub.add_parser("create"); c.add_argument("id"); c.add_argument("--template",choices=["blank","info","counter"],default="blank"); c.add_argument("--author",default="Mod author"); c.add_argument("--out",type=Path)
+    c=sub.add_parser("create"); c.add_argument("id"); c.add_argument("--template",choices=["blank","info","counter","notification"],default="blank"); c.add_argument("--author",default="Mod author"); c.add_argument("--out",type=Path)
     chk=sub.add_parser("check"); chk.add_argument("target",type=Path)
     tst=sub.add_parser("test"); tst.add_argument("project",type=Path)
     prv=sub.add_parser("preview"); prv.add_argument("project",type=Path)

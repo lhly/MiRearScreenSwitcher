@@ -1,6 +1,6 @@
 {
   "name": "@remrss/mod-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Types and package tools for ReMRSS ZIP Mods",
   "type": "module",
   "exports": "./src/index.js",

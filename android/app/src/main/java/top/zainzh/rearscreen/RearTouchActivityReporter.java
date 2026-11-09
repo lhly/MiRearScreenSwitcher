@@ -44,7 +44,7 @@ final class RearTouchActivityReporter {
             // The task/power query is Binder-backed and may block. Recheck the volatile lease/output
             // fence after it, immediately before the display side effect; do not take Session locks.
             if (!sessionCurrent.getAsBoolean() || !outputReady.getAsBoolean()) return Result.SESSION_INACTIVE;
-            sink.report(rearDisplayId, now);
+            sink.report(rearDisplayId, now, RearDisplayUserActivity.EVENT_TOUCH);
             if (firstReportedUptime < 0) firstReportedUptime = now;
             lastReportedUptime = now;
             reportCount++;

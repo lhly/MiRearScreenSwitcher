@@ -3,7 +3,7 @@ package dev.remrss.platform.sdk
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Optional RC3 capability probe. Missing action support never changes the remrss.platform/1 handshake. */
+/** Optional registered-action capability probe; absence never changes the remrss.platform/1 handshake. */
 internal data class RegisteredActionCapabilityState(val supported: Boolean, val granted: Boolean)
 internal data class RegisteredActionCapabilityDeclaration(val name: String, val granted: Boolean)
 

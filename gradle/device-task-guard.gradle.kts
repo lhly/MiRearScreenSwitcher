@@ -17,15 +17,12 @@ allprojects {
         val isInstallOrUninstall = lowerName.startsWith("install") || lowerName.startsWith("uninstall")
         val isConnectedTest = lowerName.startsWith("connected")
         val isManagedDeviceLifecycle = typeNames.any { it in deviceTaskTypes } || lowerName == "cleanmanageddevices"
-        val isManagedInstrumentation = lowerName.endsWith("androidtest") &&
-            !lowerName.startsWith("lint") &&
-            !lowerName.startsWith("assemble") &&
-            !lowerName.startsWith("package") &&
-            !lowerName.startsWith("check") &&
-            !lowerName.startsWith("validate")
+        // AGP uses dedicated task types for managed/device-provider instrumentation
+        // execution. Do not infer execution from an AndroidTest suffix: compile and
+        // packaging dependencies (for example javaPreCompileDebugAndroidTest) use it too.
         val isDeviceCheck = lowerName == "devicecheck" || lowerName == "deviceandroidtest"
 
-        if (isInstallOrUninstall || isConnectedTest || isManagedDeviceLifecycle || isManagedInstrumentation || isDeviceCheck) {
+        if (isInstallOrUninstall || isConnectedTest || isManagedDeviceLifecycle || isDeviceCheck) {
             doFirst {
                 throw GradleException(
                     "拒绝直接执行设备任务 '$path'。请先构建 APK，再使用 tools/guarded_device.py 指定私有 ADB server 与唯一目标。"

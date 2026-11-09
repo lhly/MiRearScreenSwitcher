@@ -8,7 +8,14 @@ HOOK = ROOT / "gradle/device-task-guard.gradle.kts"
 class GradleDeviceGuardContractTests(unittest.TestCase):
     def test_android_build_and_fixture_share_the_same_hook(self):
         production = (ROOT / "android/build.gradle.kts").read_text(encoding="utf-8")
-        fixture = (ROOT / "tools/device-guard-fixture/build.gradle.kts").read_text(encoding="utf-8")
+        fixture_root = ROOT / "tools/device-guard-fixture"
+        fixture = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                fixture_root / "build.gradle.kts",
+                fixture_root / "device/build.gradle.kts",
+            )
+        )
         hook = HOOK.read_text(encoding="utf-8")
         self.assertIn('apply(from = "../gradle/device-task-guard.gradle.kts")', production)
         self.assertIn('apply(from = "../../gradle/device-task-guard.gradle.kts")', fixture)
@@ -26,7 +33,28 @@ class GradleDeviceGuardContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, hook.lower())
         self.assertIn("lintAnalyzeDebugAndroidTest", fixture)
-        self.assertIn('!lowerName.startsWith("lint")', hook)
+        self.assertNotIn('endsWith("androidtest")', hook)
+        self.assertIn('lowerName == "deviceandroidtest"', hook)
+        for build_only_task in (
+            "javaPreCompileDebugAndroidTest",
+            "compileDebugAndroidTestKotlin",
+            "packageDebugAndroidTest",
+            "assembleDebugAndroidTest",
+        ):
+            with self.subTest(build_only_task=build_only_task):
+                self.assertIn(build_only_task, fixture)
+        for blocked_task in (
+            "connectedDebugAndroidTest",
+            "connectedCheck",
+            "deviceCheck",
+            "installDebug",
+            "uninstallAll",
+            "pixel2Api35DebugAndroidTest",
+            "cleanManagedDevices",
+            "customDeviceSetup",
+        ):
+            with self.subTest(blocked_task=blocked_task):
+                self.assertIn(blocked_task, fixture)
         self.assertIn(":app:assembleRelease :app:lintRelease", (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
 
     def test_fixture_is_android_plugin_and_adb_free(self):

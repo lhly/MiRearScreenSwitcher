@@ -22,9 +22,11 @@ internal interface RearSceneGateway {
     fun targetDisplayId(): Int? = null
     /** One-shot recovery for an already-owned task, after an authenticated lock/cover cause. */
     fun recoverOwnedDisplay(owner: SessionOwner, request: SceneRequest, task: LaunchedScene,
-                            isCurrent: () -> Boolean, onWakeAttempt: () -> SceneRecoveryWakeDecision): SceneRecoveryResult =
-        if (!isCurrent()) SceneRecoveryResult(SceneError.STALE_SESSION) else when (onWakeAttempt()) {
+                            cachedRearOn: Boolean?, isCurrent: () -> Boolean,
+                            onWakeAttempt: (physicalRearOn: Boolean?) -> SceneRecoveryWakeDecision): SceneRecoveryResult =
+        if (!isCurrent()) SceneRecoveryResult(SceneError.STALE_SESSION) else when (onWakeAttempt(cachedRearOn)) {
             SceneRecoveryWakeDecision.STALE -> SceneRecoveryResult(SceneError.STALE_SESSION)
+            SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY -> SceneRecoveryResult(SceneError.DISPLAY_UNAVAILABLE, awaitDisplayOn = true)
             SceneRecoveryWakeDecision.ALREADY_ON -> SceneRecoveryResult()
             SceneRecoveryWakeDecision.CLAIMED -> SceneRecoveryResult(prepareDisplay(owner, request))
         }
@@ -35,8 +37,21 @@ internal interface RearSceneGateway {
 
 data class LaunchedScene(val component: android.content.ComponentName, val taskId: Int, val displayId: Int)
 
-internal enum class SceneRecoveryWakeDecision { STALE, ALREADY_ON, CLAIMED }
-internal data class SceneRecoveryResult(val error: SceneError? = null, val deferredByOverlay: Boolean = false)
+internal enum class SceneRecoveryWakeDecision { STALE, WAIT_FOR_DISPLAY, ALREADY_ON, CLAIMED }
+internal data class SceneRecoveryResult(
+    val error: SceneError? = null,
+    val deferredByOverlay: Boolean = false,
+    /** The one allowed wake did not reach rear ON; retain the cause until a real ON edge. */
+    val awaitDisplayOn: Boolean = false,
+    /** Focus was accepted but the exact Activity/task snapshot has not caught up; wait for a bounded confirmation. */
+    val awaitSceneVisible: Boolean = false,
+    /** The rear task snapshot was not yet uniquely classifiable; permit one same-cause recheck. */
+    val awaitTaskVisibilityClassification: Boolean = false,
+    /** A returned task-flow result proves it passed initial classification/focus before waiting on power. */
+    val taskVisibilityClassificationComplete: Boolean = false,
+    /** TaskService confirmed selected physical rear ON and this exact task was presented on it. */
+    val verifiedPhysicalPresentation: Boolean = false,
+)
 
 /** Bridges Scene ownership into the already-running legacy display keepers. */
 internal interface SceneLegacyLeasePort {
@@ -63,7 +78,8 @@ internal class RearSceneCoordinator(
     private val randomToken: () -> String = ::newToken,
     private val displayOwnershipEpoch: () -> Long = LegacyDisplayOccupancy::epoch,
     private val lifecycleMonitor: SceneDisplayLifecycleMonitor? = null,
-    private val legacyServiceLease: SceneLegacyLeasePort? = null
+    private val legacyServiceLease: SceneLegacyLeasePort? = null,
+    private val onSceneCommitted: () -> Unit = {}
 ) : DisplaySessionCoordinator {
     private data class Ticket(
         val owner: SessionOwner,
@@ -86,9 +102,18 @@ internal class RearSceneCoordinator(
         var presentationRevision: Long = 0L,
         var hiddenReason: SceneSuspendReason? = SceneSuspendReason.DISPLAY_OFF,
         var activityVisible: Boolean = false,
+        /** Increments only on a real hidden→visible Activity-window report. */
+        var activityVisibilitySequence: Long = 0L,
         var targetDisplayOn: Boolean? = null,
+        /** Exact recovery backend verified ON when the monitor cache was stale; cleared by any power signal. */
+        var backendVerifiedRearOn: Boolean = false,
+        /** Monotonic count of physical power callbacks, used to preserve one ON edge racing a reply. */
+        var rearPowerSignalSequence: Long = 0L,
         var primaryScreenOff: Boolean = false,
         var covered: Boolean = false,
+        /** A Scene that was actually visible can be returned while the rear display is already ON. */
+        var sceneRestorationEligible: Boolean = false,
+        /** Separate permission for a keepVisible lease to wake an OFF rear display once. */
         var keepVisibleRestorationEligible: Boolean = false,
         var visibleBeforeCover: Boolean = false,
         var visibleAtScreenOff: Boolean = false,
@@ -101,6 +126,20 @@ internal class RearSceneCoordinator(
         var coverRecoveryAttempted: Boolean = false,
         /** One same-lease recovery intent survives asynchronous cover/cancellation ordering. */
         var pendingRecoveryFromScreenOff: Boolean? = null,
+        /** Monotonic identity for one return cause; capture tokens may change across temporary overlays. */
+        var recoveryCauseSequence: Long = 0L,
+        /** Same-cause phase: once focus needs presentation confirmation, every resume keeps that mode. */
+        var recoveryPresentationPhase: Boolean = false,
+        /** One stable reclassification may follow an ambiguous all-display snapshot; survives cover deferrals. */
+        var taskVisibilityRecheckPending: Boolean = false,
+        /** Spent is distinct from pending: a later R7 window confirmation cannot regrant the same-cause retry. */
+        var taskVisibilityRecheckSpent: Boolean = false,
+        /** Physical rear backend rejected ON; wait for a later real display-power edge, never repoll/retry from cache. */
+        var awaitFreshRearOn: Boolean = false,
+        /** A non-visible post-focus snapshot parks until one bounded check or a new real window-visible edge. */
+        var awaitSceneVisibleAfterPresentation: Boolean = false,
+        var presentationAwaitVisibilitySequence: Long = 0L,
+        var lastPresentationRetryVisibilitySequence: Long? = null,
         var recoveryToken: Long = 0L,
         var lifecycle: Closeable? = null,
         var closed: Boolean = false
@@ -115,7 +154,11 @@ internal class RearSceneCoordinator(
         val request: SceneRequest,
         val task: LaunchedScene,
         val fromScreenOff: Boolean,
-        val needsWake: Boolean
+        val causeSequence: Long,
+        val needsWake: Boolean,
+        val rearPowerSignalSequence: Long,
+        val activityVisibilitySequence: Long,
+        val taskVisibilityRecheck: Boolean
     )
     private data class OverlayLease(
         val overlayId: Long,
@@ -123,7 +166,9 @@ internal class RearSceneCoordinator(
         val sceneGenerationAtStart: Long?,
         val sceneOwnershipEpochAtStart: Long,
         val displayOwnershipEpochAtStart: Long,
-        val suppressLegacyRestore: Boolean
+        val suppressLegacyRestore: Boolean,
+        /** Exact live Scene had previously rendered; wake eligibility is checked separately. */
+        val sceneHadVisibleLeaseAtStart: Boolean
     )
 
     private val lock = Any()
@@ -197,8 +242,8 @@ internal class RearSceneCoordinator(
         val ticket = tickets[launchTicket] ?: return@synchronized null
         val record = sessions[ticket.sessionId] ?: return@synchronized null
         val isLiveReadyScene = ticket.consumed && record.viewport != null
-        if ((!isLiveReadyScene && clock() >= ticket.expiresAt) || ticket.component != component ||
-            record.closed || record.generation != ticket.generation || record.request.component != component) return@synchronized null
+        if ((!isLiveReadyScene && clock() >= ticket.expiresAt) || !sameComponent(ticket.component, component) ||
+            record.closed || record.generation != ticket.generation || !sameComponent(record.request.component, component)) return@synchronized null
         SceneLaunchContext(ticket.owner, ticket.sessionId, ticket.generation, record.request)
     }
 
@@ -286,7 +331,7 @@ internal class RearSceneCoordinator(
         } catch (_: Exception) {
             null
         }
-        if (launched == null || launched.component != request.component || launched.taskId < 0 || launched.displayId <= 0) {
+        if (launched == null || !sameComponent(launched.component, request.component) || launched.taskId < 0 || launched.displayId <= 0) {
             discardPendingLaunch(sessionId, ticket, SceneCloseReason.BACKEND_LOST)
             val capabilities = gateway.queryCapabilities(owner)
             val reason = if (!capabilities.deviceAvailable) SceneError.UNSUPPORTED
@@ -305,6 +350,7 @@ internal class RearSceneCoordinator(
             discardPendingLaunch(sessionId, ticket, SceneCloseReason.LAUNCH_EXPIRED)
             return SceneOpenResult.Rejected(SceneError.STALE_SESSION, true)
         }
+        onSceneCommitted()
         val expiryDelay = (expiresAt - clock()).coerceAtLeast(0L)
         expiryScheduler.schedule({ expirePendingLaunch(sessionId, ticket) }, expiryDelay, TimeUnit.MILLISECONDS)
         return SceneOpenResult.Accepted(SceneSessionHandle(sessionId, generation, ticket, expiresAt))
@@ -326,7 +372,7 @@ internal class RearSceneCoordinator(
             val ticket = tickets[launchTicket] ?: return SceneOperationResult(false, SceneError.STALE_SESSION)
             if (ticket.owner != owner || ticket.consumed || clock() >= ticket.expiresAt)
                 return SceneOperationResult(false, SceneError.STALE_SESSION)
-            if (ticket.component != window.component) return SceneOperationResult(false, SceneError.CAPABILITY_DENIED)
+            if (!sameComponent(ticket.component, window.component)) return SceneOperationResult(false, SceneError.CAPABILITY_DENIED)
             val record = sessions[ticket.sessionId] ?: return SceneOperationResult(false, SceneError.STALE_SESSION)
             val launch = record.launch ?: return SceneOperationResult(false, SceneError.INVALID_STATE, true)
             if (record.closed || record.generation != ticket.generation || window.taskId != launch.taskId ||
@@ -358,7 +404,7 @@ internal class RearSceneCoordinator(
             val current = sessions[sessionId] ?: return SceneOperationResult(false, SceneError.STALE_SESSION)
             if (current.owner != owner) return SceneOperationResult(false, SceneError.CAPABILITY_DENIED)
             val launch = current.launch ?: return SceneOperationResult(false, SceneError.INVALID_STATE, true)
-            if (current.generation != generation || launch.component != window.component ||
+            if (current.generation != generation || !sameComponent(launch.component, window.component) ||
                 launch.taskId != window.taskId || launch.displayId != window.viewport.displayId)
                 return SceneOperationResult(false, SceneError.STALE_SESSION)
             if (current.viewport == null) return SceneOperationResult(false, SceneError.INVALID_STATE, true)
@@ -403,11 +449,18 @@ internal class RearSceneCoordinator(
             val previousActivityVisible = current.activityVisible
             val previousEffectiveVisible = current.visible
             current.activityVisible = visible
+            if (!previousActivityVisible && visible) current.activityVisibilitySequence++
             if (visible) current.visibleAtScreenOff = current.visibleAtScreenOff || current.primaryScreenOff
             updateEffectiveVisibilityLocked(sessionId, current)
+            if (visible && current.awaitSceneVisibleAfterPresentation &&
+                current.activityVisibilitySequence > current.presentationAwaitVisibilitySequence) {
+                current.awaitSceneVisibleAfterPresentation = false
+                current.lastPresentationRetryVisibilitySequence = current.activityVisibilitySequence
+                recovery = resumePendingRecoveryLocked(sessionId, current, presentationOnly = true)
+            }
             if (!visible && current.primaryScreenOff && current.visibleAtScreenOff && current.targetDisplayOn == true &&
                 current.request.keepVisible && current.keepVisibleRestorationEligible) {
-                if (current.pendingRecoveryFromScreenOff == null) current.pendingRecoveryFromScreenOff = true
+                if (current.pendingRecoveryFromScreenOff == null) beginPendingRecoveryCauseLocked(current, true)
                 recovery = resumePendingRecoveryLocked(sessionId, current)
             }
             if (previousActivityVisible != current.activityVisible || previousEffectiveVisible != current.visible) {
@@ -430,14 +483,37 @@ internal class RearSceneCoordinator(
 
     /** Notification/charging animations temporarily cover a live Scene without ending its lease. */
     /** Production animation-session entry: binds one overlay id to the Scene it actually covered. */
-    internal fun beginTransientOverlay(overlayId: Long, inheritedReturnWasSuppressed: Boolean = false): Boolean {
+    internal fun beginTransientOverlay(
+        overlayId: Long,
+        replacesOverlayId: Long? = null,
+        inheritedReturnWasSuppressed: Boolean = false
+    ): Boolean {
         val suppressLegacyRestore = synchronized(lock) {
-            val entry = sessions.entries.firstOrNull { (_, record) -> !record.closed }
+            val prior = activeOverlayLease?.takeIf {
+                it.overlayId == replacesOverlayId && activeTransientOverlayId == replacesOverlayId &&
+                    !overlayOwnershipWasRevokedLocked(it)
+            }
+            val priorEntry = prior?.let { lease ->
+                val id = lease.sceneSessionIdAtStart
+                val record = id?.let(sessions::get)
+                if (id != null && record != null && !record.closed && record.generation == lease.sceneGenerationAtStart)
+                    Triple(lease, id, record)
+                else null
+            }
+            val entry: Pair<String, Record>? = priorEntry?.let { it.second to it.third }
+                ?: if (replacesOverlayId == null) sessions.entries.firstOrNull { (_, record) -> !record.closed }?.let { it.key to it.value }
+                else null
             val sceneOwnsAtStart = entry != null
             val priorOverlayStillSuppresses = activeOverlayLease?.let(::overlaySuppressesLegacyRestoreLocked) == true
+            val record = entry?.second
+            val recoveryEligible = priorEntry?.first?.sceneHadVisibleLeaseAtStart ?: (
+                record != null && record.sceneRestorationEligible &&
+                    record.viewport != null && record.launch != null &&
+                    record.displayOwnershipEpoch == displayOwnershipEpoch())
             activeOverlayLease = OverlayLease(
-                overlayId, entry?.key, entry?.value?.generation, sceneOwnershipEpoch, displayOwnershipEpoch(),
-                sceneOwnsAtStart || priorOverlayStillSuppresses || inheritedReturnWasSuppressed
+                overlayId, entry?.first, entry?.second?.generation, sceneOwnershipEpoch, displayOwnershipEpoch(),
+                sceneOwnsAtStart || priorOverlayStillSuppresses || inheritedReturnWasSuppressed,
+                recoveryEligible
             )
             activeTransientOverlayId = overlayId
             sceneOwnsAtStart || priorOverlayStillSuppresses || inheritedReturnWasSuppressed
@@ -471,6 +547,7 @@ internal class RearSceneCoordinator(
             val stateChanged = temporaryOverlayActive != active
             temporaryOverlayActive = active
             if (active) sessions.values.forEach(::invalidateScheduledRecoveryLocked)
+            val endedLease = if (!active) activeOverlayLease?.takeIf { it.overlayId == overlayId } else null
             if (!active) {
                 // An animation can begin before any Scene exists, then a user can open a Scene
                 // while it is running. Its end still has to consume the animation token even
@@ -482,13 +559,33 @@ internal class RearSceneCoordinator(
             sessions.forEach { (sessionId, record) ->
                 if (record.closed) return@forEach
                 updateEffectiveVisibilityLocked(sessionId, record, SceneSuspendReason.COVERED)
+                // A notification/charging Activity can stop the Scene Activity while it owns
+                // the top task. Proximity's visibleBeforeCover does not describe that overlay.
+                // Re-arm only the exact previously visible, still-live Scene lease; its normal
+                // recovery gateway handles ON presentation and OFF one-shot recovery separately.
+                if (!active && endedLease?.sceneHadVisibleLeaseAtStart == true &&
+                    endedLease.sceneSessionIdAtStart == sessionId &&
+                    endedLease.sceneGenerationAtStart == record.generation &&
+                    !overlayOwnershipWasRevokedLocked(endedLease) && record.sceneRestorationEligible &&
+                    record.viewport != null && record.launch != null &&
+                    record.pendingRecoveryFromScreenOff == null) {
+                    when (record.targetDisplayOn) {
+                        // Even if Activity/window callbacks say visible, the task may only be
+                        // resumed behind the sleeping/covering rear host. The exact-task gateway
+                        // decides whether any present is needed; window visibility cannot consume
+                        // this overlay's return lease on its own.
+                        true -> beginPendingRecoveryCauseLocked(record, false)
+                        false -> beginPendingRecoveryCauseLocked(record, (record.primaryScreenOff && record.visibleAtScreenOff))
+                        null -> Unit
+                    }
+                }
                 if (!active && !record.covered && record.pendingRecoveryFromScreenOff == null && record.request.keepVisible) {
                     val needsRecovery = record.targetDisplayOn == false || (record.targetDisplayOn == true && !record.activityVisible)
-                    if (needsRecovery) record.pendingRecoveryFromScreenOff = when {
+                    if (needsRecovery) beginPendingRecoveryCauseLocked(record, when {
                         record.primaryScreenOff && record.visibleAtScreenOff -> true
                         record.visibleBeforeCover -> false
                         else -> null
-                    }
+                    } ?: return@forEach)
                 }
                 if (!active && !record.covered) resumePendingRecoveryLocked(sessionId, record)?.let(recoveryCandidates::add)
             }
@@ -500,25 +597,31 @@ internal class RearSceneCoordinator(
         overlay.suppressLegacyRestore || sceneOwnershipEpoch != overlay.sceneOwnershipEpochAtStart ||
             displayOwnershipEpoch() != overlay.displayOwnershipEpochAtStart
 
+    private fun overlayOwnershipWasRevokedLocked(overlay: OverlayLease): Boolean =
+        sceneOwnershipEpoch != overlay.sceneOwnershipEpochAtStart ||
+            displayOwnershipEpoch() != overlay.displayOwnershipEpochAtStart
+
     /** Applies one authoritative visibility calculation for Activity, rear power, occlusion and overlay state. */
     private fun updateEffectiveVisibilityLocked(
         sessionId: String,
         record: Record,
         hiddenReason: SceneSuspendReason = if (record.covered || temporaryOverlayActive) SceneSuspendReason.COVERED else SceneSuspendReason.DISPLAY_OFF
     ) {
-        val visible = record.activityVisible && record.targetDisplayOn != false && !record.covered && !temporaryOverlayActive
+        val rearAvailable = record.targetDisplayOn != false || record.backendVerifiedRearOn
+        val visible = record.activityVisible && rearAvailable && !record.covered && !temporaryOverlayActive
         val nextReason = if (visible) null else hiddenReason
         if (record.visible == visible && record.hiddenReason == nextReason) return
         val visibilityChanged = record.visible != visible
         record.visible = visible
         record.hiddenReason = nextReason
         record.presentationRevision++
-        if (visible && record.request.keepVisible) {
-            record.keepVisibleRestorationEligible = true
-            if (record.pendingRecoveryFromScreenOff != null) {
-                record.pendingRecoveryFromScreenOff = null
-                invalidateScheduledRecoveryLocked(record)
-            }
+        if (visible) {
+            record.sceneRestorationEligible = true
+            if (record.request.keepVisible) record.keepVisibleRestorationEligible = true
+            // Window visibility is not task-level foreground proof: on rear displays an Activity
+            // may resume while the physical panel is in DOZE or another system task is actually
+            // presented. Leave an already-qualified return cause to the exact-task recovery
+            // gateway, which has an authoritative `already_scene_visible` no-op result.
         }
         if (record.viewport != null) {
             if (visibilityChanged) emitVisibilityChangeLocked(sessionId, record, visible, hiddenReason)
@@ -559,11 +662,11 @@ internal class RearSceneCoordinator(
                         // OFF must not erase the valid keep-visible restoration cause.
                         record.visibleAtScreenOff = record.visibleAtScreenOff || record.activityVisible ||
                             record.visible || record.keepVisibleRestorationEligible
-                        record.screenOffRecoveryAttempted = false
+                        if (record.pendingRecoveryFromScreenOff == null) record.screenOffRecoveryAttempted = false
                     }
                     if (record.request.keepVisible && record.keepVisibleRestorationEligible && record.visibleAtScreenOff &&
                         record.targetDisplayOn == true && !record.activityVisible && record.pendingRecoveryFromScreenOff == null) {
-                        record.pendingRecoveryFromScreenOff = true
+                        beginPendingRecoveryCauseLocked(record, true)
                     }
                     if (record.pendingRecoveryFromScreenOff != null) {
                         recovery = resumePendingRecoveryLocked(sessionId, record)
@@ -583,15 +686,18 @@ internal class RearSceneCoordinator(
                         // restoration. Keep its token and scheduled bit paired so the old capture
                         // remains current instead of leaving a stale coverScheduled latch behind.
                         record.screenOffRecoveryScheduled = false
-                        record.screenOffRecoveryAttempted = false
+                        // Keep the same cause's consumed one-shot budget across callbacks.
                     }
                     updateEffectiveVisibilityLocked(sessionId, record)
                     if (record.pendingRecoveryFromScreenOff != null) recovery = resumePendingRecoveryLocked(sessionId, record)
                 }
                 is SceneDisplaySignal.RearDisplayPower -> {
                     val wasOn = record.targetDisplayOn
+                    record.rearPowerSignalSequence++
                     record.targetDisplayOn = signal.on
-                    if (!signal.on && wasOn == true) {
+                    record.backendVerifiedRearOn = false
+                    if (signal.on) record.awaitFreshRearOn = false
+                    if (!signal.on && wasOn == true && record.pendingRecoveryFromScreenOff == null) {
                         record.screenOffRecoveryAttempted = false
                         record.coverRecoveryAttempted = false
                         invalidateScheduledRecoveryLocked(record)
@@ -608,17 +714,17 @@ internal class RearSceneCoordinator(
                     if (signal.near && !record.covered) {
                         record.visibleBeforeCover = record.activityVisible || record.visible
                         record.covered = true
-                        android.util.Log.i("RearSceneProximity", "core_edge state=covered source=rear_proximity visibleBefore=${record.visible} revision=${record.presentationRevision + 1}")
+                        runCatching { android.util.Log.i("RearSceneProximity", "core_edge state=covered source=rear_proximity visibleBefore=${record.visible} revision=${record.presentationRevision + 1}") }
                         invalidateScheduledRecoveryLocked(record)
                         record.coverRecoveryScheduled = false
-                        record.coverRecoveryAttempted = false
+                        if (record.pendingRecoveryFromScreenOff == null) record.coverRecoveryAttempted = false
                         updateEffectiveVisibilityLocked(sessionId, record, SceneSuspendReason.COVERED)
                     } else if (!signal.near && record.covered) {
                         record.covered = false
-                        android.util.Log.i("RearSceneProximity", "core_edge state=uncovered source=rear_proximity visibleBefore=${record.visible} revision=${record.presentationRevision + 1}")
+                        runCatching { android.util.Log.i("RearSceneProximity", "core_edge state=uncovered source=rear_proximity visibleBefore=${record.visible} revision=${record.presentationRevision + 1}") }
                         updateEffectiveVisibilityLocked(sessionId, record)
                         if (record.pendingRecoveryFromScreenOff == null && record.request.keepVisible && !record.visible) {
-                            record.pendingRecoveryFromScreenOff = if (record.primaryScreenOff && record.visibleAtScreenOff) true else false
+                            beginPendingRecoveryCauseLocked(record, record.primaryScreenOff && record.visibleAtScreenOff)
                         }
                         recovery = resumePendingRecoveryLocked(sessionId, record)
                     }
@@ -635,31 +741,67 @@ internal class RearSceneCoordinator(
                 else record.visibleBeforeCover
             if (!causeValid || record.targetDisplayOn == null) return null
             if (record.targetDisplayOn == true && record.activityVisible) return null
-            record.pendingRecoveryFromScreenOff = fromScreenOff
+            beginPendingRecoveryCauseLocked(record, fromScreenOff)
         }
         if (record.pendingRecoveryFromScreenOff != fromScreenOff) return null
         return resumePendingRecoveryLocked(sessionId, record)
     }
 
-    /** Reuses the one authorized intent; ON resumes presentation only, OFF wakes only if not attempted. */
-    private fun resumePendingRecoveryLocked(sessionId: String, record: Record): RecoveryCapture? {
+    /** Start one cause identity and reset only the budget/phase belonging to the previous cause. */
+    private fun beginPendingRecoveryCauseLocked(record: Record, fromScreenOff: Boolean?) {
+        if (fromScreenOff == null) return
+        if (record.pendingRecoveryFromScreenOff != null) return
+        record.recoveryCauseSequence++
+        record.pendingRecoveryFromScreenOff = fromScreenOff
+        record.recoveryPresentationPhase = false
+        record.taskVisibilityRecheckPending = false
+        record.taskVisibilityRecheckSpent = false
+        record.awaitFreshRearOn = false
+        record.awaitSceneVisibleAfterPresentation = false
+        record.presentationAwaitVisibilitySequence = 0L
+        record.lastPresentationRetryVisibilitySequence = null
+        record.screenOffRecoveryScheduled = false
+        record.coverRecoveryScheduled = false
+        record.screenOffRecoveryAttempted = false
+        record.coverRecoveryAttempted = false
+    }
+
+    /** Reuses one exact Scene intent; keepVisible is required only for an OFF-screen wake. */
+    private fun resumePendingRecoveryLocked(
+        sessionId: String,
+        record: Record,
+        presentationOnly: Boolean = false,
+    ): RecoveryCapture? {
         val fromScreenOff = record.pendingRecoveryFromScreenOff ?: return null
-        if (!record.request.keepVisible || !record.keepVisibleRestorationEligible || record.closed ||
+        if (presentationOnly) record.recoveryPresentationPhase = true
+        val presentationPhase = record.recoveryPresentationPhase
+        if (!record.sceneRestorationEligible || record.closed ||
             record.viewport == null || record.launch == null || record.covered || temporaryOverlayActive) return null
         val displayOn = record.targetDisplayOn ?: return null
-        if (displayOn && record.activityVisible) {
-            record.pendingRecoveryFromScreenOff = null
-            return null
-        }
+        if (record.awaitFreshRearOn) return null
+        if (record.awaitSceneVisibleAfterPresentation) return null
+        // keepVisible=false may return only after the rear display is independently ON. Preserve
+        // its same-lease pending cause while OFF so a real ON edge can resume exact-task restore.
+        val wakeEligible = record.request.keepVisible && record.keepVisibleRestorationEligible
+        if (!displayOn && !presentationPhase && !wakeEligible) return null
+        // Activity/window visibility is not proof that this exact task is in front of the
+        // physical rear display (the panel may be in DOZE while Android still reports the
+        // Activity resumed). Keep the return cause until the exact-task gateway confirms the
+        // task is already visible or presents it. That gateway is also the no-duplicate fast path.
         val scheduled = if (fromScreenOff) record.screenOffRecoveryScheduled else record.coverRecoveryScheduled
         if (scheduled) return null
-        val needsWake = !displayOn
         val attempted = if (fromScreenOff) record.screenOffRecoveryAttempted else record.coverRecoveryAttempted
+        // Presentation confirmation is a persistent same-cause phase, not a blanket ban on
+        // an unused one-shot wake: ALREADY_ON can race a later OFF before any wake was claimed.
+        val needsWake = !displayOn && wakeEligible && !attempted
         if (needsWake && attempted) return null
         if (fromScreenOff) record.screenOffRecoveryScheduled = true else record.coverRecoveryScheduled = true
         val task = record.launch ?: return null
         return RecoveryCapture(sessionId, record.generation, ++record.recoveryToken,
-            record.displayOwnershipEpoch, record.owner, record.request, task, fromScreenOff, needsWake)
+            record.displayOwnershipEpoch, record.owner, record.request, task, fromScreenOff,
+            record.recoveryCauseSequence, needsWake,
+            record.rearPowerSignalSequence, record.activityVisibilitySequence,
+            record.taskVisibilityRecheckPending)
     }
 
     private fun scheduleRecovery(capture: RecoveryCapture) {
@@ -677,32 +819,42 @@ internal class RearSceneCoordinator(
     private fun isRecoveryCurrent(capture: RecoveryCapture): Boolean = synchronized(lock) {
         val record = sessions[capture.sessionId]
         record != null && !record.closed && record.generation == capture.generation &&
-            record.recoveryToken == capture.token && record.request.keepVisible &&
+            record.owner == capture.owner && record.launch == capture.task && record.request == capture.request &&
+            record.recoveryToken == capture.token && record.sceneRestorationEligible &&
+            (!capture.needsWake || record.request.keepVisible && record.keepVisibleRestorationEligible) &&
             record.pendingRecoveryFromScreenOff == capture.fromScreenOff &&
+            record.recoveryCauseSequence == capture.causeSequence &&
             !record.covered && !temporaryOverlayActive &&
             displayOwnershipEpoch() == capture.ownershipEpoch
     }
 
     /** Consume a cause only at the gateway's exact pre-wake boundary, after all blocking inspection. */
-    private fun claimWakeAttempt(capture: RecoveryCapture): SceneRecoveryWakeDecision = synchronized(lock) {
+    private fun claimWakeAttempt(capture: RecoveryCapture, physicalRearOn: Boolean?): SceneRecoveryWakeDecision = synchronized(lock) {
         if (!isRecoveryCurrent(capture)) return@synchronized SceneRecoveryWakeDecision.STALE
         val record = sessions[capture.sessionId] ?: return@synchronized SceneRecoveryWakeDecision.STALE
-        if (record.targetDisplayOn == true) {
+        // This exact capture is only a read/presentation recheck. A fresh OFF or unknown
+        // observation must wait for a real ON edge instead of consuming the unused wake budget.
+        if (capture.taskVisibilityRecheck && physicalRearOn != true)
+            return@synchronized SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY
+        val rearIsOn = physicalRearOn ?: record.targetDisplayOn
+        if (rearIsOn == true) {
             if (capture.fromScreenOff) {
                 if (!record.screenOffRecoveryScheduled) return@synchronized SceneRecoveryWakeDecision.STALE
-                record.screenOffRecoveryAttempted = true
             } else {
                 if (!record.coverRecoveryScheduled) return@synchronized SceneRecoveryWakeDecision.STALE
-                record.coverRecoveryAttempted = true
             }
             return@synchronized SceneRecoveryWakeDecision.ALREADY_ON
         }
-        if (record.targetDisplayOn != false || !capture.needsWake) return@synchronized SceneRecoveryWakeDecision.STALE
+        if (rearIsOn != false) return@synchronized SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY
+        if (!record.request.keepVisible || !record.keepVisibleRestorationEligible)
+            return@synchronized SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY
         if (capture.fromScreenOff) {
-            if (!record.screenOffRecoveryScheduled || record.screenOffRecoveryAttempted) return@synchronized SceneRecoveryWakeDecision.STALE
+            if (!record.screenOffRecoveryScheduled) return@synchronized SceneRecoveryWakeDecision.STALE
+            if (record.screenOffRecoveryAttempted) return@synchronized SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY
             record.screenOffRecoveryAttempted = true
         } else {
-            if (!record.coverRecoveryScheduled || record.coverRecoveryAttempted) return@synchronized SceneRecoveryWakeDecision.STALE
+            if (!record.coverRecoveryScheduled) return@synchronized SceneRecoveryWakeDecision.STALE
+            if (record.coverRecoveryAttempted) return@synchronized SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY
             record.coverRecoveryAttempted = true
         }
         SceneRecoveryWakeDecision.CLAIMED
@@ -756,18 +908,45 @@ internal class RearSceneCoordinator(
             var wakeAttempted = false
             val result = try {
                 gateway.recoverOwnedDisplay(capture.owner, capture.request, capture.task,
+                    cachedRearOn = synchronized(lock) { sessions[capture.sessionId]?.targetDisplayOn },
                     isCurrent = { isRecoveryCurrent(capture) },
-                    onWakeAttempt = {
-                        val decision = claimWakeAttempt(capture)
+                    onWakeAttempt = { physicalRearOn ->
+                        val decision = claimWakeAttempt(capture, physicalRearOn)
                         if (decision == SceneRecoveryWakeDecision.CLAIMED) wakeAttempted = true
                         decision
                     })
             } catch (_: Exception) { SceneRecoveryResult(SceneError.DISPLAY_UNAVAILABLE) }
             if (result.deferredByOverlay) preserveDeferredRecovery(capture, wakeAttempted)?.let(::scheduleRecovery)
-            else if (result.error == null) clearPendingRecovery(capture)
-            else {
-                if (!wakeAttempted) releaseUnattemptedRecovery(capture)
-                clearPendingRecovery(capture)
+            else if (result.awaitTaskVisibilityClassification) {
+                if (capture.taskVisibilityRecheck || taskVisibilityRecheckSpent(capture)) {
+                    logRecoveryEdge(capture, "task_visibility_recheck_exhausted", wakeAttempted, null)
+                    clearPendingRecovery(capture)
+                } else scheduleTaskVisibilityRecheck(capture)?.let(::scheduleRecovery)
+            } else {
+                // Spend only when the TaskFlow result says it crossed the actual task
+                // classification/action boundary. awaitDisplayOn alone is insufficient:
+                // it covers both a preflight power refusal (unclassified) and a post-focus
+                // physical-authority refusal (classified and acted on).
+                if (capture.taskVisibilityRecheck && result.taskVisibilityClassificationComplete)
+                    finishTaskVisibilityRecheck(capture)
+                if (result.awaitSceneVisible) retryOrAwaitSceneVisibility(capture)?.let(::scheduleRecovery)
+                else if (result.error == null) {
+                    if (result.verifiedPhysicalPresentation && !acceptVerifiedPhysicalPresentation(capture)) {
+                        // A newer real OFF observation beats an older exact-task ON reply. Keep the
+                        // original cause parked for that display's next real ON edge.
+                        retainRecoveryUntilDisplayOn(capture, wakeAttempted)?.let(::scheduleRecovery)
+                    } else clearPendingRecovery(capture)
+                }
+                else if (result.awaitDisplayOn && result.error == SceneError.DISPLAY_UNAVAILABLE) {
+                    // A physical rear query may reject a no-wake presentation while Core still
+                    // caches ON. Keep the exact cause until a new real ON edge; never requeue from
+                    // that stale cache. If this call attempted a wake, that one-shot remains spent.
+                    retainRecoveryUntilDisplayOn(capture, wakeAttempted)?.let(::scheduleRecovery)
+                }
+                else {
+                    if (!wakeAttempted) releaseUnattemptedRecovery(capture)
+                    clearPendingRecovery(capture)
+                }
             }
             logRecoveryEdge(capture, "complete", wakeAttempted, result.error)
             if (result.error == SceneError.BACKEND_UNAVAILABLE) {
@@ -780,6 +959,79 @@ internal class RearSceneCoordinator(
         }
     }
 
+    /** Preserve this exact return cause while granting one delayed snapshot reclassification. */
+    private fun scheduleTaskVisibilityRecheck(capture: RecoveryCapture): RecoveryCapture? = synchronized(lock) {
+        val record = sessions[capture.sessionId] ?: return@synchronized null
+        if (record.closed || record.generation != capture.generation || record.owner != capture.owner ||
+            record.request != capture.request || record.launch != capture.task ||
+            record.recoveryToken != capture.token || !record.sceneRestorationEligible ||
+            record.pendingRecoveryFromScreenOff != capture.fromScreenOff ||
+            record.recoveryCauseSequence != capture.causeSequence ||
+            displayOwnershipEpoch() != capture.ownershipEpoch || record.covered || temporaryOverlayActive) return@synchronized null
+        if (record.taskVisibilityRecheckPending || record.taskVisibilityRecheckSpent) return@synchronized null
+        if (capture.fromScreenOff) record.screenOffRecoveryScheduled = false else record.coverRecoveryScheduled = false
+        record.taskVisibilityRecheckPending = true
+        record.recoveryPresentationPhase = true
+        logRecoveryEdge(capture, "task_visibility_recheck_scheduled", false, null)
+        resumePendingRecoveryLocked(capture.sessionId, record, presentationOnly = true)
+    }
+
+    /** A non-deferred response to the one recheck has classified the current snapshot. */
+    private fun finishTaskVisibilityRecheck(capture: RecoveryCapture) = synchronized(lock) {
+        val record = sessions[capture.sessionId] ?: return@synchronized
+        if (record.generation == capture.generation && record.owner == capture.owner &&
+            record.pendingRecoveryFromScreenOff == capture.fromScreenOff &&
+            record.recoveryCauseSequence == capture.causeSequence && record.recoveryToken == capture.token) {
+            record.taskVisibilityRecheckPending = false
+            record.taskVisibilityRecheckSpent = true
+        }
+    }
+
+    private fun taskVisibilityRecheckSpent(capture: RecoveryCapture): Boolean = synchronized(lock) {
+        val record = sessions[capture.sessionId] ?: return@synchronized false
+        record.generation == capture.generation && record.owner == capture.owner &&
+            record.pendingRecoveryFromScreenOff == capture.fromScreenOff &&
+            record.recoveryCauseSequence == capture.causeSequence && record.recoveryToken == capture.token &&
+            record.taskVisibilityRecheckSpent
+    }
+
+    /** Retry once per real window-visible epoch; otherwise wait for Activity evidence, never poll/focus-loop. */
+    private fun retryOrAwaitSceneVisibility(capture: RecoveryCapture): RecoveryCapture? = synchronized(lock) {
+        val record = sessions[capture.sessionId] ?: return@synchronized null
+        if (record.closed || record.generation != capture.generation ||
+            !record.sceneRestorationEligible || record.pendingRecoveryFromScreenOff != capture.fromScreenOff ||
+            record.recoveryCauseSequence != capture.causeSequence || record.owner != capture.owner ||
+            record.request != capture.request || record.launch != capture.task ||
+            displayOwnershipEpoch() != capture.ownershipEpoch) return@synchronized null
+        // Focus completed but the exact window is not ready. Keep this phase on the cause itself,
+        // even if a temporary overlay already invalidated this capture token; its eventual end
+        // will resume the same cause in presentation mode rather than reverting to a cache-OFF gate.
+        record.recoveryPresentationPhase = true
+        if (record.recoveryToken != capture.token || record.covered || temporaryOverlayActive) return@synchronized null
+        if (capture.fromScreenOff) record.screenOffRecoveryScheduled = false else record.coverRecoveryScheduled = false
+        val visibilitySequence = record.activityVisibilitySequence
+        if (record.lastPresentationRetryVisibilitySequence != visibilitySequence) {
+            record.lastPresentationRetryVisibilitySequence = visibilitySequence
+            record.awaitSceneVisibleAfterPresentation = false
+            return@synchronized resumePendingRecoveryLocked(capture.sessionId, record, presentationOnly = true)
+        }
+        record.awaitSceneVisibleAfterPresentation = true
+        record.presentationAwaitVisibilitySequence = visibilitySequence
+        logRecoveryEdge(capture, "awaiting_scene_window_visible", wakeAttempted = false, error = null)
+        null
+    }
+
+    /** Apply physical-ON evidence only to this still-current exact recovery capture. */
+    private fun acceptVerifiedPhysicalPresentation(capture: RecoveryCapture): Boolean = synchronized(lock) {
+        val record = sessions[capture.sessionId] ?: return@synchronized false
+        if (!isRecoveryCurrent(capture)) return@synchronized false
+        if (record.rearPowerSignalSequence != capture.rearPowerSignalSequence && record.targetDisplayOn != true)
+            return@synchronized false
+        record.backendVerifiedRearOn = true
+        updateEffectiveVisibilityLocked(capture.sessionId, record)
+        true
+    }
+
     /** An inspection cancelled before wake must not consume the cause or leave it permanently scheduled. */
     private fun releaseUnattemptedRecovery(capture: RecoveryCapture) = synchronized(lock) {
         val record = sessions[capture.sessionId]
@@ -790,10 +1042,39 @@ internal class RearSceneCoordinator(
         }
     }
 
+    private fun retainRecoveryUntilDisplayOn(capture: RecoveryCapture, wakeAttempted: Boolean): RecoveryCapture? =
+        synchronized(lock) {
+            val record = sessions[capture.sessionId]
+            if (record == null || record.closed || record.generation != capture.generation ||
+                record.recoveryToken != capture.token || !record.sceneRestorationEligible ||
+                record.pendingRecoveryFromScreenOff != capture.fromScreenOff ||
+                record.recoveryCauseSequence != capture.causeSequence ||
+                displayOwnershipEpoch() != capture.ownershipEpoch) return@synchronized null
+            if (capture.fromScreenOff) {
+                record.screenOffRecoveryScheduled = false
+                if (wakeAttempted) record.screenOffRecoveryAttempted = true
+            } else {
+                record.coverRecoveryScheduled = false
+                if (wakeAttempted) record.coverRecoveryAttempted = true
+            }
+            // If a real ON callback arrived after this capture began, it may have raced ahead
+            // of the backend's final OFF reply. Admit exactly one no-wake confirmation using
+            // that newer observation. A rejection with no newer ON remains parked, avoiding
+            // a stable-DOZE retry loop driven by Core's stale logical ON cache.
+            val lateOnObserved = record.rearPowerSignalSequence > capture.rearPowerSignalSequence &&
+                record.targetDisplayOn == true
+            record.awaitFreshRearOn = !lateOnObserved
+            logRecoveryEdge(capture, "awaiting_real_display_on", wakeAttempted, SceneError.DISPLAY_UNAVAILABLE)
+            if (lateOnObserved) resumePendingRecoveryLocked(capture.sessionId, record) else null
+        }
+
     private fun preserveDeferredRecovery(capture: RecoveryCapture, wakeAttempted: Boolean): RecoveryCapture? = synchronized(lock) {
         val record = sessions[capture.sessionId] ?: return@synchronized null
         if (record.closed || record.generation != capture.generation || record.recoveryToken != capture.token ||
-            !record.request.keepVisible || record.pendingRecoveryFromScreenOff != capture.fromScreenOff ||
+            !record.sceneRestorationEligible ||
+            (capture.needsWake && (!record.request.keepVisible || !record.keepVisibleRestorationEligible)) ||
+            record.pendingRecoveryFromScreenOff != capture.fromScreenOff ||
+            record.recoveryCauseSequence != capture.causeSequence ||
             displayOwnershipEpoch() != capture.ownershipEpoch) return@synchronized null
         if (capture.fromScreenOff) record.screenOffRecoveryScheduled = false else record.coverRecoveryScheduled = false
         if (wakeAttempted) {
@@ -807,8 +1088,19 @@ internal class RearSceneCoordinator(
     private fun clearPendingRecovery(capture: RecoveryCapture) = synchronized(lock) {
         val record = sessions[capture.sessionId] ?: return@synchronized
         if (record.generation != capture.generation || record.recoveryToken != capture.token) return@synchronized
-        if (record.pendingRecoveryFromScreenOff == capture.fromScreenOff) {
+        if (record.pendingRecoveryFromScreenOff == capture.fromScreenOff &&
+            record.recoveryCauseSequence == capture.causeSequence) {
             record.pendingRecoveryFromScreenOff = null
+            record.recoveryCauseSequence++
+            record.recoveryPresentationPhase = false
+            record.taskVisibilityRecheckPending = false
+            record.taskVisibilityRecheckSpent = false
+            record.screenOffRecoveryAttempted = false
+            record.coverRecoveryAttempted = false
+            record.awaitFreshRearOn = false
+            record.awaitSceneVisibleAfterPresentation = false
+            record.presentationAwaitVisibilitySequence = 0L
+            record.lastPresentationRetryVisibilitySequence = null
             if (capture.fromScreenOff) record.screenOffRecoveryScheduled = false else record.coverRecoveryScheduled = false
         }
     }
@@ -821,7 +1113,20 @@ internal class RearSceneCoordinator(
                 record.recoveryToken == capture.token) {
                 if (capture.fromScreenOff) record.screenOffRecoveryScheduled = false
                 else record.coverRecoveryScheduled = false
-                if (record.pendingRecoveryFromScreenOff == capture.fromScreenOff) record.pendingRecoveryFromScreenOff = null
+                if (record.pendingRecoveryFromScreenOff == capture.fromScreenOff &&
+                    record.recoveryCauseSequence == capture.causeSequence) {
+                    record.pendingRecoveryFromScreenOff = null
+                    record.recoveryCauseSequence++
+                    record.recoveryPresentationPhase = false
+                    record.taskVisibilityRecheckPending = false
+                    record.taskVisibilityRecheckSpent = false
+                    record.screenOffRecoveryAttempted = false
+                    record.coverRecoveryAttempted = false
+                    record.awaitFreshRearOn = false
+                    record.awaitSceneVisibleAfterPresentation = false
+                    record.presentationAwaitVisibilitySequence = 0L
+                    record.lastPresentationRetryVisibilitySequence = null
+                }
                 emit(capture.sessionId, record, SceneEvent.BackendLost)
             }
         }
@@ -829,9 +1134,16 @@ internal class RearSceneCoordinator(
 
     private fun logRecoveryEdge(capture: RecoveryCapture, phase: String, wakeAttempted: Boolean, error: SceneError?) {
         runCatching {
+            val state = synchronized(lock) {
+                sessions[capture.sessionId]?.takeIf { it.generation == capture.generation }?.let { record ->
+                    " targetOn=${record.targetDisplayOn} activityVisible=${record.activityVisible} " +
+                        "effectiveVisible=${record.visible} covered=${record.covered} " +
+                        "pending=${record.pendingRecoveryFromScreenOff}"
+                } ?: " state=stale"
+            }
             android.util.Log.i("RearSceneRecovery", "recovery phase=$phase cause=${if (capture.fromScreenOff) "screen_off" else "cover_far"} " +
                 "generation=${capture.generation} token=${capture.token} wakeAttempted=$wakeAttempted " +
-                "task=${capture.task.taskId} display=${capture.task.displayId} result=${error?.name ?: "pending"}")
+                "task=${capture.task.taskId} display=${capture.task.displayId} result=${error?.name ?: "pending"}$state")
         }
     }
 
@@ -860,6 +1172,10 @@ internal class RearSceneCoordinator(
         tickets.entries.removeAll { it.value.sessionId == id }
         return record
     }
+
+    /** Fast exact-object path keeps pure JVM fakes independent of Android's mocked equals(). */
+    private fun sameComponent(left: android.content.ComponentName, right: android.content.ComponentName): Boolean =
+        left === right || left == right
 
     private fun SceneRequest.derivedCapabilities(): Set<CapabilityRequirement> = buildSet {
         add(CapabilityRequirement("rear.scene", 1))

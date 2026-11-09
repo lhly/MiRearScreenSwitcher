@@ -11,6 +11,8 @@ import android.widget.TextView
 import dev.remrss.platform.sdk.RearDataField
 import dev.remrss.platform.sdk.RearDataSnapshot
 import dev.remrss.platform.sdk.RearDataValue
+import dev.remrss.platform.sdk.RearNotificationRequest
+import dev.remrss.platform.sdk.RearNotificationSubmitStatus
 import java.io.Closeable
 
 class MainActivity : Activity() {
@@ -48,6 +50,40 @@ class MainActivity : Activity() {
         layout.addView(Button(this).apply {
             text = "Check rear status"
             setOnClickListener { queryRearState() }
+        })
+        layout.addView(Button(this).apply {
+            text = "Choose rear notification access"
+            setOnClickListener {
+                sample.client.requestNotificationAuthorization(this@MainActivity) { result -> runOnUiThread {
+                    renderStatus(if (result.isSuccess) "Rear notification access screen opened" else "Notification consent failed: ${result.exceptionOrNull()?.message}")
+                } }
+            }
+        })
+        layout.addView(Button(this).apply {
+            text = "Publish or update rear notice"
+            setOnClickListener {
+                sample.client.publishNotification(RearNotificationRequest(
+                    id = "sample.rear-notice", title = "SDK sample", text = "Tap to update this notice",
+                    durationMs = 8_000L
+                )) { result -> runOnUiThread {
+                    result.fold({ outcome ->
+                        val message = when (outcome.status) {
+                            RearNotificationSubmitStatus.ACCEPTED -> "Notice accepted; waiting for real display result"
+                            RearNotificationSubmitStatus.SUPPRESSED -> "Notice suppressed: ${outcome.reason}"
+                            RearNotificationSubmitStatus.REJECTED -> "Notice rejected: ${outcome.reason}"
+                        }
+                        apiView.text = message
+                    }, { renderStatus("Notice failed: ${it.message}") })
+                } }
+            }
+        })
+        layout.addView(Button(this).apply {
+            text = "Cancel my rear notice"
+            setOnClickListener {
+                sample.client.cancelNotification("sample.rear-notice") { result -> runOnUiThread {
+                    result.fold({ apiView.text = "Cancel ${it.status}: ${it.reason ?: it.id}" }, { renderStatus("Cancel failed: ${it.message}") })
+                } }
+            }
         })
         layout.addView(Button(this).apply {
             text = "Choose battery data access"

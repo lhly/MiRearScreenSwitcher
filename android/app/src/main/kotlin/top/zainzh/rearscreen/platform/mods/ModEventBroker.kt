@@ -56,6 +56,29 @@ data class ModRegisteredActionEffect(
     override val requiresUserActivation: Boolean = true,
 ) : ModHostEffect
 
+data class ModNotificationPublishEffect(
+    override val id: String,
+    val notificationId: String,
+    val title: String,
+    val text: String,
+    val durationMs: Long,
+    val priority: String,
+    val privacy: String,
+    override val requiresUserActivation: Boolean = false,
+) : ModHostEffect
+
+data class ModNotificationCancelEffect(
+    override val id: String,
+    val notificationId: String,
+    override val requiresUserActivation: Boolean = false,
+) : ModHostEffect
+
+data class ModNotificationDeniedEffect(
+    override val id: String,
+    val reason: String,
+    override val requiresUserActivation: Boolean = false,
+) : ModHostEffect
+
 fun interface ModEffectDispatcher {
     fun requestRearScene(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect)
     fun requestRearSceneWithResult(mod: InstalledMod, eventId: String, effect: ModRearOpenEffect, complete: (Boolean, String?) -> Unit) {
@@ -92,8 +115,12 @@ internal class ModEffectChainBudget {
     private var hasEffects = false
     fun markEffectIssued() = synchronized(lock) { hasEffects = true }
     fun hasEffects(): Boolean = synchronized(lock) { hasEffects }
-    fun addResultEvent(): Boolean = synchronized(lock) {
-        if (eventCount >= MAX_EVENTS) false else { eventCount++; true }
+    fun reserveResultEvent(): ResultEventReservation = synchronized(lock) {
+        when {
+            cpuNanos > MAX_CPU_NANOS -> ResultEventReservation.CPU_LIMIT
+            eventCount >= MAX_EVENTS -> ResultEventReservation.EVENT_LIMIT
+            else -> { eventCount++; ResultEventReservation.ACCEPTED }
+        }
     }
     fun addCpu(nanos: Long): Boolean = synchronized(lock) {
         if (nanos > 0) cpuNanos = if (Long.MAX_VALUE - cpuNanos < nanos) Long.MAX_VALUE else cpuNanos + nanos
@@ -102,6 +129,8 @@ internal class ModEffectChainBudget {
     fun withinCpuBudget(): Boolean = synchronized(lock) { cpuNanos <= MAX_CPU_NANOS }
     companion object { const val MAX_EVENTS = 16; const val MAX_CPU_NANOS = 100_000_000L }
 }
+
+internal enum class ResultEventReservation { ACCEPTED, CPU_LIMIT, EVENT_LIMIT }
 
 internal class ModEffectRateLimiter(
     private val burst: Double = 16.0,
@@ -194,17 +223,34 @@ class ModEventBroker(
         var model: ModPersistedModel? = null,
         var scheduleLease: VisibleScheduleLease? = null,
         val scheduleSpecs: LinkedHashMap<String, ModVisibleScheduleEffect> = LinkedHashMap(),
-        val visibleObservers: MutableSet<ModBrokerListener> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap()),
+        // submitUserEvent reads this from a UI callback while broker visibility updates
+        // run on eventExecutor; preserve identity semantics and synchronize both paths.
+        val visibleObservers: MutableSet<ModBrokerListener> = java.util.Collections.synchronizedSet(
+            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<ModBrokerListener, Boolean>())
+        ),
         val effectRateLimiter: ModEffectRateLimiter = ModEffectRateLimiter(),
         var lastModelSnapshotElapsedMs: Long = 0L,
         var pendingModelSnapshot: Pair<String?, ModPersistedModel>? = null,
         var modelSnapshotTimer: Closeable? = null,
+        val notificationResultLock: Any = Any(),
+        var notificationSubmissionInProgress: Boolean = false,
+        val pendingNotificationResults: ArrayList<ModQueuedNotificationResult> = ArrayList(),
     ) {
         private val runtimeEpoch = ModRuntimeEpochGate(initialEpoch)
         val epoch: Long get() = runtimeEpoch.current
         fun advanceEpoch(value: Long) = runtimeEpoch.advance(value)
         fun acceptsEpoch(value: Long) = runtimeEpoch.accepts(value)
     }
+
+    private data class ModQueuedNotificationResult(
+        val slot: Slot,
+        val owner: top.zainzh.rearscreen.platform.notifications.NotificationOwner,
+        val ownerEpoch: Long,
+        val effectChain: ModEffectChainBudget,
+        val effectId: String,
+        val requestEventId: String,
+        val event: top.zainzh.rearscreen.platform.notifications.NotificationEvent,
+    )
 
     /** Activate a package for a visible host scene. `init` runs only if the durable state is absent. */
     fun open(modId: String, listenerExecutor: Executor, listener: ModBrokerListener, visible: Boolean = false) {
@@ -379,14 +425,14 @@ class ModEventBroker(
     /** Ordered UI business event; rejected at 32 pending inputs rather than silently coalesced. */
     fun submitEvent(modId: String, type: String, payload: JSONObject = JSONObject()): Boolean {
         val slot = slots[modId] ?: return false
-        if (type.isBlank() || type == HOST_CONFIG_CHANGED_EVENT || payload.toString().toByteArray(Charsets.UTF_8).size > 16 * 1024) return false
+        if (type.isBlank() || type in HOST_ONLY_EVENTS || payload.toString().toByteArray(Charsets.UTF_8).size > 16 * 1024) return false
         return enqueue(slot, ModBrokerCommand.Event(UUID.randomUUID().toString(), type, JSONObject(payload.toString())))
     }
 
     /** Only native Activity click handlers call this; activation stays on the host-side command. */
     fun submitUserEvent(modId: String, type: String, payload: JSONObject = JSONObject()): Boolean {
         val slot = slots[modId] ?: return false
-        if (slot.visibleObservers.isEmpty() || type.isBlank() || type == HOST_CONFIG_CHANGED_EVENT || payload.toString().toByteArray(Charsets.UTF_8).size > 16 * 1024) return false
+        if (slot.visibleObservers.isEmpty() || type.isBlank() || type in HOST_ONLY_EVENTS || payload.toString().toByteArray(Charsets.UTF_8).size > 16 * 1024) return false
         val eventId = UUID.randomUUID().toString()
         val gesture = ModUserGesture(modId, slot.epoch, SystemClock.elapsedRealtime())
         return enqueue(slot, ModBrokerCommand.Event(eventId, type, JSONObject(payload.toString()), gesture))
@@ -802,8 +848,71 @@ class ModEventBroker(
                 }
                 ModRegisteredActionEffect("${slot.epoch}:${UUID.randomUUID()}", ref)
             }
+            "rear.notification.publish", "rear.notification.cancel" -> parseNotificationEffect(slot, value, type)
             else -> throw IllegalArgumentException("不支持的 Mod Effect：$type")
         }
+    }
+
+    private fun parseNotificationEffect(slot: Slot, value: JSONObject, type: String): ModHostEffect {
+        val declared = (slot.pkg.requiredCapabilities + slot.pkg.optionalCapabilities).any { it.name == "rear.notification" }
+        val granted = "rear.notification" in slot.mod.grantedCapabilities
+        val fields = value.keys().asSequence().toSet()
+        val publish = type == "rear.notification.publish"
+        val allowed = if (publish) setOf("type", "id", "notificationId", "title", "text", "durationMs", "priority", "privacy")
+            else setOf("type", "id", "notificationId")
+        require(fields.all { it in allowed } && fields.containsAll(if (publish) setOf("type", "notificationId", "title") else setOf("type", "notificationId"))) {
+            "rear.notification 字段无效"
+        }
+        val id = if (value.has("id")) {
+            val supplied = value.get("id")
+            require(supplied is String && supplied.matches(Regex("[A-Za-z0-9_.-]{1,64}"))) { "Effect id 无效" }
+            supplied
+        } else UUID.randomUUID().toString()
+        val rawNotificationId = value.get("notificationId")
+        require(rawNotificationId is String) { "notificationId 必须为字符串" }
+        val notificationId = rawNotificationId
+        require(notificationId.matches(Regex("[A-Za-z0-9._:-]{1,64}"))) { "notificationId 无效" }
+        if (!publish) return if (declared && granted) ModNotificationCancelEffect(id, notificationId)
+            else ModNotificationDeniedEffect(id, "E_CAPABILITY_DENIED")
+
+        fun boundedPlainText(field: String, maxCodePoints: Int, allowNewline: Boolean): String {
+            val raw = if (value.has(field)) value.get(field) else ""
+            require(raw is String) { "$field 必须为字符串" }
+            val text = raw
+            val count = text.codePointCount(0, text.length)
+            require(count <= maxCodePoints && (field != "title" || count >= 1)) { "$field 长度无效" }
+            var index = 0
+            while (index < text.length) {
+                val character = text[index]
+                if (Character.isHighSurrogate(character)) {
+                    require(index + 1 < text.length && Character.isLowSurrogate(text[index + 1])) { "$field Unicode 无效" }
+                    index += 2
+                } else {
+                    require(!Character.isLowSurrogate(character)) { "$field Unicode 无效" }
+                    index++
+                }
+            }
+            require(text.none { Character.isISOControl(it) && !(allowNewline && it == '\n') }) { "$field 含控制字符" }
+            return text
+        }
+        val title = boundedPlainText("title", 80, false)
+        val text = boundedPlainText("text", 240, true)
+        val durationMs = if (value.has("durationMs")) {
+            val raw = value.get("durationMs")
+            require(raw is Number && raw.toDouble().isFinite() && raw.toDouble() % 1.0 == 0.0 && raw.toLong() in 1_000L..15_000L) {
+                "durationMs 应为 1000..15000 的整数"
+            }
+            raw.toLong()
+        } else 8_000L
+        val priority = if (value.has("priority")) value.get("priority") else "NORMAL"
+        require(priority is String) { "priority 必须为字符串" }
+        require(priority in setOf("LOW", "NORMAL", "HIGH")) { "priority 无效" }
+        val privacy = if (value.has("privacy")) value.get("privacy") else "STANDARD"
+        require(privacy is String) { "privacy 必须为字符串" }
+        require(privacy in setOf("STANDARD", "HIDE_TITLE", "HIDE_TEXT")) { "privacy 无效" }
+        require(value.toString().toByteArray(Charsets.UTF_8).size <= 2 * 1024) { "通知 Effect 超过 2 KiB" }
+        return if (declared && granted) ModNotificationPublishEffect(id, notificationId, title, text, durationMs, priority, privacy)
+            else ModNotificationDeniedEffect(id, "E_CAPABILITY_DENIED")
     }
 
     private fun dispatchEffect(
@@ -816,13 +925,16 @@ class ModEventBroker(
         val completed = AtomicInteger(0)
         fun complete(status: String, code: String? = null) {
             if (!completed.compareAndSet(0, 1)) return
-            if (!effectChain.withinCpuBudget()) {
-                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_CPU_LIMIT", "Effect 因果链累计 CPU 超过 100 ms") }
-                return
-            }
-            if (!effectChain.addResultEvent()) {
-                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_LIMIT", "Effect 因果链超过 16 个事件") }
-                return
+            when (effectChain.reserveResultEvent()) {
+                ResultEventReservation.CPU_LIMIT -> {
+                    notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_CPU_LIMIT", "Effect 因果链累计 CPU 超过 100 ms") }
+                    return
+                }
+                ResultEventReservation.EVENT_LIMIT -> {
+                    notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_LIMIT", "Effect 因果链超过 16 个事件") }
+                    return
+                }
+                ResultEventReservation.ACCEPTED -> Unit
             }
             val payload = JSONObject().put("effectId", effect.id).put("requestEventId", eventId).put("status", status)
             if (code != null) payload.put("code", code)
@@ -878,6 +990,121 @@ class ModEventBroker(
                     complete("rejected", detail ?: "E_ACTION_INVOKE")
                 }
             }
+            is ModNotificationPublishEffect -> {
+                synchronized(slot.notificationResultLock) { slot.notificationSubmissionInProgress = true }
+                try {
+                    val result = runCatching {
+                        val core = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext)
+                        val installed = ModPackageStore.installed(appContext, slot.mod.id, testStoreStorage)
+                            ?: throw SecurityException("E_MOD_REVOKED")
+                        require(installed.enabled && installed.authorFingerprint == slot.pkg.authorFingerprint) { "E_MOD_REVOKED" }
+                        require("rear.notification" in installed.grantedCapabilities &&
+                            (installed.requiredCapabilities + installed.optionalCapabilities).any { it.name == "rear.notification" }) { "E_CAPABILITY_DENIED" }
+                        val owner = core.modNotificationOwner(slot.mod.id) ?: throw SecurityException("E_MOD_REVOKED")
+                        val ownerEpoch = slot.epoch
+                        val request = top.zainzh.rearscreen.platform.notifications.NotificationRequest(
+                            effect.notificationId, effect.title, effect.text, effect.durationMs,
+                            top.zainzh.rearscreen.platform.notifications.NotificationPriority.valueOf(effect.priority),
+                            top.zainzh.rearscreen.platform.notifications.NotificationPrivacy.valueOf(effect.privacy),
+                        )
+                        core.ownedNotifications.publish(owner, request,
+                            top.zainzh.rearscreen.platform.notifications.NotificationObserver { event ->
+                                deliverHostNotificationResult(slot, owner, ownerEpoch, effectChain, effect.id, eventId, event)
+                            })
+                    }
+                    result.onSuccess { complete(it.status.name.lowercase(java.util.Locale.ROOT), it.reason) }
+                        .onFailure { failure ->
+                            val code = failure.message?.takeIf { it == "E_MOD_REVOKED" || it == "E_CAPABILITY_DENIED" }
+                            complete("rejected", code ?: "E_NOTIFICATION_PUBLISH")
+                        }
+                } finally {
+                    finishNotificationSubmission(slot)
+                }
+            }
+            is ModNotificationDeniedEffect -> complete("rejected", effect.reason)
+            is ModNotificationCancelEffect -> {
+                synchronized(slot.notificationResultLock) { slot.notificationSubmissionInProgress = true }
+                try {
+                    val result = runCatching {
+                        val core = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext)
+                        val installed = ModPackageStore.installed(appContext, slot.mod.id, testStoreStorage)
+                            ?: throw SecurityException("E_MOD_REVOKED")
+                        require(installed.enabled && installed.authorFingerprint == slot.pkg.authorFingerprint) { "E_MOD_REVOKED" }
+                        require("rear.notification" in installed.grantedCapabilities &&
+                            (installed.requiredCapabilities + installed.optionalCapabilities).any { it.name == "rear.notification" }) { "E_CAPABILITY_DENIED" }
+                        val owner = core.modNotificationOwner(slot.mod.id) ?: throw SecurityException("E_MOD_REVOKED")
+                        core.ownedNotifications.cancel(owner, effect.notificationId,
+                            top.zainzh.rearscreen.platform.notifications.NotificationEndReason.CANCELLED)
+                    }
+                    result.onSuccess { complete(it.status.name.lowercase(java.util.Locale.ROOT), it.reason) }
+                        .onFailure { failure ->
+                            val code = failure.message?.takeIf { it == "E_MOD_REVOKED" || it == "E_CAPABILITY_DENIED" }
+                            complete("rejected", code ?: "E_NOTIFICATION_CANCEL")
+                        }
+                } finally {
+                    finishNotificationSubmission(slot)
+                }
+            }
+        }
+    }
+
+    private fun deliverHostNotificationResult(
+        slot: Slot,
+        owner: top.zainzh.rearscreen.platform.notifications.NotificationOwner,
+        ownerEpoch: Long,
+        effectChain: ModEffectChainBudget,
+        effectId: String,
+        requestEventId: String,
+        event: top.zainzh.rearscreen.platform.notifications.NotificationEvent,
+    ) {
+        if (slots[slot.mod.id] !== slot || !slot.acceptsEpoch(ownerEpoch) || slot.failed) return
+        val currentOwner = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).modNotificationOwner(slot.mod.id)
+        if (currentOwner == null || currentOwner.generation != owner.generation || currentOwner.namespace != owner.namespace) return
+        // Only the host callback can enter this reserved event. Never invoke QuickJS from the router callback thread.
+        val queued = ModQueuedNotificationResult(slot, owner, ownerEpoch, effectChain, effectId, requestEventId, event)
+        synchronized(slot.notificationResultLock) {
+            if (slot.notificationSubmissionInProgress) {
+                slot.pendingNotificationResults.add(queued)
+                return
+            }
+        }
+        enqueueHostNotificationResult(queued)
+    }
+
+    private fun finishNotificationSubmission(slot: Slot) {
+        val queued = synchronized(slot.notificationResultLock) {
+            slot.notificationSubmissionInProgress = false
+            slot.pendingNotificationResults.toList().also { slot.pendingNotificationResults.clear() }
+        }
+        queued.forEach(::enqueueHostNotificationResult)
+    }
+
+    private fun enqueueHostNotificationResult(queued: ModQueuedNotificationResult) {
+        val slot = queued.slot
+        if (slots[slot.mod.id] !== slot || !slot.acceptsEpoch(queued.ownerEpoch) || slot.failed) return
+        if (slot.paused || slot.closeWhenIdle || slot.teardownStarted) return
+        val currentOwner = top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).modNotificationOwner(slot.mod.id)
+        if (currentOwner == null || currentOwner.generation != queued.owner.generation || currentOwner.namespace != queued.owner.namespace) return
+        when (queued.effectChain.reserveResultEvent()) {
+            ResultEventReservation.CPU_LIMIT -> {
+                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_CPU_LIMIT", "Effect 因果链累计 CPU 超过 100 ms") }
+                return
+            }
+            ResultEventReservation.EVENT_LIMIT -> {
+                notifyObservers(slot) { it.onError(slot.mod.id, "E_EFFECT_CHAIN_LIMIT", "Effect 因果链超过 16 个事件") }
+                return
+            }
+            ResultEventReservation.ACCEPTED -> Unit
+        }
+        val payload = JSONObject()
+            .put("effectId", queued.effectId)
+            .put("requestEventId", queued.requestEventId)
+            .put("notificationId", queued.event.id)
+            .put("status", queued.event.status.name)
+        queued.event.reason?.let { payload.put("reason", it) }
+        queued.event.endedBy?.let { payload.put("endedBy", it.name) }
+        if (!enqueue(slot, ModBrokerCommand.Event(UUID.randomUUID().toString(), HOST_NOTIFICATION_RESULT_EVENT, payload, effectChain = queued.effectChain))) {
+            notifyObservers(slot) { it.onError(slot.mod.id, "E_NOTIFICATION_RESULT_QUEUE", "通知异步结果事件队列已满") }
         }
     }
 
@@ -964,6 +1191,8 @@ class ModEventBroker(
     private fun failSlot(slot: Slot, code: String, message: String) {
         if (slot.failed) return
         closeScheduleLease(slot)
+        // The centralized Mod teardown also closes this Mod's notification owner.
+        runCatching { top.zainzh.rearscreen.platform.RearCapabilityCore.get(appContext).closeModDataSessionsForMod(slot.mod.id) }
         slot.failed = true; slot.ready = false; slot.runtime?.let(::closeRuntimeAsync); slot.runtime = null
         slots.remove(slot.mod.id, slot)
         completeRecoveredConfigFailure(slot, "$code: $message")
@@ -1104,6 +1333,8 @@ class ModEventBroker(
     companion object {
         /** Reserved host-origin event; authors receive it only after an explicit Save. */
         const val HOST_CONFIG_CHANGED_EVENT = "host.configChanged"
+        const val HOST_NOTIFICATION_RESULT_EVENT = "host.notificationResult"
+        private val HOST_ONLY_EVENTS = setOf(HOST_CONFIG_CHANGED_EVENT, HOST_NOTIFICATION_RESULT_EVENT)
         const val HOST_SCHEDULE_TICK_EVENT = "host.schedule.tick"
         const val HOST_EFFECT_RESULT_EVENT = "host.effectResult"
         const val MODEL_SNAPSHOT_INTERVAL_MS = 100L

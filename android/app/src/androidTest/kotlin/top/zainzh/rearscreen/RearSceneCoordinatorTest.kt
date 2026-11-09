@@ -1292,16 +1292,19 @@ class RearSceneCoordinatorTest {
             owner: SessionOwner,
             request: SceneRequest,
             task: LaunchedScene,
+            cachedRearOn: Boolean?,
             isCurrent: () -> Boolean,
-            onWakeAttempt: () -> SceneRecoveryWakeDecision
+            onWakeAttempt: (Boolean?) -> SceneRecoveryWakeDecision
         ): SceneRecoveryResult {
             recoveryInvocationCount++
             try {
                 if (!isCurrent()) return SceneRecoveryResult(SceneError.STALE_SESSION)
                 beforeRecoveryInspection()
                 if (!isCurrent()) return SceneRecoveryResult(SceneError.STALE_SESSION)
-                val wakeDecision = onWakeAttempt()
+                val wakeDecision = onWakeAttempt(rearDisplayOn)
                 if (wakeDecision == SceneRecoveryWakeDecision.STALE) return SceneRecoveryResult(SceneError.STALE_SESSION)
+                if (wakeDecision == SceneRecoveryWakeDecision.WAIT_FOR_DISPLAY)
+                    return SceneRecoveryResult(SceneError.DISPLAY_UNAVAILABLE, awaitDisplayOn = true)
                 recoveryCount++
                 if (wakeDecision == SceneRecoveryWakeDecision.CLAIMED) {
                     wakeCount++

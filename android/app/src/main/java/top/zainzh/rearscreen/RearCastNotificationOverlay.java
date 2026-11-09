@@ -34,6 +34,11 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
     private final TouchRegion touchRegion;
     private String pendingRegion, readyRegion;
     private int originX, originY;
+    private int hostGeneration;
+    private long drawToken = Long.MIN_VALUE;
+    private long drawReportedToken = Long.MIN_VALUE;
+    private android.view.ViewTreeObserver drawObserver;
+    private android.view.ViewTreeObserver.OnDrawListener drawListener;
     private final Runnable render = this::update;
     private final Runnable expire = this::update;
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
@@ -84,10 +89,14 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
 
     void offer(RearCastNotification.Message next) {
         if (closed || next.remaining(SystemClock.elapsedRealtime()) == 0) return;
+        if (message == null || message.token != next.token) {
+            clearDrawListener();
+            drawReportedToken = Long.MIN_VALUE;
+        }
         message = next;
         expiresAt = next.expiresAt;
         AccessibilityManager accessibility = getContext().getSystemService(AccessibilityManager.class);
-        if (accessibility != null) {
+        if (accessibility != null && !next.isOwned()) {
             int remaining = (int) next.remaining(SystemClock.elapsedRealtime());
             expiresAt = SystemClock.elapsedRealtime() + accessibility.getRecommendedTimeoutMillis(remaining,
                     AccessibilityManager.FLAG_CONTENT_TEXT | AccessibilityManager.FLAG_CONTENT_ICONS);
@@ -113,8 +122,14 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
         update();
     }
 
-    void hostState(RearCastViewport safe, int originX, int originY, boolean ready) {
+    void hostState(RearCastViewport safe, int originX, int originY, boolean ready, int generation) {
         if (closed) return;
+        if (hostGeneration != generation) {
+            clearDrawListener();
+            pendingRegion = readyRegion = null;
+            if (touchRegion != null) touchRegion.update(0, 0, 0, 0, 0);
+            hostGeneration = generation;
+        }
         this.originX = originX; this.originY = originY;
         available = ready && safe != null;
         if (safe != null) {
@@ -128,6 +143,11 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
                 setLayoutParams(bounds);
         }
         update();
+    }
+
+    /** Compatibility for the legacy package-local test/host entry; generation still advances. */
+    void hostState(RearCastViewport safe, int originX, int originY, boolean ready) {
+        hostState(safe, originX, originY, ready, hostGeneration + 1);
     }
 
     void applyTheme() {
@@ -148,8 +168,12 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
         Display display = getContext().getDisplay();
         boolean visible = available && remaining > 0 && display != null && display.getState() == Display.STATE_ON;
         main.removeCallbacks(expire);
-        if (remaining == 0) { message = null; setContentDescription(null); }
-        else main.postDelayed(expire, remaining);
+        if (remaining == 0) {
+            RearCastNotification.Message expired = message;
+            message = null; setContentDescription(null);
+            if (expired != null) expired.end("TIMEOUT");
+            if (expired != null) RearCastNotification.overlayEnded(expired.token, "TIMEOUT");
+        } else main.postDelayed(expire, remaining);
         if (!visible) {
             if (remaining > 0 || !available || getVisibility() != VISIBLE || !ValueAnimator.areAnimatorsEnabled()) {
                 hideImmediately(); return;
@@ -185,9 +209,62 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
             animate().alpha(1f).translationY(0f).setDuration(180)
                     .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         else { setAlpha(1f); setTranslationY(0f); }
+        if (message.isOwned()) observeOwnedDraw(message.token, hostGeneration, region);
+    }
+
+    private void observeOwnedDraw(long token, int expectedHostGeneration, String expectedRegion) {
+        if (closed || drawReportedToken == token || drawToken == token) return;
+        android.view.ViewTreeObserver observer = getViewTreeObserver();
+        if (!observer.isAlive()) return;
+        drawToken = token;
+        drawObserver = observer;
+        android.view.ViewTreeObserver.OnDrawListener[] once = new android.view.ViewTreeObserver.OnDrawListener[1];
+        once[0] = () -> {
+            if (drawToken != token) return;
+            Runnable afterDraw = () -> {
+                // Detach only after this draw has returned; ViewTreeObserver rejects mutation in onDraw.
+                if (drawObserver == observer && drawListener == once[0]) {
+                    if (observer.isAlive()) observer.removeOnDrawListener(once[0]);
+                    drawObserver = null;
+                    drawListener = null;
+                    drawToken = Long.MIN_VALUE;
+                }
+                if (!hasValidOwnedDrawEvidence(token, expectedHostGeneration, expectedRegion)) return;
+                drawReportedToken = token;
+                RearCastNotification.markDisplayed(token);
+            };
+            if (!post(afterDraw)) main.post(afterDraw);
+        };
+        drawListener = once[0];
+        observer.addOnDrawListener(drawListener);
+        invalidate();
+    }
+
+    private boolean hasValidOwnedDrawEvidence(long token, int expectedHostGeneration, String expectedRegion) {
+        Display display = getContext().getDisplay();
+        int left = getLeft() + originX, top = getTop() + originY;
+        int right = getRight() + originX, bottom = getBottom() + originY;
+        String currentRegion = message == null ? null : key(message.token, left, top, right, bottom);
+        boolean tokenCurrent = message != null && message.token == token && RearCastNotification.isCurrentOwnedToken(token);
+        boolean regionCurrent = pendingRegion != null && pendingRegion.equals(expectedRegion) && readyRegion != null &&
+                readyRegion.equals(expectedRegion) && expectedRegion.equals(currentRegion);
+        boolean rearOn = display != null && display.isValid() && display.getState() == Display.STATE_ON &&
+                RearDisplay.isRear(display.getDisplayId());
+        return OwnedNotificationDrawEvidence.qualifies(tokenCurrent, hostGeneration == expectedHostGeneration,
+                !closed && available, rearOn, regionCurrent,
+                isLaidOut() && getWidth() > 0 && getHeight() > 0, isAttachedToWindow(),
+                getVisibility() == VISIBLE && isShown() && getAlpha() > 0f, getWindowVisibility() == View.VISIBLE);
+    }
+
+    private void clearDrawListener() {
+        android.view.ViewTreeObserver observer = drawObserver;
+        android.view.ViewTreeObserver.OnDrawListener listener = drawListener;
+        drawObserver = null; drawListener = null; drawToken = Long.MIN_VALUE;
+        if (observer != null && observer.isAlive() && listener != null) observer.removeOnDrawListener(listener);
     }
 
     private void hideImmediately() {
+        clearDrawListener();
         animate().cancel(); exiting = false; setVisibility(GONE); setAlpha(1f); setTranslationY(0f);
         if (pendingRegion != null) {
             pendingRegion = readyRegion = null;
@@ -207,9 +284,13 @@ final class RearCastNotificationOverlay extends FrameLayout implements AutoClose
         if (!success) { dismiss(token); return; }
         readyRegion = region; update();
     }
-    void dismiss(long token) {
+    void dismiss(long token) { dismiss(token, "CANCELLED"); }
+    void dismiss(long token, String reason) {
         if (closed || message == null || message.token != token) return;
+        RearCastNotification.Message old = message;
         message = null; main.removeCallbacks(expire); hideImmediately();
+        old.end(reason);
+        RearCastNotification.overlayEnded(token, reason);
     }
     void dismissCharging() { if (message != null && message.charging) dismiss(message.token); }
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {

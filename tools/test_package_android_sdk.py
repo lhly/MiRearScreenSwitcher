@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 from pathlib import Path
 
@@ -22,10 +23,10 @@ class PackageAndroidSdkTests(unittest.TestCase):
         self.output_parent.mkdir()
         (self.root / pkg.SDK_VERSION_FILE).parent.mkdir(parents=True)
         (self.root / pkg.SDK_VERSION_FILE).write_text("sdkVersion=0.9.7\n", encoding="utf-8")
-        (self.root / pkg.HOST_VERSION_FILE).write_text("versionName=4.0.0-rc.3\nversionCode=2024\n", encoding="utf-8")
+        (self.root / pkg.HOST_VERSION_FILE).write_text("versionName=4.0.0-rc.4\nversionCode=2025\n", encoding="utf-8")
         service = self.root / pkg.HOST_SERVICE_SOURCE
         service.parent.mkdir(parents=True)
-        service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 57;\n", encoding="utf-8")
+        service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 59;\n", encoding="utf-8")
         build = self.root / pkg.SDK_BUILD_FILE
         build.parent.mkdir(parents=True, exist_ok=True)
         build.write_text("defaultConfig { minSdk = 24 }\n", encoding="utf-8")
@@ -74,18 +75,37 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
             archive.writestr("classes.jar", classes.getvalue())
             archive.writestr("META-INF/com/android/build/gradle/aar-metadata.properties", "minCompileSdk=37\n")
         self.sample_apk = Path(self.temp.name) / "sample-debug.apk"
-        with zipfile.ZipFile(self.sample_apk, "w") as archive:
-            archive.writestr("AndroidManifest.xml", b"manifest")
-            archive.writestr("classes.dex", b"dex")
+        self._write_sample_apk("dev.remrss.sample.consumer")
+        self.aapt = Path(self.temp.name) / "aapt"
+        self.aapt.write_text("""#!/usr/bin/env python3
+import re, sys, zipfile
+with zipfile.ZipFile(sys.argv[-1]) as apk:
+    manifest = apk.read('AndroidManifest.xml').decode('utf-8')
+match = re.search(r'package=\"([^\"]+)\"', manifest)
+if not match:
+    raise SystemExit('manifest package missing')
+print(f"package: name='{match.group(1)}' versionCode='1' versionName='1.0'")
+""", encoding="utf-8")
+        self.aapt.chmod(0o755)
+        self.find_aapt_patcher = mock.patch.object(pkg, "find_aapt", return_value=self.aapt)
+        self.find_aapt_patcher.start()
 
     def tearDown(self):
+        self.find_aapt_patcher.stop()
         self.temp.cleanup()
+
+    def _write_sample_apk(self, application_id):
+        with zipfile.ZipFile(self.sample_apk, "w") as archive:
+            archive.writestr("AndroidManifest.xml", f'<manifest package="{application_id}" />'.encode())
+            archive.writestr("classes.dex", b"dex")
 
     def test_exports_only_standalone_sample_inputs_and_metadata(self):
         output = self.output_parent / "bundle"
         bundle, archive, metadata = pkg.package(self.root, self.aar, self.sample_apk, output)
         self.assertEqual(metadata["sdk"]["version"], "0.9.7")
-        self.assertEqual(metadata["referenceHost"]["versionCode"], 2024)
+        self.assertEqual(metadata["referenceHost"]["versionName"], "4.0.0-rc.4")
+        self.assertEqual(metadata["referenceHost"]["versionCode"], 2025)
+        self.assertEqual(metadata["referenceHost"]["internalServiceContract"], 59)
         self.assertEqual(metadata["hostBuild"]["debugCompilation"], "not-recorded")
         self.assertEqual(metadata["hostBuild"]["releaseCompilation"], "not-recorded")
         self.assertEqual(metadata["hostBuild"]["debugAndReleaseCompilation"], "not-recorded")
@@ -93,6 +113,8 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
 
         self.assertEqual(metadata["hostSdkInteroperability"]["status"], "not-verified")
         self.assertEqual(metadata["sample"]["applicationId"], "dev.remrss.sample.consumer")
+        self.assertEqual(metadata["sample"]["apkApplicationId"], "dev.remrss.sample.consumer")
+        self.assertTrue(metadata["sample"]["applicationIdVerified"])
         self.assertIn("Kotlin standard library", metadata["sdk"]["runtimeDependencies"])
         self.assertNotIn("AIDL (Android build tooling)", metadata["sdk"]["runtimeDependencies"])
         self.assertEqual(metadata["sdk"]["testedToolchain"]["kotlinGradlePlugin"], "2.4.20")
@@ -103,6 +125,7 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
             {"name": "data.battery", "version": 1},
             {"name": "data.systemMetrics", "version": 1},
             {"name": "action.invoke", "version": 1},
+            {"name": "rear.notification", "version": 1},
         ])
         self.assertFalse(metadata["sample"]["hostSigningRequired"])
         self.assertTrue((bundle / "sample/app/src/main/AndroidManifest.xml").is_file())
@@ -120,6 +143,30 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
         with zipfile.ZipFile(archive) as zf:
             self.assertIn("bundle/delivery.json", zf.namelist())
             self.assertNotIn("bundle/.planning/findings.md", zf.namelist())
+
+    def test_accepts_apk_whose_official_badging_identity_matches_standalone_consumer(self):
+        self._write_sample_apk("dev.remrss.sample.consumer")
+        _, _, metadata = pkg.package(
+            self.root, self.aar, self.sample_apk, self.output_parent / "matching-consumer"
+        )
+        self.assertEqual(metadata["sample"]["applicationId"], "dev.remrss.sample.consumer")
+        self.assertEqual(metadata["sample"]["apkApplicationId"], "dev.remrss.sample.consumer")
+        self.assertTrue(metadata["sample"]["applicationIdVerified"])
+
+    def test_rejects_module_sample_apk_when_it_is_not_the_standalone_consumer(self):
+        self._write_sample_apk("dev.remrss.sample")
+        output = self.output_parent / "module-apk"
+        with self.assertRaisesRegex(
+            pkg.PackageError,
+            "standalone consumer declares dev.remrss.sample.consumer, but APK metadata reports dev.remrss.sample",
+        ):
+            pkg.package(self.root, self.aar, self.sample_apk, output)
+        self.assertFalse(output.exists())
+
+    def test_accepts_root_rc4_delivery_destination(self):
+        output = self.root / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/delivery/bundle"
+        bundle, _, _ = pkg.package(self.root, self.aar, self.sample_apk, output)
+        self.assertTrue((bundle / "delivery.json").is_file())
 
     def test_debug_host_apk_metadata_records_actual_variant(self):
         _, _, metadata = pkg.package(
@@ -189,12 +236,20 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
     def test_rejects_wrong_tested_host_before_writing_output(self):
         (self.root / pkg.HOST_VERSION_FILE).write_text("versionName=4.0.0-rc.2\nversionCode=2023\n", encoding="utf-8")
         output = self.output_parent / "bundle"
-        with self.assertRaisesRegex(pkg.PackageError, "expected tested Host"):
+        with self.assertRaisesRegex(pkg.PackageError, "expected RC4 Host"):
             pkg.package(self.root, self.aar, self.sample_apk, output)
         self.assertFalse(output.exists())
 
+    def test_rejects_stale_internal_service_contract_before_writing_output(self):
+        service = self.root / pkg.HOST_SERVICE_SOURCE
+        service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 58;\n", encoding="utf-8")
+        output = self.output_parent / "stale-service"
+        with self.assertRaisesRegex(pkg.PackageError, "RC4 SDK reference metadata must match internal service contract 59"):
+            pkg.package(self.root, self.aar, self.sample_apk, output, host_service=58)
+        self.assertFalse(output.exists())
+
     def test_rejects_repo_output_outside_ignored_delivery_tree(self):
-        with self.assertRaisesRegex(pkg.PackageError, "ignored RC3 delivery"):
+        with self.assertRaisesRegex(pkg.PackageError, "ignored RC4 delivery"):
             pkg._prepare_destination(self.root / "dist/sdk", self.root)
 
     def test_refuses_unmanaged_existing_output(self):

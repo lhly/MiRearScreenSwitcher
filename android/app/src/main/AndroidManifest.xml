@@ -180,6 +180,7 @@
 
         <activity android:name=".SceneActivationConfirmationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".DataAccessConfirmationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
+        <activity android:name=".NotificationAccessConfirmationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".platform.actions.RegisteredActionsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".platform.actions.RegisteredActionInvocationActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />
         <activity android:name=".RearPluginsActivity" android:exported="false" android:theme="@style/MiuixHostTheme" />

@@ -10,6 +10,7 @@ final class SceneTaskPresentationFlow {
     interface RearHome { boolean accepts(String component); }
     interface ActionGate { ActionGateResult check(); }
     interface RemoteActionGate { boolean isCurrent() throws RemoteException; }
+    interface SuccessValidator { String validate(Result result); }
     enum ActionGateResult { ALLOWED, CANCELLED, UNAVAILABLE }
 
     static final class FocusResult {
@@ -63,6 +64,17 @@ final class SceneTaskPresentationFlow {
 
     static Result present(int taskId, String component, int displayId, TaskSnapshots snapshots,
                           TaskFocus focus, RearHome rearHome, ActionGate actionGate) {
+        return present(taskId, component, displayId, snapshots, focus, rearHome, actionGate, result -> null);
+    }
+
+    /**
+     * Rechecks an external success authority after all potentially slow task reads/focus effects.
+     * The validator is only used for Scene recovery; ordinary presentation callers keep their
+     * existing task-only contract.
+     */
+    static Result present(int taskId, String component, int displayId, TaskSnapshots snapshots,
+                          TaskFocus focus, RearHome rearHome, ActionGate actionGate,
+                          SuccessValidator successValidator) {
         SceneTaskLaunchFlow.TaskSnapshot before = snapshots.read();
         if (before == null || before.failure != null)
             return result("snapshot_unavailable", before == null ? "unknown" : before.source, taskId, displayId, null, null, -1);
@@ -80,8 +92,8 @@ final class SceneTaskPresentationFlow {
                 initial.actual.baseComponent, visible.isEmpty() ? null : visible.get(0).topComponent, -1);
         SceneTaskIdentity.Record visibleTop = visible.get(0);
         if (visibleTop.taskId == taskId && isOwnedPackageTop(component, visibleTop.topComponent))
-            return result("already_scene_visible", before.source, taskId, displayId,
-                    initial.actual.baseComponent, visibleTop.topComponent, 0);
+            return validateSuccess(result("already_scene_visible", before.source, taskId, displayId,
+                    initial.actual.baseComponent, visibleTop.topComponent, 0), successValidator);
         if (visibleTop.topComponent == null) return result("top_unavailable", before.source, taskId, displayId,
                 initial.actual.baseComponent, null, -1);
         if (!rearHome.accepts(visibleTop.topComponent)) return result("unrelated_top_preserved", before.source, taskId, displayId,
@@ -111,8 +123,17 @@ final class SceneTaskPresentationFlow {
                 !isOwnedPackageTop(component, verified.actual.topComponent))
             return result("scene_not_visible_after_focus", after.source, taskId, displayId,
                     verified.actual.baseComponent, visibleAfter == null || visibleAfter.isEmpty() ? verified.actual.topComponent : visibleAfter.get(0).topComponent, command.exitCode);
-        return result("scene_task_presented", after.source, taskId, displayId,
-                verified.actual.baseComponent, verified.actual.topComponent, command.exitCode);
+        return validateSuccess(result("scene_task_presented", after.source, taskId, displayId,
+                verified.actual.baseComponent, verified.actual.topComponent, command.exitCode), successValidator);
+    }
+
+    private static Result validateSuccess(Result success, SuccessValidator validator) {
+        if (validator == null) return result("success_authority_unavailable", success.source,
+                success.taskId, success.displayId, success.baseComponent, success.topComponent,
+                success.commandExitCode);
+        String rejection = validator.validate(success);
+        return rejection == null ? success : result(rejection, success.source, success.taskId,
+                success.displayId, success.baseComponent, success.topComponent, success.commandExitCode);
     }
 
     /** Maps Binder staleness separately from transport failure; only staleness is retryable by the coordinator. */

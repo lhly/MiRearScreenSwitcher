@@ -319,6 +319,7 @@ class ModSettingsActivity : ComponentActivity() {
         "data.systemMetrics" -> "设备运行指标"
         "rear.scene" -> "背屏显示"
         "rear.scene.keep_visible" -> "保持显示"
+        "rear.notification" -> "发布自有背屏通知"
         "rear.info" -> "背屏信息"
         else -> name
     }

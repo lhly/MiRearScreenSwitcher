@@ -74,6 +74,12 @@ class SampleApplication : Application() {
                     it.sessionId == event.sessionId && it.generation == event.generation
                 } == true) {
                 requireCurrentScenePresentation("Rear scene backend lost")
+            } else if (event.type == "notificationAuthorization") {
+                publishStatus(if (event.data.optBoolean("granted")) "Rear notification publishing allowed" else "Rear notification publishing denied or revoked")
+            } else if (event.type == "notificationEvent") {
+                event.notificationEvent?.let { notice ->
+                    publishStatus("Rear notice ${notice.id}: ${notice.status}${notice.endedBy?.let { " · $it" } ?: ""}")
+                }
             } else if (event.type == "error") {
                 publishStatus("Request failed: ${event.data.optString("code", "E_UNKNOWN")}")
             } else if (event.type == "backendDisconnected") {

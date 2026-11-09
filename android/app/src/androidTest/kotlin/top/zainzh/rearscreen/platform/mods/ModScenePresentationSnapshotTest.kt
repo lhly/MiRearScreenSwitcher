@@ -197,6 +197,74 @@ class ModScenePresentationSnapshotTest {
         coordinator.closeScene(owner, handle.sessionId)
     }
 
+    @Test fun rearIdleAwakeRestoresOnlyTheSameResumedLeaseWhenKeepVisibleWasNotGranted() {
+        val gateway = FakeGateway(component)
+        lateinit var coordinator: RearSceneCoordinator
+        lateinit var gate: ModSceneWindowLifecycleGate
+        lateinit var handle: SceneSessionHandle
+        var ownContentVisible = false
+        val observer = object : SceneObserver {
+            override fun onSceneEvent(sessionId: String, generation: Long, event: SceneEvent) = Unit
+        }
+        coordinator = RearSceneCoordinator(
+            gateway = gateway,
+            activationVerifier = UserActivationVerifier { _, _, _ -> true },
+            callbackExecutor = Executor { it.run() },
+            clock = { 1000L },
+            randomToken = { "m12-ticket" },
+            displayOwnershipEpoch = { 0L },
+        )
+        val accepted = coordinator.openScene(
+            owner,
+            SceneRequest(component, keepVisible = false),
+            UserActivationToken("user-confirmed"),
+            observer,
+        ) as SceneOpenResult.Accepted
+        handle = accepted.handle
+        gate = ModSceneWindowLifecycleGate(handle.sessionId, handle.generation) { state ->
+            ownContentVisible = state.contentVisible
+        }
+
+        assertTrue(coordinator.reportSceneWindowReady(owner, handle.launchTicket, SceneWindowReport(component, 42, viewport())).success)
+        fun reportActivity(started: Boolean, visible: Boolean) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                gate.onActivityStarted(started)
+                gate.onWindowStateChanged(visible, visible, visible)
+            }
+            assertTrue(coordinator.reportSceneVisibility(owner, handle.sessionId, handle.generation, visible).success)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val epoch = gate.currentWindowRequestEpoch()
+                gate.applyPresentationSnapshot(coordinator.queryScenePresentation(owner, handle.sessionId, handle.generation), epoch)
+            }
+        }
+        reportActivity(started = true, visible = true)
+        assertTrue("the explicit show action presents the owner scene", ownContentVisible)
+
+        // A stopped rear Activity is hidden, but its Core lease remains live.
+        reportActivity(started = false, visible = false)
+        assertFalse(ownContentVisible)
+        coordinator.handleDisplaySignal(handle.sessionId, handle.generation, SceneDisplaySignal.RearDisplayPower(false))
+        coordinator.handleDisplaySignal(handle.sessionId, handle.generation, SceneDisplaySignal.RearDisplayPower(true))
+        val afterAwake = coordinator.queryScenePresentation(owner, handle.sessionId, handle.generation)
+        assertFalse("an awake edge cannot bring a stopped scene forward without keep_visible", requireNotNull(afterAwake).visible)
+        assertEquals("the existing rear task is not relaunched", 1, gateway.launchCount)
+        assertEquals("the host never invokes recovery/wake for this unauthorized optional capability", 0, gateway.recoveryCalls)
+
+        // When Android actually resumes the same rear Activity, a fresh visibility
+        // report restores that exact live lease; it does not need keep-screen-on.
+        reportActivity(started = true, visible = true)
+        assertTrue(ownContentVisible)
+        assertTrue(coordinator.ownsActiveSession(owner, handle.sessionId))
+        assertEquals(1, gateway.launchCount)
+        assertEquals(0, gateway.recoveryCalls)
+
+        coordinator.closeScene(owner, handle.sessionId)
+        coordinator.handleDisplaySignal(handle.sessionId, handle.generation, SceneDisplaySignal.RearDisplayPower(true))
+        assertFalse("close is terminal for the session", coordinator.ownsActiveSession(owner, handle.sessionId))
+        assertEquals("closed owner task is not restarted", 1, gateway.launchCount)
+        assertEquals(0, gateway.recoveryCalls)
+    }
+
     private fun assertNotNullSnapshot(snapshot: ScenePresentationSnapshot?): ScenePresentationSnapshot {
         assertNotNull(snapshot)
         return requireNotNull(snapshot)
@@ -218,6 +286,13 @@ class ModScenePresentationSnapshotTest {
 
     private class FakeGateway(private val component: ComponentName) : RearSceneGateway {
         var launchCount = 0
+        var recoveryCalls = 0
+        override fun recoverOwnedDisplay(owner: SessionOwner, request: SceneRequest, task: LaunchedScene,
+                                         cachedRearOn: Boolean?, isCurrent: () -> Boolean,
+                                         onWakeAttempt: (Boolean?) -> SceneRecoveryWakeDecision): SceneRecoveryResult {
+            recoveryCalls++
+            return super<RearSceneGateway>.recoverOwnedDisplay(owner, request, task, cachedRearOn, isCurrent, onWakeAttempt)
+        }
         override fun queryCapabilities(owner: SessionOwner) = CapabilitySnapshot("remrss.platform/1", true, true, emptyList())
         override fun authorize(owner: SessionOwner, request: SceneRequest): SceneError? = null
         override fun targetDisplayId(): Int = 1

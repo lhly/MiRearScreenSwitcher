@@ -1,0 +1,5 @@
+[
+  {"name":"publish own notification","events":[{"type":"notification.publish"}],"expected":{"status":"正在发布","detail":"等待宿主队列结果…"},"expectedEffects":[{"type":"rear.notification.publish","notificationId":"sample.notice","title":"Mod 自有通知","text":"来自独立 ZIP Mod 的通知","durationMs":8000}]},
+  {"name":"update same notification id","events":[{"type":"notification.update"}],"expected":{"status":"正在更新","detail":"同一个通知 ID 会更新当前 Mod 自己的通知。"},"expectedEffects":[{"type":"rear.notification.publish","notificationId":"sample.notice","title":"Mod 自有通知","text":"内容已更新","durationMs":8000}]},
+  {"name":"cancel only own notification","events":[{"type":"notification.cancel"}],"expected":{"status":"正在取消","detail":"只取消本 Mod 的 sample.notice。"},"expectedEffects":[{"type":"rear.notification.cancel","notificationId":"sample.notice"}]}
+]

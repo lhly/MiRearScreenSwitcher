@@ -1,6 +1,6 @@
-# ReMRSS Mod SDK v1
+## ReMRSS Mod SDK kit 1.2.0
 
-**Kit 1.1.0 / RC3**冻结原生列表、条件显示、格式化、图标、对齐、deadlineText、用户登记动作、可见调度与 clock 环境；host renderer、CLI、JSON Schema 和 TypeScript 类型使用同一白名单。Debug 开发重载必须同作者、同 Mod ID、同 `versionCode` 与 `dataVersion`，保留当前模型和授权；正常更新仍走更高 `versionCode` 的导入/迁移流程。此版本随 ReMRSS v4.0.0-rc.3 预览版提供。
+**RC4 本地候选**：自有通知接口加入独立 `rear.notification@1` 能力、Mod Effect、TS helper、CLI/JSON Schema 校验，以及可打包的 `notification` ZIP 示例。RC3 原有 Mod 接口保持兼容；RC4 此处为本地实现，不代表已发布。
 
 从普通 ZIP 开始：Mod 用 JSON 声明两个原生场景；只有确实需要自定义业务规则时才附带 `main.js`。宿主按同一 manifest、签名和载荷摘要校验安装包。无脚本包不会启动 JavaScript runtime。
 
@@ -25,7 +25,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out author-private
 
 请在自己的密钥管理器中保存私钥；不要提交、发给宿主维护者或放入 ZIP。`pack` 从私钥导出公钥，仅写入 `author.pub`，生成 `manifest.sig` 后再执行完整包验签回读。
 
-模板：`blank` 是真正空 state、且不启动 VM 的声明式页面；`info` 是复用宿主电量来源的无脚本面板；`counter` 是中性的通用 reducer 演练，不含计分牌规则或宿主专用业务分支；保存“每次增减”后，它通过 `host.configChanged` 原子更新用于界面显示的派生状态，不需要再点一次“重新计算”。三个模板都声明必需的 `rear.scene@1`，使其默认 rear scene 在用户授权后可投放；`rear.scene.keep_visible@1` 是可选声明。声明从不代表用户已授权，用户仍会在导入时逐项选择。
+模板：`blank` 是真正空 state、且不启动 VM 的声明式页面；`info` 是复用宿主电量来源的无脚本面板；`counter` 是中性的通用 reducer 演练，不含计分牌规则或宿主专用业务分支；保存“每次增减”后，它通过 `host.configChanged` 原子更新用于界面显示的派生状态，不需要再点一次“重新计算”；`notification` 是带发布、更新、取消按钮和真实结果状态的独立通知示例。四个模板都声明必需的 `rear.scene@1`，使其默认 rear scene 在用户授权后可投放；`rear.scene.keep_visible@1` 是可选声明，`notification` 的 `rear.notification@1` 也默认可选。声明从不代表用户已授权，用户仍会在导入时逐项选择。
 
 
 ## 保存配置并更新派生状态
@@ -47,6 +47,22 @@ reduce({ state, config, previousConfig, event }) {
 配置事件返回的 Effect 也必须经过类型、能力和来源预校验，且只有事务提交后才派发。Save 本身不产生用户激活：当前 `rear.open` 需要明确的用户手势，因此在配置更新中会被拒绝且不投放；这不代表所有未来 Effect 类型一律禁用。CLI 用例可断言 reducer 产生的 Effect 意图，但只是作者侧 reducer 检查，不代表宿主授权、激活或实际派发已通过。无脚本 Mod 的保存仍直接校验并提交 config，不启动 QuickJS；首次 init 规则不变，配置事件不会重跑 init。
 
 作者侧测试把这类用例放入 `tests/config-changes.json`，用 `remrss test <project>` 验证成功派生和拒绝分支。CLI 会验证输入/期望值符合 manifest schema、期望 config 等于提交的新 config，并拒绝将 host 保留事件写在普通事件用例中。
+
+### 自有背屏通知
+
+`rear.notification@1` 是 Mod 独立能力，不继承通知监听器的来源 App 选择。用 `host.notification.publish({id, title, text?, durationMs?, priority?, privacy?})` 发布或更新自己的通知，用 `host.notification.cancel(id)` 取消自己的通知；底层Effect身份由宿主从当前已验证Mod安装记录注入，JS 不接受 owner/package/certificate。标题为 1–80 个 Unicode 字符，正文为 0–240 个字符，允许正文换行；纯文本请求不超过 2 KiB。时长默认 8000ms、范围 1000–15000ms；队列每 owner 最多 4 条，宿主负责速率、TTL、去重、全局开关、隐私、勿扰与覆盖恢复。
+
+SDK 中的 `host.notification` 方法只构造普通 JSON Effect，不访问宿主服务；在手写 `main.js` 时，返回等价的 JSON Effect 字面量即可，宿主仅在 reducer 事务提交后经 broker 校验并派发。
+
+`host.effectResult` 的 `accepted` 只说明请求已入队；`suppressed` 和 `rejected` 分别表示策略抑制与请求失败。后续 `host.notificationResult` 以 `DISPLAYED` 表示宿主已取得真实窗口可见证据，另可报告 `SUPPRESSED`、`ENDED`、`FAILED`、原因及结束原因。该 host 事件不能由 reducer 或按钮伪造。宿主不为通知启动常驻 worker；Mod 停用、卸载、撤权或故障时清理其自有项。
+
+```sh
+./bin/remrss create my-notification --template notification --author "示例作者"
+./bin/remrss test my-notification
+./bin/remrss pack my-notification --key author-private.pem --out my-notification.zip
+```
+
+`notification` 模板包含发布/更新/取消三个后屏按钮和可见状态；`remrss test` 的 `expectedEffects` 仅核对 reducer 意图，实际是否显示以 `host.notificationResult` 为准。
 
 ## 包格式与信任
 
@@ -72,7 +88,7 @@ ZIP 条目仅含 `manifest.json`、`manifest.sig`、`author.pub` 及 manifest �
 }
 ```
 
-`minimumVersion` 与 core `CapabilityRequirement(name, minimumVersion)` 同形；当前工具开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`data.battery@1`、`data.systemMetrics@1`、`action.invoke@1`、`clock.snapshot@1`、`schedule.visible@1`，以及宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`。`data.battery` UI binding 为 `data.battery.level`（百分比）、`data.battery.scale`（100）和 `data.battery.charging`；`data.systemMetrics` UI binding 为 `data.systemMetrics.cpu.utilizationPercent`、`data.systemMetrics.memory.availableBytes` 与 `.totalBytes`。数据只在获授权且页面可见时供原生场景绑定使用，关闭订阅即清空旧值，不默认传入脚本；GPU字段目前不受支持。设计文档 §4.1 中其余能力仍在实现/验收中，不会因为名字已列在设计表就被工具当作可用。设备能力、后端连接、作者信任和用户逐项授权仍由宿主分别判断；声明不是授权。
+`minimumVersion` 与 core `CapabilityRequirement(name, minimumVersion)` 同形；当前工具开放 `rear.scene@1`、`rear.scene.keep_visible@1`、`rear.notification@1`、`data.battery@1`、`data.systemMetrics@1`、`action.invoke@1`、`clock.snapshot@1`、`schedule.visible@1`，以及宿主管理的 `model.local@1`、`ui.native@1`、`ui.dialog@1`。`data.battery` UI binding 为 `data.battery.level`（百分比）、`data.battery.scale`（100）和 `data.battery.charging`；`data.systemMetrics` UI binding 为 `data.systemMetrics.cpu.utilizationPercent`、`data.systemMetrics.memory.availableBytes` 与 `.totalBytes`。数据只在获授权且页面可见时供原生场景绑定使用，关闭订阅即清空旧值，不默认传入脚本；GPU字段目前不受支持。设计文档 §4.1 中其余能力仍在实现/验收中，不会因为名字已列在设计表就被工具当作可用。设备能力、后端连接、作者信任和用户逐项授权仍由宿主分别判断；声明不是授权。
 
 上限：ZIP 2 MiB、展开 8 MiB、64 条目、`main.js` 512 KiB、单场景 UI 64 KiB；拒绝路径穿越、重复条目、符号链接、未知 UI 组件/字段和未声明载荷。状态/配置 schema 只支持有界 JSON 基础类型与 object/array 子结构；UI binding 只能引用 `state.*`、`config.*` 或版本化公开 `data.*` 路径，不接受表达式。
 
