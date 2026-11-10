@@ -5,16 +5,21 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -29,6 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
@@ -37,6 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.semantics.*
@@ -53,6 +63,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import top.zainzh.rearscreen.modules.ModuleDescriptor
 import top.zainzh.rearscreen.modules.ModuleStore
 
@@ -107,7 +119,6 @@ class MiuixSettingsUi(
     private val modulesList = savedState.listState("modules_list")
     private val settingsList = savedState.listState("settings_list")
     private val aboutList = savedState.listState("about_list")
-    init { durationSheetVisible = savedState?.getBoolean("notification_duration_sheet", false) ?: false }
     private var uriConflict by mutableStateOf(false)
     private var navigationHeight by mutableIntStateOf(0)
     private var page by mutableIntStateOf(savedState?.getInt("native_page", 0)?.let {
@@ -118,37 +129,190 @@ class MiuixSettingsUi(
     private var selectedModuleId by mutableStateOf(savedState?.getString("native_module_id").orEmpty())
     private var navigationRequest by mutableIntStateOf(0)
     private var insets by mutableStateOf(SafeInsets())
+    private var transitionPair by mutableStateOf<NavigationRoutePair?>(null)
+    private var backPreviewProgress by mutableStateOf<Float?>(null)
+    private var progressOverride by mutableFloatStateOf(Float.NaN)
+    private var lastDisplayedProgress by mutableFloatStateOf(if (NavigationMotion.parentRoute(page) != null) 1f else 0f)
+    private val displayedMotion = MotionVelocityTracker()
+    private var motionDurationScale by mutableFloatStateOf(readMotionDurationScale())
+    private var animationGeneration by mutableIntStateOf(0)
+    private var animationRequest by mutableStateOf<MotionAnimationRequest?>(null)
+    private var pickerExitSnapshot by mutableStateOf<AppPickerExitSnapshot?>(null)
+    private val backMotion = NavigationMotion()
     private val listState = LazyListState(savedState?.getInt("compose_home_index", 0) ?: 0, savedState?.getInt("compose_home_offset", 0) ?: 0)
+
+    init { durationSheetVisible = savedState?.getBoolean("notification_duration_sheet", false) ?: false }
+
+    private data class MotionAnimationRequest(
+        val generation: Int,
+        val start: Float,
+        val target: Float,
+        val durationMillis: Int,
+        val initialVelocity: Float = 0f,
+        val springSettle: Boolean = false,
+        val immediate: Boolean = false,
+    )
+
+    private fun readMotionDurationScale(): Float =
+        Settings.Global.getFloat(activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+
+    private fun requestMotion(
+        start: Float,
+        target: Float,
+        durationMillis: Int,
+        velocity: Float = 0f,
+        springSettle: Boolean = false,
+        immediate: Boolean = motionDurationScale == 0f,
+    ) {
+        val clampedStart = NavigationMotion.clampProgress(start)
+        val clampedTarget = NavigationMotion.clampProgress(target)
+        progressOverride = clampedStart
+        animationRequest = MotionAnimationRequest(++animationGeneration, clampedStart, clampedTarget,
+            durationMillis, velocity, springSettle, immediate)
+    }
     private val view = ComposeView(activity).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         setContent {
             val dark = isSystemInDarkTheme()
-            val pager = rememberPagerState(initialPage = if (page == 100) 1 else page, pageCount = { 4 })
-            LaunchedEffect(navigationRequest) {
+            val motionProgress = remember { Animatable(lastDisplayedProgress) }
+            val pager = rememberPagerState(initialPage = NavigationMotion.routeForTab(page), pageCount = { 4 })
+            val routeMotionProgress = backPreviewProgress ?: progressOverride.takeIf { it.isFinite() } ?: motionProgress.value
+            LaunchedEffect(motionProgress) {
+                snapshotFlow { motionProgress.value }.collect {
+                    lastDisplayedProgress = it
+                    displayedMotion.sample(it, android.os.SystemClock.uptimeMillis())
+                }
+            }
+            LaunchedEffect(animationRequest?.generation) {
+                val request = animationRequest ?: return@LaunchedEffect
+                motionProgress.snapTo(request.start)
+                lastDisplayedProgress = request.start
+                progressOverride = Float.NaN
+                if (request.immediate || motionDurationScale == 0f) {
+                    motionProgress.snapTo(request.target)
+                } else if (request.springSettle) {
+                    motionProgress.animateTo(request.target,
+                        spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow),
+                        initialVelocity = request.initialVelocity)
+                } else {
+                    motionProgress.animateTo(request.target,
+                        androidx.compose.animation.core.tween(request.durationMillis, easing = secondaryPageEasing))
+                }
+                if (animationRequest?.generation == request.generation) {
+                    lastDisplayedProgress = request.target
+                    progressOverride = Float.NaN
+                    transitionPair = null
+                    if (request.target == 0f) pickerExitSnapshot = null
+                    animationRequest = null
+                }
+            }
+            LaunchedEffect(motionDurationScale) {
+                if (motionDurationScale != 0f) return@LaunchedEffect
+                if (backMotion.isPreviewing) {
+                    backMotion.cancelBackPreview()
+                    backPreviewProgress = null
+                }
+                val pair = transitionPair ?: return@LaunchedEffect
+                val target = if (page == pair.childRoute) 1f else 0f
+                requestMotion(lastDisplayedProgress, target, durationMillis = 0, immediate = true)
+            }
+            LaunchedEffect(navigationRequest, motionDurationScale) {
                 val target = page
-                val tab = when (target) { 100, in 20..21 -> 1; in 10..13 -> 0; 30 -> 2; 40 -> 3; else -> target.coerceIn(0, 3) }
-                if (Settings.Global.getFloat(activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) pager.scrollToPage(tab)
-                else pager.animateScrollToPage(tab, animationSpec = tween(250, easing = pageEasing))
+                val tab = NavigationMotion.routeForTab(target)
+                if (pager.currentPage != tab || kotlin.math.abs(pager.currentPageOffsetFraction) > .001f) {
+                    if (motionDurationScale == 0f) pager.scrollToPage(tab)
+                    else pager.animateScrollToPage(tab, animationSpec = tween(250, easing = pageEasing))
+                }
             }
             LaunchedEffect(pager) {
                 snapshotFlow { if (pager.isScrollInProgress) null else pager.settledPage }
                     .filterNotNull().collect { if (page != 100 && page < 10) actions.settled(it) }
             }
+            val focusManager = LocalFocusManager.current
+            LaunchedEffect(page) { if (page != 100) focusManager.clearFocus(force = true) }
+            DisposableEffect(activity) {
+                val uri = Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+                val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) { motionDurationScale = readMotionDurationScale() }
+                    override fun onChange(selfChange: Boolean, changed: android.net.Uri?) { motionDurationScale = readMotionDurationScale() }
+                }
+                activity.contentResolver.registerContentObserver(uri, false, observer)
+                onDispose { activity.contentResolver.unregisterContentObserver(observer) }
+            }
             AppTheme {
-                AppNavigationFrame(Modifier.fillMaxSize(), content = { SurfaceContent(it, dark, pager) }) {
-                    Navigation(pager)
+                AppNavigationFrame(Modifier.fillMaxSize(), content = { SurfaceContent(it, dark, pager, routeMotionProgress) }) {
+                    Navigation(pager, routeMotionProgress)
                 }
             }
         }
     }
     fun getView(): View = view
-    fun showPicker(model: AppPickerModel?) { picker = model }
-    fun updateSettings(selected: Int, listener: Boolean, posting: Boolean, duration: Int, updates: String, checking: Boolean,
-        proxy: Boolean, neverAutoClose: Boolean = false, dismissOnly: Boolean = false) {
+    fun showPicker(model: AppPickerModel?) { picker = model; if (model != null) pickerExitSnapshot = null }
+    @JvmName("showPickerExitSnapshot")
+    internal fun showPickerExitSnapshot(snapshot: AppPickerExitSnapshot) { pickerExitSnapshot = snapshot }
+    @JvmName("syncSettledPage")
+    internal fun syncSettledPage(target: Int) {
+        if (page in 0..3 && target in 0..3) page = target
+    }
+    fun updateSettings(selected: Int, listener: Boolean, posting: Boolean, duration: Int, updates: String, checking: Boolean, proxy: Boolean,
+                       neverAutoClose: Boolean = false, dismissOnly: Boolean = false) {
         settings = SettingsState(selected, listener, posting, duration, updates, checking, proxy, neverAutoClose, dismissOnly)
     }
     fun updateUriConflict(conflict: Boolean) { uriConflict = conflict }
-    fun showPage(target: Int) { page = target; navigationRequest++ }
+    fun showPage(target: Int) {
+        val previous = page
+        val commit = if (backMotion.isPreviewing && NavigationMotion.parentRoute(previous) == target)
+            backMotion.commitBackPreview() else null
+        if (backMotion.isPreviewing && commit == null) {
+            backMotion.cancelBackPreview()
+            backPreviewProgress = null
+        }
+        val pair = transitionPair?.takeIf { target == it.parentRoute || target == it.childRoute }
+            ?: NavigationMotion.pairBetween(previous, target)
+        val continuingTransition = pair != null && pair == transitionPair && animationRequest != null
+        val start = backPreviewProgress ?: if (pair != null && pair == transitionPair)
+            lastDisplayedProgress else if (pair != null && previous == pair.childRoute) 1f else 0f
+        page = target
+        backPreviewProgress = null
+        if (pair != null) {
+            transitionPair = pair
+            val targetProgress = if (target == pair.childRoute) 1f else 0f
+            requestMotion(start, targetProgress, if (targetProgress == 1f) 260 else 220,
+                velocity = commit?.velocity ?: if (continuingTransition) displayedMotion.velocity else 0f,
+                springSettle = commit != null || continuingTransition)
+        } else {
+            transitionPair = null
+            progressOverride = Float.NaN
+            animationRequest = null
+        }
+        navigationRequest++
+    }
+    fun startBackPreview(target: Int, initialProgress: Float) {
+        val pair = transitionPair?.takeIf { it.parentRoute == target && it.childRoute == page }
+            ?: NavigationMotion.pairBetween(page, target)
+            ?: return
+        val origin = if (pair == transitionPair) lastDisplayedProgress else if (page == pair.childRoute) 1f else 0f
+        transitionPair = pair
+        animationRequest = null
+        progressOverride = Float.NaN
+        val start = backMotion.beginBackPreview(origin)
+        backPreviewProgress = start
+        lastDisplayedProgress = start
+        if (motionDurationScale != 0f && initialProgress > 0f) updateBackPreview(initialProgress, 0L)
+    }
+    fun updateBackPreview(progress: Float, frameTimeMillis: Long) {
+        if (motionDurationScale == 0f) return
+        backMotion.updateBackProgress(progress, frameTimeMillis)?.let {
+            backPreviewProgress = it
+            lastDisplayedProgress = it
+        }
+    }
+    fun cancelBackPreview() {
+        val settle = backMotion.cancelBackPreview() ?: return
+        backPreviewProgress = null
+        val endpoint = transitionPair?.let { if (page == it.childRoute) 1f else 0f } ?: settle.progress
+        requestMotion(lastDisplayedProgress, endpoint, 220, settle.velocity, springSettle = true)
+    }
     fun isShowingModuleDetails(id: String): Boolean = page == 30 && selectedModuleId == id
     fun setInsets(left: Int, top: Int, right: Int, bottom: Int, ime: Int) { insets = SafeInsets(left, top, right, bottom, ime) }
     fun updateHome(status: String, summary: String, action: String, dpi: Int, rotation: Int, busy: Boolean, values: Map<String, Boolean>) {
@@ -182,11 +346,21 @@ class MiuixSettingsUi(
     private fun s(key: String) = NativeStrings.get(activity, key)
 
     @OptIn(ExperimentalFoundationApi::class)
-    @Composable private fun SurfaceContent(modifier: Modifier, dark: Boolean, pager: PagerState) {
+    @Composable private fun SurfaceContent(modifier: Modifier, dark: Boolean, pager: PagerState, routeMotionProgress: Float) {
         val d = LocalDensity.current
+        val logicalForwardSign = if (LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) -1f else 1f
         val safe = with(d) { PaddingValues(start = insets.left.toDp(), top = insets.top.toDp(), end = insets.right.toDp(), bottom = maxOf(insets.bottom, insets.ime).toDp()) }
+        val pair = transitionPair ?: NavigationMotion.parentRoute(page)?.let { NavigationRoutePair(it, page) }
+        val childRoute = pair?.childRoute
+        val parentRoute = pair?.parentRoute
+        val progress = if (transitionPair == null && childRoute != null) 1f else routeMotionProgress.coerceIn(0f, 1f)
+        val participatingPages by remember(pager) {
+            derivedStateOf {
+                pager.layoutInfo.visiblePagesInfo.mapTo(mutableSetOf()) { it.index } + pager.currentPage + pager.targetPage
+            }
+        }
         Box(modifier.fillMaxSize().background(AppPalette.background()).padding(safe).clipToBounds(), contentAlignment = Alignment.TopCenter) {
-            HorizontalPager(state = pager, beyondViewportPageCount = 1, userScrollEnabled = page == 0 || page in 1..3,
+            HorizontalPager(state = pager, beyondViewportPageCount = 1, userScrollEnabled = page in 0..3,
                 modifier = Modifier.fillMaxSize().testTag("main_pager").semantics { if (page >= 10 || page == 100) hideFromAccessibility() }) { index ->
                 val reserve = navigationHeight + with(d) { 24.dp.toPx() }
                 val focusScroll = remember(reserve) { object : BringIntoViewSpec {
@@ -197,38 +371,85 @@ class MiuixSettingsUi(
                 } }
                 CompositionLocalProvider(LocalBringIntoViewSpec provides focusScroll) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                        val pageModifier = Modifier.widthIn(max = 680.dp).fillMaxSize().semantics { if (pager.currentPage != index || page >= 10 || page == 100) hideFromAccessibility() }
-                        if (pager.currentPage == index && page < 10) {
-                            when (index) {
-                                0 -> Home(dark, pageModifier)
-                                1 -> Notifications(pageModifier)
-                                2 -> Modules(pageModifier)
-                                3 -> Settings(pageModifier)
+                        val pageActive = page == index
+                        if (index in participatingPages) {
+                            val motionParent = parentRoute == index || (transitionPair == null && page == index)
+                            val pageFrameModifier = Modifier.widthIn(max = 680.dp).fillMaxSize()
+                                .then(if (motionParent) Modifier.graphicsLayer {
+                                    val retreat = .018f * progress
+                                    scaleX = 1f - retreat; scaleY = 1f - retreat
+                                    translationX = -size.width * .012f * progress * logicalForwardSign
+                                    alpha = 1f - .07f * progress
+                                } else Modifier)
+                                .then(inactiveRouteModifier(!pageActive))
+                                .testTag(if (motionParent) "navigation_motion_parent" else "pager_page_$index")
+                            // Keep the motion probe on its own Box node; appending a second
+                            // testTag to the LazyColumn would replace its established list tag.
+                            Box(pageFrameModifier, contentAlignment = Alignment.TopCenter) {
+                                Box(Modifier.fillMaxSize()
+                                    .then(if (pageActive) Modifier else Modifier.clearAndSetSemantics {})) {
+                                    when (index) {
+                                        0 -> Home(dark, Modifier.fillMaxSize())
+                                        1 -> Notifications(Modifier.fillMaxSize())
+                                        2 -> Modules(Modifier.fillMaxSize(), active = pageActive)
+                                        3 -> Settings(Modifier.fillMaxSize())
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-            if (page == 100) Box(Modifier.fillMaxSize().background(AppPalette.background()), contentAlignment = Alignment.TopCenter) {
-                Box(Modifier.widthIn(max = 680.dp).fillMaxSize()) { picker?.Content() }
+            if (childRoute != null) {
+                val childActive = page == childRoute
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    translationX = size.width * (1f - progress) * logicalForwardSign
+                    alpha = 1f
+                }.background(AppPalette.background())
+                    .then(inactiveRouteModifier(!childActive)).testTag("navigation_motion_child"),
+                    contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.widthIn(max = 680.dp).fillMaxSize()
+                        .then(if (childActive) Modifier else Modifier.clearAndSetSemantics {})) {
+                        when (childRoute) {
+                            100 -> AppPickerSlot(
+                                model = if (childActive) picker else null,
+                                snapshot = if (childActive) null else pickerExitSnapshot,
+                            )
+                            in 10..13 -> BackSubpage(childRoute)
+                            in 20..21 -> NotificationsSubpage(childRoute)
+                            30 -> ModuleDetails(selectedModuleId, active = childActive)
+                            40 -> AboutDetails()
+                        }
+                    }
+                }
             }
-            if (page in 10..13) BackSubpage(page)
-            if (page in 20..21) NotificationsSubpage(page)
-            if (page == 30) ModuleDetails(selectedModuleId)
-            if (page == 40) AboutDetails()
-
         }
     }
 
-    @Composable private fun BoxScope.Navigation(pager: PagerState) {
-        if (page >= 10 || page == 100 || insets.ime > insets.bottom) return
+    @Composable private fun BoxScope.Navigation(pager: PagerState, routeMotionProgress: Float) {
+        val pair = transitionPair ?: NavigationMotion.parentRoute(page)?.let { NavigationRoutePair(it, page) }
+        val childRoute = pair?.childRoute
+        val motionProgress = if (transitionPair == null && childRoute != null) 1f else routeMotionProgress.coerceIn(0f, 1f)
+        val navigationProgress = if (childRoute != null) 1f - motionProgress else 1f
+        val shouldRender = page in 0..3 || transitionPair != null
+        if (!shouldRender || insets.ime > insets.bottom) return
         val bottom = with(LocalDensity.current) { insets.bottom.toDp() }
         Box(Modifier.align(Alignment.BottomCenter)
             .padding(start = 20.dp, end = 20.dp, bottom = bottom + 12.dp)
-            .widthIn(max = 360.dp).fillMaxWidth()) {
+            .widthIn(max = 360.dp).fillMaxWidth()
+            .graphicsLayer {
+                alpha = navigationProgress
+                translationY = size.height * .42f * (1f - navigationProgress)
+            }
+            // A committed pop exposes the global tabs immediately so they can interrupt it.
+            // Predictive-back keeps the child route active, so the tabs remain unavailable there.
+            .then(inactiveRouteModifier(page !in 0..3))) {
             AppBottomNavigation(
                 progress = { pager.currentPage + pager.currentPageOffsetFraction },
+                pagerIsScrollInProgress = { pager.isScrollInProgress },
+                pagerTargetPage = { pager.targetPage },
                 selectedIndex = pager.currentPage,
+                tabsActive = page in 0..3,
                 labels = listOf(s("nav_screen"), s("nav_notifications"), s("nav_modules"), s("nav_settings")),
                 descriptions = listOf(s("screen_title"), s("notifications_title"), s("nav_modules"), s("nav_settings")),
                 onSelected = actions::navigate,
@@ -237,7 +458,21 @@ class MiuixSettingsUi(
         }
     }
 
+    private fun inactiveRouteModifier(inactive: Boolean): Modifier = if (!inactive) Modifier else Modifier
+        .focusProperties { canFocus = false }
+        .semantics { hideFromAccessibility() }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false).consume()
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+            }
+        }
+
     private val pageEasing = CubicBezierEasing(.77f, 0f, .175f, 1f)
+    private val secondaryPageEasing = CubicBezierEasing(.23f, 1f, .32f, 1f)
 
     @Composable private fun Home(dark: Boolean, modifier: Modifier) {
         val virtualRearCast = rememberVirtualRearCastMode()
@@ -366,14 +601,18 @@ class MiuixSettingsUi(
                                     RearCameraStatusToggle(virtual)
                                 }
                             }
-                            if (!virtual) AppCard {
-                                AppRow(s("screen_size"), s("dpi_help"), Modifier.testTag("physical_dpi_entry"), action = actions::dpi,
-                                    trailing = { Text(if (state.dpi > 0) state.dpi.toString() else "—", color = AppPalette.accent()) })
-                                AppDivider()
-                                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    repeat(4) { index ->
-                                        TextButton("${index * 90}°", onClick = { actions.rotation(index) }, enabled = !state.busy,
-                                            modifier = Modifier.weight(1f), minHeight = 48.dp)
+                            Box(Modifier.fillMaxWidth().testTag("physical_settings_reveal")) {
+                                AppSettingsReveal(!virtual) {
+                                    AppCard {
+                                        AppRow(s("screen_size"), s("dpi_help"), Modifier.testTag("physical_dpi_entry"), action = actions::dpi,
+                                            trailing = { Text(if (state.dpi > 0) state.dpi.toString() else "—", color = AppPalette.accent()) })
+                                        AppDivider()
+                                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            repeat(4) { index ->
+                                                TextButton("${index * 90}°", onClick = { actions.rotation(index) }, enabled = !state.busy,
+                                                    modifier = Modifier.weight(1f), minHeight = 48.dp)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -407,33 +646,50 @@ class MiuixSettingsUi(
         }
     }
 
-    @Composable private fun Modules(modifier: Modifier) {
+    @Composable private fun Modules(modifier: Modifier, active: Boolean) {
         var modules by remember { mutableStateOf<List<ModuleDescriptor>>(emptyList()) }
         var enabled by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
         var message by remember { mutableStateOf("") }
         var busy by remember { mutableStateOf(false) }
         var initialLoaded by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+        var refreshJob by remember { mutableStateOf<Job?>(null) }
         fun refresh() {
-            scope.launch {
+            if (!active) return
+            refreshJob?.cancel()
+            refreshJob = scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     val all = ModuleStore.list(activity)
                     all to all.associate { it.id to ModuleStore.isEnabled(activity, it.id) }
                 }
-                modules = result.first
-                enabled = result.second
-                initialLoaded = true
+                if (active) {
+                    modules = result.first
+                    enabled = result.second
+                    initialLoaded = true
+                }
             }
         }
-        if (BuildConfig.DEBUG) DisposableEffect(Unit) {
+        LaunchedEffect(active) {
+            if (!active) return@LaunchedEffect
+            if (!BuildConfig.DEBUG) {
+                initialLoaded = true
+                return@LaunchedEffect
+            }
             val receiver = object : android.content.BroadcastReceiver() {
-                override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) { refresh() }
+                override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                    refresh()
+                }
             }
             androidx.core.content.ContextCompat.registerReceiver(activity, receiver,
                 android.content.IntentFilter(ModuleStore.ACTION_CHANGED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
             refresh()
-            onDispose { runCatching { activity.unregisterReceiver(receiver) } }
-        } else LaunchedEffect(Unit) { initialLoaded = true }
+            try {
+                awaitCancellation()
+            } finally {
+                refreshJob?.cancel()
+                runCatching { activity.unregisterReceiver(receiver) }
+            }
+        }
         if (!initialLoaded) {
             Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PageTitle(s("nav_modules"), s("native_modules_trust"))
@@ -473,7 +729,7 @@ class MiuixSettingsUi(
         }
     }
 
-    @Composable private fun ModuleDetails(id: String) {
+    @Composable private fun ModuleDetails(id: String, active: Boolean) {
         var descriptor by remember(id) { mutableStateOf<ModuleDescriptor?>(null) }
         var enabled by remember(id) { mutableStateOf(false) }
         var loading by remember(id) { mutableStateOf(true) }
@@ -484,7 +740,9 @@ class MiuixSettingsUi(
         var moduleMessage by remember(id) { mutableStateOf("") }
         var moduleLookupGeneration by remember(id) { mutableIntStateOf(0) }
         val scope = rememberCoroutineScope()
-        LaunchedEffect(id) {
+        var moduleEventJob by remember(id) { mutableStateOf<Job?>(null) }
+        LaunchedEffect(id, active) {
+            if (!active) return@LaunchedEffect
             val generation = ++moduleLookupGeneration
             val result = withContext(Dispatchers.IO) {
                 val module = ModuleStore.get(activity, id)
@@ -494,21 +752,23 @@ class MiuixSettingsUi(
                 descriptor = result.first
                 enabled = result.second
                 loading = false
-                if (result.first == null) actions.navigate(2)
+                if (active && result.first == null) actions.navigate(2)
             }
         }
-        DisposableEffect(id, scope) {
+        DisposableEffect(id, scope, active) {
+            if (!active) return@DisposableEffect onDispose { }
             val receiver = object : android.content.BroadcastReceiver() {
                 override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-                    if (intent?.action != ModuleStore.ACTION_CHANGED || intent.getStringExtra("id") != id) return
+                    if (!active || intent?.action != ModuleStore.ACTION_CHANGED || intent.getStringExtra("id") != id) return
+                    moduleEventJob?.cancel()
                     val generation = ++moduleLookupGeneration
-                    scope.launch {
+                    moduleEventJob = scope.launch {
                         val result = withContext(Dispatchers.IO) {
                             val module = ModuleStore.get(activity, id)
                             module to (module != null && ModuleStore.isEnabled(activity, id))
                         }
                         withContext(Dispatchers.Main.immediate) {
-                            if (generation != moduleLookupGeneration) return@withContext
+                            if (!active || generation != moduleLookupGeneration) return@withContext
                             loading = false
                             val latestDescriptor = result.first
                             val loadedVersion = descriptor?.versionCode
@@ -526,7 +786,7 @@ class MiuixSettingsUi(
             }
             androidx.core.content.ContextCompat.registerReceiver(activity, receiver,
                 android.content.IntentFilter(ModuleStore.ACTION_CHANGED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
-            onDispose { runCatching { activity.unregisterReceiver(receiver) } }
+            onDispose { moduleEventJob?.cancel(); runCatching { activity.unregisterReceiver(receiver) } }
         }
         if (loading || descriptor == null) {
             return
@@ -694,7 +954,8 @@ class MiuixSettingsUi(
                 AppCard {
                     SettingsToggle("notification_service", "notification_help", "notification_service_enabled", "toggleNotificationService")
                     AppDivider()
-                    AppRow(s("notification_apps"), s("selected_count").replace("{0}", settings.selected.toString()), action = actions::apps)
+                    AppRow(s("notification_apps"), s("selected_count").replace("{0}", settings.selected.toString()),
+                        modifier = Modifier.testTag("notification_apps_entry"), action = actions::apps)
                     AppDivider()
                     AppRow(s("notification_access"), s("notification_access_help"), action = { actions.action("openNotificationListenerSettings") },
                         trailing = { Text(s(if (settings.listener) "access_granted" else "access_pending"), color = AppPalette.accent(), fontSize = 13.sp, modifier = Modifier.widthIn(max = 100.dp)) })
@@ -755,10 +1016,12 @@ class MiuixSettingsUi(
             Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(value = durationValue,
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = durationValue,
                         onValueChange = { durationValue = it; durationChanged = true },
                         modifier = Modifier.weight(1f), enabled = !durationNeverAutoClose, range = 1..60)
-                    top.yukonga.miuix.kmp.basic.NumberPicker(value = if (durationUnitMinutes) 1 else 0,
+                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                        value = if (durationUnitMinutes) 1 else 0,
                         onValueChange = { durationUnitMinutes = it == 1; durationChanged = true },
                         modifier = Modifier.weight(1f), enabled = !durationNeverAutoClose, range = 0..1,
                         label = { if (it == 0) s("unit_seconds") else s("unit_minutes") })

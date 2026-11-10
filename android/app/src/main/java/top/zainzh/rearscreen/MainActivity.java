@@ -38,7 +38,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
     static final String EXTRA_NAVIGATION_TARGET = "native_navigation_target";
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
-    
+
     // 静态实例，供其他类访问
     private static MainActivity currentInstance;
     
@@ -98,6 +98,15 @@ public class MainActivity extends androidx.activity.ComponentActivity {
         nativeUi = new SettingsController(this, savedInstanceState, automaticUpdateChecksEnabled());
         setContentView(nativeUi.getView());
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override public void handleOnBackStarted(androidx.activity.BackEventCompat event) {
+                if (nativeUi != null) nativeUi.startBackPreview(event.getProgress());
+            }
+            @Override public void handleOnBackProgressed(androidx.activity.BackEventCompat event) {
+                if (nativeUi != null) nativeUi.updateBackPreview(event.getProgress(), event.getFrameTimeMillis());
+            }
+            @Override public void handleOnBackCancelled() {
+                if (nativeUi != null) nativeUi.cancelBackPreview();
+            }
             @Override public void handleOnBackPressed() {
                 if (!nativeUi.navigateBack()) finish();
             }

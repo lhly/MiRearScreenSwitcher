@@ -5,9 +5,13 @@ import android.os.Bundle
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -30,9 +34,11 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.colorResource
@@ -65,6 +71,7 @@ internal object AppPalette {
 }
 
 internal fun ComponentActivity.miuixContent(content: @Composable () -> Unit) {
+    SharedActivityTransitions.apply(this)
     WindowCompat.setDecorFitsSystemWindows(window, false)
     window.statusBarColor = android.graphics.Color.TRANSPARENT
     window.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -105,13 +112,70 @@ private const val SETTINGS_EXIT_MS = 150
                 fadeIn(tween(SETTINGS_ENTER_MS, easing = settingsRevealEasing)),
         exit = shrinkVertically(tween(SETTINGS_EXIT_MS, easing = settingsRevealEasing), shrinkTowards = Alignment.Top) +
                 fadeOut(tween(SETTINGS_EXIT_MS, easing = settingsRevealEasing))) {
-        Column(Modifier.fillMaxWidth(), content = content)
+        Column(Modifier.fillMaxWidth().inactiveInteractionIsolation(!visible), content = content)
     }
 }
 
 @Composable internal fun AppRow(title: String, summary: String?, modifier: Modifier = Modifier,
     enabled: Boolean = true, action: (() -> Unit)? = null, trailing: @Composable (() -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().then(if (action != null) Modifier.clickable(enabled = enabled, onClick = action) else Modifier)
+    val interactionSource = remember { MutableInteractionSource() }
+    AppRowContent(title, summary, modifier, enabled, interactionSource, action, action != null, trailing)
+}
+
+@Composable internal fun AppToggle(title: String, summary: String?, checked: Boolean, enabled: Boolean = true,
+    modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val toggleModifier = modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch,
+        interactionSource = interactionSource, indication = null, onValueChange = onChange)
+    AppRowContent(title, summary, toggleModifier, enabled, interactionSource, action = null, observePress = true) {
+        Switch(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics { })
+    }
+}
+
+@Composable private fun AppRowContent(title: String, summary: String?, modifier: Modifier,
+    enabled: Boolean, interactionSource: MutableInteractionSource, action: (() -> Unit)?,
+    observePress: Boolean, trailing: @Composable (() -> Unit)?) {
+    val pressed by interactionSource.collectIsPressedAsState()
+    var pointerPressed by remember { mutableStateOf(false) }
+    val pointerPressObserver = if (observePress) Modifier.pointerInput(enabled) {
+        if (!enabled) {
+            pointerPressed = false
+        } else {
+            awaitEachGesture {
+                val down = awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false)
+                pointerPressed = true
+                var previousPosition = down.position
+                try {
+                    var stillDown = true
+                    while (stillDown) {
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        val tracked = event.changes.firstOrNull { it.id == down.id }
+                        val moved = tracked != null && tracked.position != previousPosition
+                        if (tracked == null || !tracked.pressed ||
+                            tracked.position.x < 0f || tracked.position.y < 0f ||
+                            tracked.position.x > size.width.toFloat() || tracked.position.y > size.height.toFloat() ||
+                            (moved && tracked.isConsumed)) {
+                            pointerPressed = false
+                        }
+                        if (tracked != null) previousPosition = tracked.position
+                        stillDown = tracked?.pressed == true
+                    }
+                } finally {
+                    pointerPressed = false
+                }
+            }
+        }
+    } else Modifier
+    val pressProgress by animateFloatAsState(
+        targetValue = if (enabled && (pressed || pointerPressed)) 1f else 0f,
+        animationSpec = if (enabled && (pressed || pointerPressed)) androidx.compose.animation.core.snap()
+            else tween(130, easing = settingsRevealEasing),
+        label = "app_row_press",
+    )
+    Row(modifier.fillMaxWidth().then(pointerPressObserver).then(
+        Modifier.background(AppPalette.text().copy(alpha = .055f * pressProgress), RoundedCornerShape(20.dp))
+    ).then(if (action != null) Modifier.clickable(enabled = enabled, interactionSource = interactionSource,
+        indication = null, onClick = action) else Modifier)
         .heightIn(min = 64.dp).padding(18.dp, 16.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -123,11 +187,18 @@ private const val SETTINGS_EXIT_MS = 150
     }
 }
 
-@Composable internal fun AppToggle(title: String, summary: String?, checked: Boolean, enabled: Boolean = true,
-    modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
-    AppRow(title, summary, modifier.toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
-        trailing = { Switch(checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.clearAndSetSemantics { }) })
-}
+internal fun Modifier.inactiveInteractionIsolation(inactive: Boolean): Modifier = if (!inactive) this else this
+    .focusProperties { canFocus = false }
+    .clearAndSetSemantics { }
+    .pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false).consume()
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+            } while (event.changes.any { it.pressed })
+        }
+    }
 
 @Composable internal fun AppBackButton(back: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.ui_back)

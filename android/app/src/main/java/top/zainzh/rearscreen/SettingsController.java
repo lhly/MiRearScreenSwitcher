@@ -95,14 +95,18 @@ final class SettingsController {
         uriConflicts = new UriConflictMonitor(activity, this::updateUriConflicts);
         int restoredPage = state == null ? 0 : state.getInt("native_page", 0);
         // Legacy page 3 was the app picker; preserve it as the distinct picker route.
-        page = state != null && state.getInt("native_route_version", 0) >= 2
-                ? restoredPage : restoredPage == 3 ? 100 : restoredPage == 2 ? 3 : restoredPage;
-        if (!BuildConfig.DEBUG && (page == 30 || page == 40)) page = 2;
+        int routeVersion = state == null ? 0 : state.getInt("native_route_version", 0);
+        page = restorePageForBuild(restoredPage, routeVersion, BuildConfig.DEBUG);
         currentDpi = state == null ? 0 : state.getInt("native_dpi", 0);
         rotation = state == null ? -1 : state.getInt("native_rotation", -1);
         pickerState = state;
+        Bundle composeState = state == null ? null : new Bundle(state);
+        if (composeState != null) {
+            composeState.putInt("native_page", page);
+            composeState.putInt("native_route_version", 2);
+        }
         root = new FrameLayout(activity);
-        composeUi = new MiuixSettingsUi(activity, state, new MiuixSettingsUi.Actions() {
+        composeUi = new MiuixSettingsUi(activity, composeState, new MiuixSettingsUi.Actions() {
             @Override public void navigate(int target) { SettingsController.this.navigate(target); }
             @Override public void settled(int target) { onPageSettled(target); }
             @Override public void privilege() { choosePrivilege(); }
@@ -288,21 +292,44 @@ final class SettingsController {
         if (diagnosticsReport != null && modal.isShowing(s("diagnostics"))) state.putString("compatibility_report", diagnosticsReport);
     }
 
+    int backTarget() {
+        if (page == 100) return 1;
+        if (page >= 20 && page <= 21) return 1;
+        if (page >= 10 && page <= 13) return 0;
+        if (page == 30) return 2;
+        if (page == 40) return 3;
+        return page != 0 ? 0 : -1;
+    }
+
     boolean navigateBack() {
-        if (page == 100) { navigate(1); return true; }
-        if (page >= 20 && page <= 21) { navigate(1); return true; }
-        if (page >= 10 && page <= 13) { navigate(0); return true; }
-        if (page == 30) { navigate(2); return true; }
-        if (page == 40) { navigate(3); return true; }
-        if (page != 0) { navigate(0); return true; }
-        return false;
+        int target = backTarget();
+        if (target < 0) return false;
+        navigate(target);
+        return true;
+    }
+
+    void startBackPreview(float progress) {
+        int target = backTarget();
+        if (target >= 0) composeUi.startBackPreview(target, progress);
+    }
+
+    void updateBackPreview(float progress, long frameTimeMillis) {
+        composeUi.updateBackPreview(progress, frameTimeMillis);
+    }
+
+    void cancelBackPreview() {
+        composeUi.cancelBackPreview();
     }
 
     private void navigate(int target) {
         if (destroyed) return;
-        if (!BuildConfig.DEBUG && (target == 30 || target == 40)) target = 2;
+        target = normalizePageForBuild(target, BuildConfig.DEBUG);
         if (picker != null && target != 100) {
-            pickerState = new Bundle(); picker.saveState(pickerState); picker.destroy(); picker = null;
+            pickerState = new Bundle();
+            picker.saveState(pickerState);
+            composeUi.showPickerExitSnapshot(picker.snapshotForExit());
+            picker.destroy();
+            picker = null;
             composeUi.showPicker(null);
         }
         page = target;
@@ -318,10 +345,21 @@ final class SettingsController {
         refreshStatus();
     }
 
+    static int normalizePageForBuild(int route, boolean debug) {
+        return !debug && route == 30 ? 2 : route;
+    }
+
+    static int restorePageForBuild(int savedRoute, int routeVersion, boolean debug) {
+        int migrated = routeVersion >= 2 ? savedRoute
+                : savedRoute == 3 ? 100 : savedRoute == 2 ? 3 : savedRoute;
+        return normalizePageForBuild(migrated, debug);
+    }
+
     private void onPageSettled(int target) {
         if (destroyed || page >= 10 || page == 100 || page == target) return;
         page = target;
         updateDialog.setManualFeedbackVisible(page == 3);
+        composeUi.syncSettledPage(target);
         refreshStatus();
     }
 
@@ -609,7 +647,8 @@ final class SettingsController {
             if (error != null) {
                 preferences.putDuration(old);
                 if (!destroyed) toast(error);
-            } else {
+            }
+            else {
                 preferences.putBoolean("notification_never_auto_close", neverAutoClose);
                 activity.sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(activity.getPackageName()));
                 if (!destroyed) toast(count("toast_duration_set", seconds));
@@ -619,7 +658,8 @@ final class SettingsController {
     }
 
     private void showNotificationClickAction() {
-        modal.show(s("notification_click_action"), s("notification_click_action_help"),
+        String title = s("notification_click_action");
+        modal.show(title, s("notification_click_action_help"),
                 new String[]{s("notification_click_open"), s("notification_click_dismiss"), s("cancel")},
                 new Runnable[]{() -> setNotificationDismissOnly(false), () -> setNotificationDismissOnly(true), null});
     }

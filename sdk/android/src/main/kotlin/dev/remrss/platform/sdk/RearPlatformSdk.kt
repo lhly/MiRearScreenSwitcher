@@ -852,6 +852,7 @@ object RearViewportReporter {
     }
 
     /** Safe insets in the actual Activity window's current display orientation, in physical pixels. */
+    @android.annotation.SuppressLint("NewApi") // DisplayCutout is read only after the API 28 guard above.
     fun cameraSafeInsets(activity: Activity): IntArray {
         val decor = activity.window.decorView
         val width = decor.width.coerceAtLeast(1)

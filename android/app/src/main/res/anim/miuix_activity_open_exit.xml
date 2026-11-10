@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <translate
+        android:fromXDelta="0"
+        android:toXDelta="-2%p"
+        android:duration="260"
+        android:interpolator="@interpolator/miuix_activity_ease_out" />
+    <alpha
+        android:fromAlpha="1"
+        android:toAlpha="0.96"
+        android:duration="260"
+        android:interpolator="@interpolator/miuix_activity_ease_out" />
+</set>

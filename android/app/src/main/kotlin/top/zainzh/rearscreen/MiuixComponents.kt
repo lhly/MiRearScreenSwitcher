@@ -70,6 +70,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
     AppToggle(stringResource(R.string.rear_cast_mode_title),
         if (supported) stringResource(if (virtual) R.string.rear_cast_mode_on else R.string.rear_cast_mode_off) + "\n" +
                 stringResource(R.string.rear_cast_mode_next) else stringResource(R.string.rear_cast_unavailable), virtual, enabled = supported,
+        modifier = Modifier.testTag("rear_cast_mode_toggle"),
         onChange = { RearCastMode.setVirtual(context, it) })
 }
 
@@ -78,6 +79,8 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
     private data class Model(val title: String, val message: String, val labels: List<String>, val actions: List<Runnable?>,
         val number: Boolean = false, val min: Int = 1, val max: Int = Int.MAX_VALUE, val save: java.util.function.IntConsumer? = null, val pinned: Int = 0)
     private var model by mutableStateOf<Model?>(null)
+    private var showing by mutableStateOf(false)
+    private var generation = 0L
     private var draft by mutableStateOf("")
     private var error by mutableStateOf(false)
     private var kind: String? = null
@@ -86,59 +89,74 @@ class MiuixDialogUi(private val activity: ComponentActivity) {
         setContent { AppTheme { Render() } }
     }
     fun show(title: String, message: String, labels: Array<String>, actions: Array<Runnable?>) {
-        kind = null; model = Model(title, message, labels.toList(), actions.toList())
+        kind = null; generation++; model = Model(title, message, labels.toList(), actions.toList()); showing = true
     }
     fun showWithPinnedActions(title: String, message: String, labels: Array<String>, actions: Array<Runnable?>) {
-        kind = null; model = Model(title, message, labels.toList(), actions.toList(), pinned = minOf(2, labels.size))
+        kind = null; generation++; model = Model(title, message, labels.toList(), actions.toList(), pinned = minOf(2, labels.size)); showing = true
     }
     fun number(kind: String, title: String, help: String, value: Int, min: Int, max: Int, save: java.util.function.IntConsumer, reset: Runnable?) {
         this.kind = kind; draft = value.toString(); error = false
         val labels = mutableListOf(NativeStrings.get(activity, "apply"), NativeStrings.get(activity, "cancel"))
         val actions = mutableListOf<Runnable?>(null, null)
         if (reset != null) { labels += NativeStrings.get(activity, "reset_dpi"); actions += reset }
-        model = Model(title, help, labels, actions, true, min, max, save)
+        generation++; model = Model(title, help, labels, actions, true, min, max, save); showing = true
     }
     fun restoreDraft(value: String) { draft = value }
     fun updateMessage(title: String, message: String) { model?.takeIf { it.title == title }?.let { model = it.copy(message = message) } }
     fun saveState(bundle: Bundle) {
-        if (model?.number == true) { bundle.putString("native_number_kind", kind); bundle.putString("native_number_draft", draft) }
+        if (showing && model?.number == true) { bundle.putString("native_number_kind", kind); bundle.putString("native_number_draft", draft) }
     }
-    fun isShowing(title: String): Boolean = model?.title == title
-    fun isVisible(): Boolean = model != null
-    fun dismiss() { model = null; kind = null }
-    @Composable private fun DialogAction(current: Model, index: Int) {
-        TextButton(current.labels[index], {
-            if (current.number && index == 0) {
-                val value = draft.trim().toIntOrNull()
-                if (value == null || value !in current.min..current.max) error = true
-                else { dismiss(); current.save?.accept(value) }
-            } else { dismiss(); current.actions[index]?.run() }
-        }, Modifier.fillMaxWidth(), minHeight = 48.dp,
-            colors = if (index == 0) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+    fun isShowing(title: String): Boolean = showing && model?.title == title
+    fun isVisible(): Boolean = showing
+    fun dismiss() { showing = false }
+    @Composable private fun DialogAction(current: Model, index: Int, sessionGeneration: Long) {
+        key(sessionGeneration, index) {
+            TextButton(current.labels[index], {
+                if (!showing || generation != sessionGeneration) return@TextButton
+                if (current.number && index == 0) {
+                    val value = draft.trim().toIntOrNull()
+                    if (value == null || value !in current.min..current.max) error = true
+                    else { dismiss(); current.save?.accept(value) }
+                } else { dismiss(); current.actions[index]?.run() }
+            }, Modifier.fillMaxWidth().testTag("modal_action_$index"), minHeight = 48.dp,
+                enabled = showing && generation == sessionGeneration,
+                colors = if (index == 0) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+        }
     }
-    @Composable private fun DialogBody(current: Model) {
-        SelectionContainer { Text(current.message, fontSize = 14.sp, color = AppPalette.secondary()) }
+    @Composable private fun DialogBody(current: Model, sessionGeneration: Long) {
+        SelectionContainer { Text(current.message, fontSize = 14.sp, color = AppPalette.secondary(), modifier = Modifier.testTag("modal_message")) }
         if (current.number) {
-            TextField(value = draft, onValueChange = { draft = it; error = false }, label = current.title,
+            TextField(value = draft, onValueChange = {
+                if (showing && generation == sessionGeneration) { draft = it; error = false }
+            }, label = current.title,
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth().testTag("number_input").semantics { if (error) error(current.message) })
+                modifier = Modifier.fillMaxWidth().testTag("number_input").semantics { if (error) error(current.message) },
+                enabled = showing)
             if (error) Text(current.message, color = AppPalette.accent(), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
-        for (index in current.pinned until current.labels.size) DialogAction(current, index)
+        for (index in current.pinned until current.labels.size) DialogAction(current, index, sessionGeneration)
     }
     @Composable private fun Render() {
         val current = model
-        WindowDialog(show = current != null, title = current?.title, onDismissRequest = ::dismiss) {
+        val renderGeneration = generation
+        val focusManager = LocalFocusManager.current
+        LaunchedEffect(showing) { if (!showing) focusManager.clearFocus(force = true) }
+        WindowDialog(show = showing, title = current?.title,
+            modifier = Modifier.inactiveInteractionIsolation(!showing),
+            onDismissRequest = { if (showing && generation == renderGeneration) dismiss() },
+            onDismissFinished = {
+                if (!showing && generation == renderGeneration) { model = null; kind = null }
+            }) {
             if (current != null) {
                 val maximum = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .65f }
                 if (current.pinned == 0) {
-                    Column(Modifier.fillMaxWidth().heightIn(max = maximum).verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current) }
+                    Column(Modifier.fillMaxWidth().heightIn(max = maximum).inactiveInteractionIsolation(!showing).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current, renderGeneration) }
                 } else {
-                    Column(Modifier.fillMaxWidth().heightIn(max = maximum), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.fillMaxWidth().heightIn(max = maximum).inactiveInteractionIsolation(!showing), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current) }
-                        for (index in 0 until current.pinned) DialogAction(current, index)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) { DialogBody(current, renderGeneration) }
+                        for (index in 0 until current.pinned) DialogAction(current, index, renderGeneration)
                     }
                 }
             }
@@ -154,16 +172,25 @@ class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) 
         val notesAddedTitle: String, val notesImprovedTitle: String, val notesFixedTitle: String, val notesEmpty: String,
         val progress: Int, val indeterminate: Boolean, val labels: List<String>, val actions: List<Runnable>)
     private var model by mutableStateOf<Model?>(null)
+    private var showing by mutableStateOf(false)
+    private var generation = 0L
     val view: View = ComposeView(activity).apply {
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         setContent {
             AppTheme {
                 val current = model
-                WindowDialog(show = current != null, title = current?.title, onDismissRequest = { cancel.run() }) {
+                val renderGeneration = generation
+                val focusManager = LocalFocusManager.current
+                LaunchedEffect(showing) { if (!showing) focusManager.clearFocus(force = true) }
+                WindowDialog(show = showing, title = current?.title,
+                    modifier = Modifier.inactiveInteractionIsolation(!showing),
+                    onDismissRequest = { if (showing && generation == renderGeneration) cancel.run() },
+                    onDismissFinished = { if (!showing && generation == renderGeneration) model = null }) {
                     if (current != null) Column(Modifier.fillMaxWidth().heightIn(max = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .65f })
+                        .inactiveInteractionIsolation(!showing)
                         .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(current.current, fontSize = 14.sp, color = AppPalette.secondary())
-                        if (current.status.isNotEmpty()) Text(current.status, color = AppPalette.text(), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        Text(current.current, fontSize = 14.sp, color = AppPalette.secondary(), modifier = Modifier.testTag("update_dialog_current"))
+                        if (current.status.isNotEmpty()) Text(current.status, color = AppPalette.text(), modifier = Modifier.testTag("update_dialog_status").semantics { liveRegion = LiveRegionMode.Polite })
                         if (current.progress >= 0) LinearProgressIndicator(progress = if (current.indeterminate) null else current.progress / 100f, modifier = Modifier.fillMaxWidth())
                         Text(current.details, fontSize = 14.sp, color = AppPalette.secondary())
                         if (current.showReleaseNotes) {
@@ -178,8 +205,13 @@ class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) 
                             }
                         }
                         current.labels.forEachIndexed { index, label ->
-                            TextButton(label, { current.actions[index].run() }, Modifier.fillMaxWidth(), minHeight = 48.dp,
-                                colors = if (index == 0 && current.labels.size > 1) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+                            key(renderGeneration, index) {
+                                TextButton(label, {
+                                    if (showing && generation == renderGeneration) current.actions[index].run()
+                                }, Modifier.fillMaxWidth().testTag("update_dialog_action_$index"), minHeight = 48.dp,
+                                    enabled = showing && generation == renderGeneration,
+                                    colors = if (index == 0 && current.labels.size > 1) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+                            }
                         }
                     }
                 }
@@ -191,11 +223,13 @@ class UpdateDialogUi(activity: ComponentActivity, private val cancel: Runnable) 
         notesAdded: Array<String>, notesImproved: Array<String>, notesFixed: Array<String>,
         notesAddedTitle: String, notesImprovedTitle: String, notesFixedTitle: String, notesEmpty: String,
         labels: Array<String>, actions: Array<Runnable>) {
+        if (!showing) generation++
         model = Model(title, current, status, details, showReleaseNotes, notesAdded.toList(), notesImproved.toList(), notesFixed.toList(),
             notesAddedTitle, notesImprovedTitle, notesFixedTitle, notesEmpty, progress, indeterminate,
             labels.toList(), actions.toList())
+        showing = true
     }
-    fun dismiss() { model = null }
+    fun dismiss() { showing = false }
 }
 
 @Composable
