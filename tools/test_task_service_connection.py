@@ -84,6 +84,7 @@ f'{PACKAGE}/ITaskService.java': '''package top.zainzh.rearscreen; public interfa
  class Stub { public static ITaskService asInterface(android.os.IBinder b){return (ITaskService)b;} }
 }''',
 f'{PACKAGE}/TaskService.java': '''package top.zainzh.rearscreen; import android.os.*; import java.util.*; public class TaskService implements IBinder,ITaskService {
+ static final int USER_SERVICE_CONTRACT_VERSION=61;
  public boolean alive=true,failLink,moveSuccess=true; public volatile int moves,restores,disables; public int links,occupancyQueries; public String occupancy="test-fixture:focused-main-app"; public Runnable beforeTarget,beforeOccupancy; public final List<DeathRecipient> recipients=new ArrayList<>();
  public boolean isBinderAlive(){return alive;} public void linkToDeath(DeathRecipient r,int f) throws RemoteException {if(failLink)throw new RemoteException();recipients.add(r);links++;} public boolean unlinkToDeath(DeathRecipient r,int f){return recipients.remove(r);}
  public void die(){alive=false;for(DeathRecipient r:new ArrayList<>(recipients))r.binderDied();}
