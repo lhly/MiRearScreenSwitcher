@@ -18,7 +18,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final IBinder owner = new Binder();
     private volatile ITaskService service;
-    private SurfaceHolder holder;
+    private volatile SurfaceHolder holder;
     private SurfaceView output;
     private FrameLayout root;
     private RearCastViewport viewport;
@@ -35,6 +35,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private volatile boolean starting;
     private volatile boolean reconnecting;
     private volatile boolean powerSuspendedOutput;
+    private volatile boolean surfaceConfigured;
     private final VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate missingSurfacePresentationGate =
             new VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate();
     private int missingSurfaceLossEpoch;
@@ -247,7 +248,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private ISceneTaskActionGate recoveryGate(String id, int epoch, boolean waking) {
         return new VirtualCastRecoveryActionGate(() -> {
             if (!VirtualCastOutputRecoveryPolicy.allowRecoveryAction(starting && session != null, ending,
-                    instance == this, id != null && id.equals(session),
+                    !isFinishing() && instance == this, id != null && id.equals(session),
                     epoch == (waking ? screenOffCycleEpoch : recoveryActionEpoch),
                     waking, lockRecoveryRequested)) return false;
             android.view.Display display = getDisplay();
@@ -259,6 +260,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private ISceneTaskActionGate outputPowerGate(String id, int epoch, boolean available) {
         return new VirtualCastRecoveryActionGate(() -> {
             if (ending || !starting || instance != this || id == null || !id.equals(session)
+                    || isFinishing()
                     || epoch != outputPowerEpoch) return false;
             android.view.Display display = getDisplay();
             if (display == null) return false;
@@ -267,7 +269,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         });
     }
     private void onPrimaryDisplayAvailable(boolean actualResumeEdge) {
-        if (ending || !starting || session == null || !reconnecting) return;
+        if (ending || isFinishing() || !starting || session == null || !reconnecting) return;
         armOutputTimeout(actualResumeEdge);
         int rearState = getDisplay() == null ? android.view.Display.STATE_UNKNOWN : getDisplay().getState();
         if (rearState != android.view.Display.STATE_ON) {
@@ -277,10 +279,11 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         } else presentExistingHost();
     }
     private void onRearDisplaySuspended() {
-        if (ending || !starting || session == null || resizing) return;
+        if (ending || isFinishing() || !starting || session == null || resizing) return;
         reconnecting = true;
         powerSuspendedOutput = true;
-        missingSurfaceLossEpoch = missingSurfacePresentationGate.beginLoss();
+        missingSurfaceLossEpoch = missingSurfacePresentationGate.beginPowerCycleLoss();
+        missingSurfacePresentationGate.pauseDeadlineForPowerSuspension(missingSurfaceLossEpoch);
         outputGeneration++;
         outputPowerEpoch++;
         invalidateRecoveryActions();
@@ -290,50 +293,49 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         updateCameraGapBattery();
         String id = session;
         int epoch = outputPowerEpoch;
+        int generation = outputGeneration;
         worker.execute(() -> {
             try {
-                if (!ending && id.equals(session) && service != null) {
+                if (isCurrentOutputPowerRequest(id, generation, epoch) && service != null) {
                     String result = service.setRearVirtualCastOutputAvailable(id, false, null,
                             outputPowerGate(id, epoch, false));
                     android.util.Log.i("VirtualRearHost", "Rear sleep output pause session=" + id + " result=" + result);
                 }
-            } catch (Exception e) { fail(e); }
+            } catch (Exception e) {
+                main.post(() -> { if (isCurrentOutputPowerRequest(id, generation, epoch)) fail(e); });
+            }
         });
     }
     private void onRearDisplayResumed(boolean actualResumeEdge) {
-        if (!reconnecting || ending) return;
+        if (!reconnecting || ending || isFinishing()) return;
+        armOutputTimeout(actualResumeEdge);
         outputPowerEpoch++;
         String id = session;
-        Surface surface = holder == null ? null : holder.getSurface();
+        Surface surface = holder == null || !surfaceConfigured ? null : holder.getSurface();
         boolean surfaceValid = surface != null && surface.isValid();
         int rearState = getDisplay() == null ? android.view.Display.STATE_UNKNOWN : getDisplay().getState();
         final int generation = outputGeneration;
         final int epoch = outputPowerEpoch;
+        final int lossEpoch = missingSurfaceLossEpoch;
         VirtualCastOutputRecoveryPolicy.dispatchRearResume(starting && id != null, ending, reconnecting,
                 powerSuspendedOutput, surfaceValid, rearState,
                 new VirtualCastOutputRecoveryPolicy.RearResumeEffects() {
                     @Override public void reattachOutputSurface() {
                         worker.execute(() -> {
                             try {
-                                if (ending || !id.equals(session) || generation != outputGeneration || service == null) return;
-                                String result = service.setRearVirtualCastOutputAvailable(id, true, surface,
+                                if (!isCurrentSurfaceRecovery(id, generation, lossEpoch, surface)) return;
+                                ITaskService remote = service;
+                                if (remote == null) return;
+                                String result = remote.setRearVirtualCastOutputAvailable(id, true, surface,
                                         outputPowerGate(id, epoch, true));
                                 if (!VirtualCastOutputRecoveryPolicy.isOutputAvailableResult(result)) {
                                     android.util.Log.i("VirtualRearHost", "Rear resume remains pending session=" + id + " result=" + result);
                                     return;
                                 }
-                                main.post(() -> {
-                                    if (ending || !id.equals(session) || generation != outputGeneration) return;
-                                    powerSuspendedOutput = false;
-                                    reconnecting = false;
-                                    missingSurfacePresentationGate.invalidate();
-                                    main.removeCallbacks(outputTimeout);
-                                    invalidateRecoveryActions();
-                                    updateCameraGapBattery();
-                                    android.util.Log.i("VirtualRearHost", "Rear display resumed; existing Surface reattached session=" + id);
-                                    presentExistingHost();
-                                });
-                            } catch (Exception e) { fail(e); }
+                                main.post(() -> commitCurrentSurfaceRecovery(id, generation, lossEpoch, surface));
+                            } catch (Exception e) {
+                                main.post(() -> { if (isCurrentSurfaceRecovery(id, generation, lossEpoch, surface)) fail(e); });
+                            }
                         });
                     }
 
@@ -344,13 +346,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
 
                     @Override public void presentOwnedHost() {
                         if (surfaceValid) {
-                            main.removeCallbacks(outputTimeout);
-                            reconnecting = false;
-                            powerSuspendedOutput = false;
-                            missingSurfacePresentationGate.invalidate();
-                            updateCameraGapBattery();
-                            android.util.Log.i("VirtualRearHost", "Rear display resumed; owned session=" + id);
-                            presentExistingHost();
+                            submitSurfaceRecovery(id, surface, generation, lossEpoch);
                         } else {
                             int attempt = requestOwnedHostForMissingSurface();
                             if (attempt != 0) presentExistingHost(missingSurfaceLossEpoch, attempt);
@@ -368,7 +364,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 });
     }
     private int requestOwnedHostForMissingSurface() {
-        if (ending || !reconnecting || session == null) return 0;
+        if (ending || isFinishing() || !reconnecting || session == null) return 0;
         int attempt = missingSurfacePresentationGate.beginAttempt(missingSurfaceLossEpoch);
         if (attempt == 0) return 0;
         android.util.Log.i("VirtualRearHost", "Presenting owned host to restore missing Surface session=" + session);
@@ -380,7 +376,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     private void presentExistingHost(int lossEpoch, int attempt) {
         String id = session;
         int epoch = recoveryActionEpoch;
-        if (id == null || ending) return;
+        if (id == null || ending || isFinishing()) return;
         int host = getTaskId();
         worker.execute(() -> {
             try {
@@ -394,7 +390,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                         : new VirtualCastRecoveryActionGate(() -> {
                             android.view.Display display = getDisplay();
                             return missingSurfacePresentationGate.isCurrent(lossEpoch, attempt,
-                                    starting && session != null, ending, instance == this,
+                                    starting && session != null && !isFinishing(), ending, instance == this,
                                     id.equals(session), reconnecting,
                                     display != null && display.getState() == android.view.Display.STATE_ON);
                         });
@@ -409,7 +405,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         });
     }
     private void requestLockRecovery(long delay) {
-        if (ending || !VirtualCastOutputRecoveryPolicy.shouldScheduleWakeForPowerCycle(lockRecoveryRequested)) return;
+        if (ending || isFinishing() || !VirtualCastOutputRecoveryPolicy.shouldScheduleWakeForPowerCycle(lockRecoveryRequested)) return;
         lockRecoveryRequested = true;
         wakeAttempted = false;
         invalidateRecoveryActions();
@@ -417,7 +413,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     private final Runnable wakeRearAfterMainLock = this::wakeRearOnce;
     private void wakeRearOnce() {
-        if (ending || !starting || session == null || !lockRecoveryRequested || wakeAttempted) return;
+        if (ending || isFinishing() || !starting || session == null || !lockRecoveryRequested || wakeAttempted) return;
         wakeAttempted = true;
         String id = session;
         int host = getTaskId();
@@ -448,8 +444,9 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 primaryInteractive = false;
                 VirtualCastOutputRecoveryPolicy.PrimaryScreenOffDecision decision =
                         VirtualCastOutputRecoveryPolicy.onPrimaryScreenOff(missingSurfacePresentationGate,
-                                lockRecoveryRequested, wasPrimaryInteractive);
+                                lockRecoveryRequested, wasPrimaryInteractive, reconnecting);
                 missingSurfaceLossEpoch = decision.lossEpoch;
+                missingSurfacePresentationGate.pauseDeadlineForPowerSuspension(missingSurfaceLossEpoch);
                 main.removeCallbacks(outputTimeout);
                 invalidateRecoveryActions();
                 if (decision.newPrimaryCycle) screenOffCycleEpoch++;
@@ -654,45 +651,94 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         updateCameraGapBattery();
         if (resizing) maybeFinishViewport(); else maybeStart();
     }
-    public void surfaceCreated(SurfaceHolder value) { holder = value; }
+    private boolean isCurrentRecoveryEpoch(String id, int generation, int lossEpoch) {
+        return VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(
+                starting && session != null && !ending && !isFinishing(), instance == this,
+                id != null && id.equals(session),
+                reconnecting, generation, outputGeneration, true,
+                missingSurfacePresentationGate.isEpisodeCurrent(lossEpoch));
+    }
+    private boolean isCurrentOutputPowerRequest(String id, int generation, int powerEpoch) {
+        return !ending && !isFinishing() && starting && instance == this && id != null && id.equals(session)
+                && reconnecting && generation == outputGeneration && powerEpoch == outputPowerEpoch;
+    }
+    private boolean isCurrentSurfaceRecovery(String id, int generation, int lossEpoch, Surface surface) {
+        SurfaceHolder currentHolder = holder;
+        Surface currentSurface = currentHolder == null ? null : currentHolder.getSurface();
+        return VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(
+                starting && session != null, !ending && !isFinishing() && instance == this,
+                id != null && id.equals(session), reconnecting, generation, outputGeneration,
+                surfaceConfigured && surface != null && currentSurface == surface,
+                missingSurfacePresentationGate.isEpisodeCurrent(lossEpoch));
+    }
+    private void commitCurrentSurfaceRecovery(String id, int generation, int lossEpoch, Surface surface) {
+        if (!VirtualCastOutputRecoveryPolicy.canCommitSurfaceRecovery(true,
+                starting && session != null, !ending && !isFinishing() && instance == this,
+                id != null && id.equals(session), reconnecting, generation, outputGeneration,
+                surfaceConfigured && surface != null && surface.isValid()
+                        && holder != null && holder.getSurface() == surface,
+                missingSurfacePresentationGate.isEpisodeCurrent(lossEpoch))
+                || !missingSurfacePresentationGate.commitRecovery(lossEpoch)) return;
+        reconnecting = false;
+        powerSuspendedOutput = false;
+        main.removeCallbacks(outputTimeout);
+        invalidateRecoveryActions();
+        updateCameraGapBattery();
+        android.util.Log.i("VirtualRearHost", "Rear output recovery backend commit accepted session=" + id);
+        presentExistingHost();
+    }
+    private void submitSurfaceRecovery(String id, Surface surface, int generation, int lossEpoch) {
+        worker.execute(() -> {
+            try {
+                if (!isCurrentSurfaceRecovery(id, generation, lossEpoch, surface)) return;
+                ITaskService remote = service;
+                if (remote == null) throw new IllegalStateException("Control service disconnected");
+                boolean accepted = remote.updateRearVirtualCastSurface(id, surface);
+                main.post(() -> {
+                    if (!isCurrentSurfaceRecovery(id, generation, lossEpoch, surface)) return;
+                    if (!accepted) {
+                        fail(new IllegalStateException("Rear output session ended"));
+                        return;
+                    }
+                    commitCurrentSurfaceRecovery(id, generation, lossEpoch, surface);
+                });
+            } catch (Exception e) {
+                main.post(() -> { if (isCurrentSurfaceRecovery(id, generation, lossEpoch, surface)) fail(e); });
+            }
+        });
+    }
+    public void surfaceCreated(SurfaceHolder value) {
+        if (starting && holder != value) outputGeneration++;
+        surfaceConfigured = false;
+        holder = value;
+    }
     public void surfaceChanged(SurfaceHolder value, int format, int w, int h) {
         android.util.Log.i("VirtualRearHost", "Surface " + w + "x" + h + " starting=" + starting);
         if (starting && !resizing && (width != w || height != h)) { fail(new IllegalStateException("Rear Surface resized; restart casting")); return; }
-        holder = value; width = w; height = h;
+        if (starting) outputGeneration++;
+        Surface surface = value.getSurface();
+        holder = value; surfaceConfigured = true; width = w; height = h;
         if (resizing) { layoutViewport(); return; }
-        if (starting && reconnecting) {
+        if (starting && reconnecting && !ending && !isFinishing()) {
             if (VirtualCastOutputPowerGate.deferSurfaceChangeWhilePowerSuspended(powerSuspendedOutput)) {
                 android.view.Display rear = getDisplay();
                 if (rear != null && rear.getState() == android.view.Display.STATE_ON)
                     main.post(() -> VirtualRearHostActivity.this.onRearDisplayResumed(false));
                 return; // The gated ON transaction uses this latest Surface, never stale Backend state.
             }
-            Surface surface = value.getSurface(); int generation = outputGeneration;
-            worker.execute(() -> {
-                try {
-                    if (ending || generation != outputGeneration) return;
-                    if (service == null || session == null || !service.updateRearVirtualCastSurface(session, surface))
-                        throw new IllegalStateException("Rear output session ended");
-                    main.post(() -> {
-                        if (generation == outputGeneration && !ending) {
-                            reconnecting = false; powerSuspendedOutput = false; main.removeCallbacks(outputTimeout);
-                            missingSurfacePresentationGate.invalidate();
-                            invalidateRecoveryActions();
-                            updateCameraGapBattery();
-                            presentExistingHost();
-                        }
-                    });
-                } catch (Exception e) { fail(e); }
-            });
+            String id = session;
+            int generation = outputGeneration;
+            int lossEpoch = missingSurfaceLossEpoch;
+            submitSurfaceRecovery(id, surface, generation, lossEpoch);
         } else maybeStart();
     }
     public void surfaceDestroyed(SurfaceHolder value) {
-        holder = null; outputGeneration++; main.removeCallbacks(startAfterLayout);
+        holder = null; surfaceConfigured = false; outputGeneration++; main.removeCallbacks(startAfterLayout);
         missingSurfaceLossEpoch = missingSurfacePresentationGate.beginLoss();
         updateCameraGapBattery();
         clearFeedback();
         menuVisible = false; if (castMenu != null) castMenu.show(false);
-        if (!starting || ending) return;
+        if (!starting || ending || isFinishing()) return;
         if (resizing) { fail(new IllegalStateException("Rear output lost during viewport change")); return; }
         boolean mainLocked = getSystemService(android.app.KeyguardManager.class).isKeyguardLocked()
                 || !getSystemService(PowerManager.class).isInteractive();
@@ -701,18 +747,31 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
                 + " session=" + session);
         PowerManager power = getSystemService(PowerManager.class);
         boolean interactive = power != null && power.isInteractive();
-        if (!VirtualCastOutputRecoveryPolicy.waitForDisplayResume(mainLocked, interactive, rearState)) { finish(); return; }
+        boolean waitingForDisplay = VirtualCastOutputRecoveryPolicy.waitForDisplayResume(mainLocked, interactive, rearState);
         reconnecting = true;
+        String lostSession = session;
+        int lostGeneration = outputGeneration;
+        int lossEpoch = missingSurfaceLossEpoch;
         invalidateRecoveryActions();
-        main.removeCallbacks(outputTimeout);
-        if (!mainLocked && rearState == android.view.Display.STATE_ON) armOutputTimeout(false);
+        if (rearState == android.view.Display.STATE_ON) armOutputTimeout(false);
         worker.execute(() -> {
             try {
-                if (!ending && service != null && session != null && !service.updateRearVirtualCastSurface(session, null))
+                if (!ending && isCurrentRecoveryEpoch(lostSession, lostGeneration, lossEpoch)
+                        && service != null && !service.updateRearVirtualCastSurface(lostSession, null))
                     throw new IllegalStateException("Rear output session ended");
-            } catch (Exception e) { fail(e); }
+            } catch (Exception e) {
+                main.post(() -> { if (isCurrentRecoveryEpoch(lostSession, lostGeneration, lossEpoch)) fail(e); });
+            }
         });
-        requestLockRecovery(150);
+        if (!waitingForDisplay) {
+            main.post(() -> {
+                if (!ending && starting && instance == this && reconnecting
+                        && lostSession != null && lostSession.equals(session)
+                        && lossEpoch == missingSurfaceLossEpoch) onRearDisplayResumed(false);
+            });
+        } else {
+            requestLockRecovery(150);
+        }
     }
     private void maybeStart() {
         main.removeCallbacks(startAfterLayout);
@@ -752,6 +811,8 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
         });
     }
     private void fail(Exception e) {
+        if (ending || isFinishing()) return;
+        ending = true;
         android.util.Log.e("VirtualRearHost", "Virtual casting stopped", e);
         main.post(this::finish);
     }
@@ -786,7 +847,7 @@ public final class VirtualRearHostActivity extends androidx.activity.ComponentAc
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent.getBooleanExtra("stop", false)) finish();
+        if (intent.getBooleanExtra("stop", false)) { finish(); return; }
         // DUMP-protected software visual/button QA only; does not simulate the native hold/grab chain.
         if (BuildConfig.DEBUG && session != null && !ending && !reconnecting) {
             if (intent.getBooleanExtra("preview_menu", false)) {

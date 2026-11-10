@@ -31,7 +31,7 @@ public class RearAnimationManager {
     }
     
     static final String EXTRA_SESSION_ID = "rearAnimationSessionId";
-    private static final Object DISPLAY_ACTION_LOCK = new Object();
+    private static final DisplayActionGate DISPLAY_ACTION_GATE = new DisplayActionGate();
     private static long generation = System.nanoTime();
     private static volatile AnimationType currentAnimation = AnimationType.NONE;
     private static Session currentSession = new Session(generation, AnimationType.NONE, AnimationType.NONE, -1);
@@ -41,10 +41,15 @@ public class RearAnimationManager {
     static final class Session {
         final long id;
         final AnimationType type, previous;
+        final long replacedSessionId;
         volatile int rearTaskId;
         volatile int animationActivityTaskId = -1;
         Session(long id, AnimationType type, AnimationType previous, int rearTaskId) {
+            this(id, type, previous, rearTaskId, Long.MIN_VALUE);
+        }
+        Session(long id, AnimationType type, AnimationType previous, int rearTaskId, long replacedSessionId) {
             this.id = id; this.type = type; this.previous = previous; this.rearTaskId = rearTaskId;
+            this.replacedSessionId = replacedSessionId;
         }
     }
 
@@ -53,7 +58,8 @@ public class RearAnimationManager {
         Session previousSession = currentSession;
         boolean replacesAnimation = currentAnimation != AnimationType.NONE;
         int inheritedRearTaskId = replacesAnimation ? previousSession.rearTaskId : -1;
-        Session session = new Session(++generation, type, currentAnimation, inheritedRearTaskId);
+        Session session = new Session(++generation, type, currentAnimation, inheritedRearTaskId,
+                replacesAnimation ? previousSession.id : Long.MIN_VALUE);
         currentSession = session;
         currentAnimation = type;
         if (type == AnimationType.CHARGING) interruptedChargingWasAlwaysOn = false;
@@ -69,6 +75,20 @@ public class RearAnimationManager {
     static synchronized Session beginOwnedNotificationIfIdle() {
         if (currentAnimation != AnimationType.NONE) return null;
         return beginAnimation(AnimationType.NOTIFICATION);
+    }
+
+    /** Replaces the exact live charge owner without ending its Scene restoration lease. */
+    static synchronized Session beginPersistentNotificationDuringCharging(long chargeSessionId, int rearTaskId) {
+        if (!PersistentNotificationChargeGate.canTransfer(
+                currentAnimation == AnimationType.CHARGING, currentSession.id, chargeSessionId)) return null;
+        Session session = beginAnimation(AnimationType.NOTIFICATION);
+        if (rearTaskId > 0) session.rearTaskId = rearTaskId;
+        return session;
+    }
+
+    /** Returns the actual current charging owner; the persistent-notice lease decides whether it covers a notice. */
+    static synchronized long currentChargingSessionId() {
+        return currentAnimation == AnimationType.CHARGING ? currentSession.id : Long.MIN_VALUE;
     }
 
     public static synchronized AnimationType startAnimation(AnimationType type) {
@@ -137,7 +157,11 @@ public class RearAnimationManager {
 
     // 串行化动画恢复与显式投放的前台变更；主线程领取新会话不等待Binder调用。
     static void runDisplayAction(Runnable action) {
-        synchronized (DISPLAY_ACTION_LOCK) { action.run(); }
+        DISPLAY_ACTION_GATE.run(action);
+    }
+
+    static <T> T callDisplayAction(java.util.concurrent.Callable<T> action) throws Exception {
+        return DISPLAY_ACTION_GATE.call(action);
     }
 
     /**

@@ -9,6 +9,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 import org.json.JSONObject;
+import top.zainzh.rearscreen.platform.LegacyDisplayOccupancy;
 
 /** Shared magnet switch/return flow for the selected virtual/direct mode. */
 final class VirtualCastUriFlow {
@@ -125,7 +126,20 @@ final class VirtualCastUriFlow {
     private static boolean stop(Context context, ITaskService remote, Uri uri, JSONObject state) throws Exception {
         if (!("running".equals(state.optString("state")) || "starting".equals(state.optString("state")))) {
             String physicalTask = RearScreenKeeperService.physicalCastTask();
-            if (physicalTask != null) return stopDirect(context, remote, uri, physicalTask);
+            boolean keeperOwnsTask = physicalTask != null;
+            long ownerGeneration = keeperOwnsTask ? RearScreenKeeperService.physicalCastOwnerGeneration() : 0L;
+            if (physicalTask == null)
+                physicalTask = LegacyDisplayOccupancy.physicalProjectionTask(context, remote, RearDisplay.requireId());
+            if (physicalTask != null) {
+                String[] parts = physicalTask.split(":", 2);
+                int taskId = parts.length == 2 ? Integer.parseInt(parts[1]) : -1;
+                if (ownerGeneration <= 0L && taskId > 0)
+                    ownerGeneration = LegacyDisplayOccupancy.physicalProjectionGeneration(context, taskId, RearDisplay.requireId());
+                boolean launcherDisabled = taskId > 0 && (keeperOwnsTask ||
+                        LegacyDisplayOccupancy.physicalProjectionLauncherDisabled(
+                                context, taskId, RearDisplay.requireId()));
+                return stopDirect(context, remote, uri, physicalTask, keeperOwnsTask, launcherDisabled, ownerGeneration);
+            }
             String rear = remote.getForegroundAppOnDisplay(RearDisplay.requireId());
             if (rear != null && !rear.startsWith("com.xiaomi.subscreencenter:") && !rear.startsWith(context.getPackageName() + ":")) return false;
             Log.i(TAG, "return_noop");
@@ -152,7 +166,8 @@ final class VirtualCastUriFlow {
         toast(context, "投放已停止，应用已返回主屏");
         return true;
     }
-    private static boolean stopDirect(Context context, ITaskService remote, Uri uri, String physicalTask) throws Exception {
+    private static boolean stopDirect(Context context, ITaskService remote, Uri uri, String physicalTask,
+                                      boolean keeperOwnsTask, boolean launcherDisabled, long ownerGeneration) throws Exception {
         String[] parts = physicalTask.split(":");
         if (parts.length != 2) throw new IllegalStateException("直接投放任务信息无效");
         String pkg = parts[0]; int task = Integer.parseInt(parts[1]);
@@ -161,12 +176,43 @@ final class VirtualCastUriFlow {
             Log.i(TAG, "return_direct_ignored selector_mismatch task=" + task);
             return true;
         }
-        // A temporary rear wake Activity can be foreground immediately after start. Restore the cast's task.
-        if (remote.isTaskOnDisplay(task, RearDisplay.requireId()) && !remote.moveTaskToDisplay(task, 0))
+        PhysicalCastReturnFlow.Result result = PhysicalCastReturnFlow.stop(physicalTask, keeperOwnsTask,
+                launcherDisabled, ownerGeneration, new PhysicalCastReturnFlow.Port() {
+                    @Override public boolean isExactTaskOnRear(int taskId, String packageName) throws Exception {
+                        return remote.isTaskOnDisplay(taskId, RearDisplay.requireId())
+                                && packageName.equals(remote.getPackageNameFromTaskId(taskId));
+                    }
+                    @Override public boolean moveExactTaskToMain(int taskId) throws Exception {
+                        return remote.moveTaskToDisplay(taskId, 0);
+                    }
+                    @Override public boolean mayRestoreLauncher() {
+                        try {
+                            JSONObject latest = new JSONObject(remote.getRearVirtualCastStatus());
+                            String latestState = latest.optString("state", "unknown");
+                            if (!("idle".equals(latestState) || "stopped".equals(latestState))) return false;
+                            RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                                    remote, context.getPackageName(), RearDisplay.requireId());
+                            return occupancy.disposition != RearDisplayCastOccupancy.OwnerDisposition.UNKNOWN
+                                    && occupancy.disposition != RearDisplayCastOccupancy.OwnerDisposition.CORE_SCENE;
+                        } catch (Exception unavailable) { return false; }
+                    }
+                    @Override public boolean restoreLauncher() throws Exception {
+                        return remote.restoreSubScreenLauncherOnly();
+                    }
+                    @Override public boolean stopKeeperForExactTask(String exactTask, long generation) {
+                        return RearScreenKeeperService.stopPhysicalSession(exactTask, generation);
+                    }
+                    @Override public void clearExactOwnership(int taskId, long generation) {
+                        LegacyDisplayOccupancy.clearPhysicalProjection(context, taskId, RearDisplay.requireId(), generation);
+                    }
+                });
+        if (result == PhysicalCastReturnFlow.Result.MOVE_FAILED)
             throw new IllegalStateException("直接投放任务未能返回主屏");
-        remote.enableSubScreenLauncher();
-        context.stopService(new android.content.Intent(context, RearScreenKeeperService.class));
-        Log.i(TAG, "return_direct_stopped task=" + task);
+        if (result == PhysicalCastReturnFlow.Result.RESTORE_FAILED)
+            throw new IllegalStateException("任务已返回主屏；背屏启动器恢复失败，请稍后重试");
+        if (result == PhysicalCastReturnFlow.Result.STOP_FAILED)
+            throw new IllegalStateException("任务已返回主屏，但投放服务仍在清理；请稍后重试");
+        Log.i(TAG, "return_direct_stopped task=" + task + " result=" + result);
         toast(context, "投放已停止，应用已返回主屏");
         return true;
     }

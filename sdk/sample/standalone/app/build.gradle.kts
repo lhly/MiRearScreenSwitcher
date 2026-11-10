@@ -43,6 +43,6 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/platform-sdk-release.aar"))
+    implementation(files("libs/platform-sdk-0.4.0.aar"))
     testImplementation("junit:junit:4.13.2")
 }

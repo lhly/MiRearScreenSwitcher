@@ -40,6 +40,10 @@ import android.os.RemoteException;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import top.zainzh.rearscreen.platform.LegacyDisplayOccupancy;
 
 /**
  * 前台Service - 保持背屏常亮
@@ -62,12 +66,53 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private volatile boolean taskServiceReleased;
     private volatile ITaskService taskService = null;
     private volatile String virtualSessionId;
+    private volatile int latestServiceStartId;
+    private volatile long physicalCastOwnerGeneration;
+    private volatile PhysicalStopRequest physicalStopRequest;
+
+    private static final class PhysicalStopRequest {
+        final String task;
+        final long ownerGeneration;
+        final CountDownLatch destroyed = new CountDownLatch(1);
+        final AtomicBoolean stopped = new AtomicBoolean(false);
+        PhysicalStopRequest(String task, long ownerGeneration) {
+            this.task = task; this.ownerGeneration = ownerGeneration;
+        }
+    }
     static boolean isPhysicalCastRunning() {
         return physicalCastTask() != null;
     }
     static String physicalCastTask() {
         RearScreenKeeperService s = instance;
         return s != null && s.virtualSessionId == null ? s.monitoredTaskInfo : null;
+    }
+    static long physicalCastOwnerGeneration() {
+        RearScreenKeeperService s = instance;
+        return s != null && s.virtualSessionId == null ? s.physicalCastOwnerGeneration : 0L;
+    }
+    static boolean stopPhysicalSession(String exactTask, long ownerGeneration) {
+        RearScreenKeeperService s = instance;
+        if (s == null || exactTask == null || ownerGeneration <= 0L || s.handler == null) return false;
+        PhysicalStopRequest request = new PhysicalStopRequest(exactTask, ownerGeneration);
+        if (!s.handler.post(() -> {
+            PhysicalKeeperStopPolicy.Decision decision = PhysicalKeeperStopPolicy.decide(
+                    exactTask, ownerGeneration, s.monitoredTaskInfo, s.physicalCastOwnerGeneration,
+                    s.latestServiceStartId, s.virtualSessionId == null, true);
+            if (instance != s || !decision.allowed) {
+                request.destroyed.countDown();
+                return;
+            }
+            s.physicalStopRequest = request;
+            if (!s.stopSelfResult(decision.latestStartId)) {
+                if (s.physicalStopRequest == request) s.physicalStopRequest = null;
+                request.destroyed.countDown();
+            }
+        })) return false;
+        try { return request.destroyed.await(5000, TimeUnit.MILLISECONDS) && request.stopped.get(); }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
     public static void stopVirtualSession(String id) {
         RearScreenKeeperService s = instance;
@@ -197,11 +242,24 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        latestServiceStartId = startId;
         boolean firstStartCommand = !startCommandProcessed;
         startCommandProcessed = true;
         String requestedSession = intent == null ? null : intent.getStringExtra(VirtualCastUriFlow.EXTRA_SESSION);
         boolean startsProjection = intent != null && VirtualCastRequest.startsProjection(
                 intent.getAction(), intent.getStringExtra("lastMovedTask"), requestedSession);
+        String physicalTaskRequest = startsProjection && requestedSession == null
+                ? intent.getStringExtra("lastMovedTask") : null;
+        long requestedOwnerGeneration = physicalTaskRequest == null ? 0L
+                : intent.getLongExtra("physicalCastOwnerGeneration", 0L);
+        if (physicalTaskRequest != null && requestedOwnerGeneration <= 0L) {
+            int taskId = taskIdFrom(physicalTaskRequest);
+            if (taskId > 0)
+                requestedOwnerGeneration = LegacyDisplayOccupancy.physicalProjectionGeneration(
+                        this, taskId, RearDisplay.requireId());
+        }
+        physicalCastOwnerGeneration = PhysicalKeeperStopPolicy.ownerGenerationAfterServiceStart(
+                physicalCastOwnerGeneration, physicalTaskRequest, requestedOwnerGeneration, startId);
         if (startsProjection) {
             // A new cast must not inherit a module's queued resume or an old animation's pause.
             clearModuleLeaseSnapshot();
@@ -342,6 +400,9 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                 String newMonitoredTask = intent.getStringExtra("lastMovedTask");
                 if (newMonitoredTask != null) {
                     monitoredTaskInfo = newMonitoredTask;
+                    PhysicalStopRequest pending = physicalStopRequest;
+                    if (pending != null && (!pending.task.equals(newMonitoredTask)
+                            || pending.ownerGeneration != physicalCastOwnerGeneration)) physicalStopRequest = null;
                     startInputProxy();
                 }
             }
@@ -593,6 +654,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         stopInputProxy();
         super.onDestroy();
         if (virtualSessionId != null) {
+            PhysicalStopRequest pendingStop = physicalStopRequest;
+            if (pendingStop != null) {
+                physicalStopRequest = null;
+                pendingStop.destroyed.countDown();
+            }
             String id = virtualSessionId;
             ITaskService remote = taskService;
             stopForeground(Service.STOP_FOREGROUND_REMOVE);
@@ -618,25 +684,24 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
             handler.removeCallbacksAndMessages(null);
         }
 
-        // A module lease owns restoration. A stale Keeper must not cover it with the official Launcher.
-        boolean moduleOwnsDisplay = hasExclusiveDisplayLease();
-        // V12.2: 恢复并主动唤醒Launcher
-        if (taskService != null && !moduleOwnsDisplay) {
+        PhysicalStopRequest returnRequest = physicalStopRequest;
+        boolean explicitPhysicalReturn = returnRequest != null
+                && returnRequest.task.equals(monitoredTaskInfo)
+                && returnRequest.ownerGeneration == physicalCastOwnerGeneration;
+        boolean launcherRestored = false;
+        // An explicit return has already made (or deliberately declined) the owner-gated decision.
+        // Never issue a second unguarded global restore while this same Keeper is destroyed.
+        if (taskService != null && !explicitPhysicalReturn && mayRestoreLauncherOnNaturalExit()) {
             try {
-
-                // 1. 恢复Launcher（unsuspend）
-                taskService.enableSubScreenLauncher();
-
-                // 2. 短暂延迟，确保unsuspend生效
+                launcherRestored = taskService.restoreSubScreenLauncherOnly();
                 Thread.sleep(300);
-
-                // 3. 主动启动Launcher的Activity来唤醒它
-
             } catch (Exception e) {
                 Log.w(TAG, "Failed to restore launcher", e);
             }
-        } else if (moduleOwnsDisplay) {
-            Log.i(TAG, "module lease owns rear display; skip legacy launcher restore");
+        } else if (explicitPhysicalReturn) {
+            Log.i(TAG, "explicit physical return owns launcher decision; skip teardown restore");
+        } else {
+            Log.i(TAG, "current rear owner prevents natural Keeper launcher restore");
         }
 
         // 解绑TaskService
@@ -650,8 +715,40 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
         // 注销接近传感器
         unregisterProximitySensor();
 
+        if (!explicitPhysicalReturn && launcherRestored && physicalCastOwnerGeneration > 0L) {
+            LegacyDisplayOccupancy.clearPhysicalProjection(this, taskIdFrom(monitoredTaskInfo),
+                    RearDisplay.requireId(), physicalCastOwnerGeneration);
+        }
+        if (explicitPhysicalReturn) {
+            returnRequest.stopped.set(true);
+            returnRequest.destroyed.countDown();
+            if (physicalStopRequest == returnRequest) physicalStopRequest = null;
+        }
         instance = null;
         Log.w(TAG, "═══════════════════════════════════════");
+    }
+
+    private boolean mayRestoreLauncherOnNaturalExit() {
+        if (virtualSessionId != null || hasExclusiveDisplayLease() || taskService == null) return false;
+        try {
+            org.json.JSONObject state = new org.json.JSONObject(taskService.getRearVirtualCastStatus());
+            String castState = state.optString("state", "unknown");
+            boolean virtualActive = "running".equals(castState) || "starting".equals(castState);
+            RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                    taskService, getPackageName(), RearDisplay.requireId());
+            return PhysicalKeeperStopPolicy.mayRestoreOnNaturalExit(false, false, virtualActive,
+                    occupancy.disposition);
+        } catch (Exception unknownOwner) {
+            return false;
+        }
+    }
+
+    private static int taskIdFrom(String packageTask) {
+        if (packageTask == null) return -1;
+        int separator = packageTask.lastIndexOf(':');
+        if (separator < 0) return -1;
+        try { return Integer.parseInt(packageTask.substring(separator + 1)); }
+        catch (NumberFormatException invalid) { return -1; }
     }
 
     @Override

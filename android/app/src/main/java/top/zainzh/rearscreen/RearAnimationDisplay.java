@@ -7,6 +7,8 @@ import java.util.regex.Pattern;
 
 /** 充电和通知的短时背屏显示，不停止官方进程或修改系统息屏设置。 */
 final class RearAnimationDisplay {
+    static final String EXTRA_LOCKED_REAR_PLACEMENT = "lockedRearPlacement";
+
     static void prepare(ITaskService service, RearAnimationManager.Session session, String ownPackage) throws Exception {
         String foreground = service.getForegroundAppOnDisplay(RearDisplay.requireId());
         if (foreground != null && (!foreground.startsWith(ownPackage + ":") || RearInfoSession.owns(foreground, ownPackage)
@@ -53,6 +55,27 @@ final class RearAnimationDisplay {
         }
         observation.accept("lastTask=" + lastMatchingTask + ",foreground=" + lastForeground + ",display=" + display);
         return false;
+    }
+
+    /**
+     * HyperOS can reject a direct rear-display Activity start while the primary keyguard is
+     * showing. Start our existing content-hidden placeholder on display 0, then move that exact
+     * task to the rear display. The Activity never requests a screen wake from its window; only
+     * the existing explicit rear-display wake is used.
+     */
+    static int startLockedPlaceholder(ITaskService service, String component, String command,
+                                         int rearDisplay, BooleanSupplier current) throws Exception {
+        return LockedNotificationTaskFlow.startAndMove(new LockedNotificationTaskFlow.Tasks() {
+            @Override public boolean start(String value) throws Exception { return service.executeShellCommand(value); }
+            @Override public String list() throws Exception { return service.executeShellCommandWithResult("am stack list"); }
+            @Override public boolean isOnDisplay(int taskId, int displayId) throws Exception {
+                return service.isTaskOnDisplay(taskId, displayId);
+            }
+            @Override public boolean moveToDisplay(int taskId, int displayId) throws Exception {
+                return service.moveTaskToDisplay(taskId, displayId);
+            }
+            @Override public void sleep(long millis) throws InterruptedException { Thread.sleep(millis); }
+        }, component, command, rearDisplay, current);
     }
 
     static String quote(String value) { return PrivilegedShellArguments.quote(value); }

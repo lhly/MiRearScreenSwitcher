@@ -23,6 +23,8 @@ final class NativePreferences {
         BOOLEAN_DEFAULTS.put("notification_follow_dnd_mode", true);
         BOOLEAN_DEFAULTS.put("notification_only_when_locked", false);
         BOOLEAN_DEFAULTS.put("notification_dark_mode", false);
+        BOOLEAN_DEFAULTS.put("notification_never_auto_close", false);
+        BOOLEAN_DEFAULTS.put("notification_dismiss_only", false);
     }
 
     NativePreferences(Context context) {
@@ -60,6 +62,9 @@ final class NativePreferences {
         int duration = value instanceof Number ? ((Number) value).intValue() : 10;
         return Math.max(1, duration);
     }
+
+    boolean isNotificationNeverAutoClose() { return getBoolean("notification_never_auto_close"); }
+    boolean isNotificationDismissOnly() { return getBoolean("notification_dismiss_only"); }
 
     void putDuration(int seconds) {
         settings.edit().putInt("notification_duration", seconds).apply();

@@ -20,7 +20,8 @@ SDK_VERSION_FILE = Path("sdk/android/version.properties")
 HOST_VERSION_FILE = Path("version.properties")
 HOST_SERVICE_SOURCE = Path("android/app/src/main/java/top/zainzh/rearscreen/TaskService.java")
 SDK_BUILD_FILE = Path("sdk/android/build.gradle.kts")
-SDK_AAR = "platform-sdk-release.aar"
+BUILD_SDK_AAR = "platform-sdk-release.aar"
+SDK_AAR_PREFIX = "platform-sdk-"
 CONTRACT = "remrss.platform/1"
 CAPABILITIES = [
     {"name": "rear.scene", "version": 1},
@@ -245,6 +246,7 @@ def _prepare_destination(destination: Path, repo: Path) -> None:
     ignored_roots = (
         repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/delivery",
         repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/host-sdk/delivery",
+        repo / ".planning/2026-11-05-platform-implementation/rc4-owned-notifications/sdk-delivery/output",
     )
     if _resolved_inside(destination, repo) and not any(_resolved_inside(destination, root) for root in ignored_roots):
         raise PackageError("output inside the repository must stay under an ignored RC4 delivery directory")
@@ -262,10 +264,53 @@ def _prepare_destination(destination: Path, repo: Path) -> None:
         raise PackageError(f"refusing to replace an orphan archive without its managed directory: {destination}.zip")
 
 
+
+def load_interop_receipt(
+    receipt_path: Path | None, sdk_version: str, host_name: str, host_code: int, host_service: int,
+) -> dict | None:
+    """Validate scoped consumer evidence and return only its public metadata fields."""
+    if receipt_path is None:
+        return None
+    require_regular_file(receipt_path, "Host-SDK interoperability receipt")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PackageError(f"Host-SDK interoperability receipt is invalid JSON: {exc}") from exc
+    if not isinstance(receipt, dict):
+        raise PackageError("Host-SDK interoperability receipt must be a JSON object")
+    if receipt.get("schemaVersion") != 1:
+        raise PackageError("Host-SDK interoperability receipt schemaVersion must be 1")
+    if receipt.get("result") != "passed":
+        raise PackageError("Host-SDK interoperability receipt result must be passed")
+    if receipt.get("sdkVersion") != sdk_version:
+        raise PackageError("Host-SDK interoperability receipt SDK version does not match this package")
+    reference = receipt.get("referenceHost")
+    if not isinstance(reference, dict):
+        raise PackageError("Host-SDK interoperability receipt referenceHost must be an object")
+    if (reference.get("versionName") != host_name
+            or type(reference.get("versionCode")) is not int or reference.get("versionCode") != host_code
+            or type(reference.get("internalServiceContract")) is not int
+            or reference.get("internalServiceContract") != host_service):
+        raise PackageError("Host-SDK interoperability receipt Host version or service contract does not match this package")
+    scopes = receipt.get("verifiedScopes")
+    if (not isinstance(scopes, list) or not scopes
+            or any(not isinstance(scope, str)
+                   or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,119}", scope) for scope in scopes)
+            or len(set(scopes)) != len(scopes)):
+        raise PackageError("Host-SDK interoperability receipt verifiedScopes must be a non-empty list of unique scope names")
+    consumer_kind = receipt.get("consumerKind")
+    if (not isinstance(consumer_kind, str) or not consumer_kind.strip()
+            or len(consumer_kind.strip()) > 160 or "\n" in consumer_kind or "\r" in consumer_kind):
+        raise PackageError("Host-SDK interoperability receipt consumerKind must be a concise non-empty string")
+    return {"status": "verified", "consumerKind": consumer_kind.strip(), "verifiedScopes": scopes,
+            "note": "实机验收仅覆盖所列verifiedScopes；不代表随包独立sample APK或其他未列范围已验证。"}
+
+
 def package(
     repo: Path, aar: Path, sample_apk: Path, output: Path,
-    host_service: int = 59, host_compiled: bool = False, host_debug_compiled: bool = False,
+    host_service: int = 61, host_compiled: bool = False, host_debug_compiled: bool = False,
     host_release_compiled: bool = False, host_apk_produced: bool = False, aapt_path: Path | None = None,
+    host_sdk_interop_receipt: Path | None = None,
 ) -> tuple[Path, Path, dict]:
     repo = repo.resolve()
     aar = aar.absolute()
@@ -280,19 +325,39 @@ def package(
     sdk_version = version_props.get("sdkVersion", "")
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", sdk_version):
         raise PackageError("sdkVersion is missing or invalid in sdk/android/version.properties")
+    readme_text = (repo / "sdk/android/README.md").read_text(encoding="utf-8")
+    integration_text = (repo / "sdk/android/docs/INTEGRATION.md").read_text(encoding="utf-8")
+    if f"`{sdk_version}`" not in readme_text or f"`{sdk_version}`" not in integration_text:
+        raise PackageError("SDK README and integration guide must identify sdkVersion from version.properties")
+    aar_name = f"{SDK_AAR_PREFIX}{sdk_version}.aar"
+    installation_sections = []
+    for text, heading in (
+        (readme_text, "## 引用本地 AAR"),
+        (integration_text, "## 1. 引用本地 AAR"),
+    ):
+        if heading not in text:
+            raise PackageError(f"SDK docs must include the local AAR installation section: {heading}")
+        section = text.split(heading, 1)[1].split("\n## ", 1)[0]
+        expected_dependency = f'implementation(files("libs/{aar_name}"))'
+        if expected_dependency not in section or "platform-sdk-release.aar" in section:
+            raise PackageError(f"SDK docs installation section must reference delivered {aar_name}")
+        installation_sections.append(section)
     host_props = parse_properties(repo / HOST_VERSION_FILE)
     host_name = host_props.get("versionName", "")
     host_code = host_props.get("versionCode", "")
     if host_name != "4.0.0-rc.4" or host_code != "2025":
         raise PackageError(f"expected RC4 Host 4.0.0-rc.4/2025, got {host_name}/{host_code}")
-    if host_service != 59:
-        raise PackageError("RC4 SDK reference metadata must match internal service contract 59")
+    if host_service != 61:
+        raise PackageError("RC4 SDK reference metadata must match internal service contract 61")
     if host_apk_produced and not (host_compiled or host_debug_compiled or host_release_compiled):
         raise PackageError("recording a Host APK requires verified Host compilation")
     service_text = (repo / HOST_SERVICE_SOURCE).read_text(encoding="utf-8")
     match = re.search(r"USER_SERVICE_CONTRACT_VERSION\s*=\s*(\d+)\s*;", service_text)
     if not match or int(match.group(1)) != host_service:
         raise PackageError(f"Host TaskService service contract does not match internal service {host_service}")
+    interop_metadata = load_interop_receipt(
+        host_sdk_interop_receipt, sdk_version, host_name, int(host_code), host_service,
+    )
     sdk_build = (repo / SDK_BUILD_FILE).read_text(encoding="utf-8")
     if not re.search(r"minSdk\s*=\s*24\b", sdk_build):
         raise PackageError("SDK minSdk declaration is not 24")
@@ -312,8 +377,10 @@ def package(
         raise PackageError("standalone settings must not include Host or SDK source projects")
     if re.search(r"\bproject\s*\(", sample_build):
         raise PackageError("standalone sample must consume the local AAR, not another Gradle project")
-    if 'implementation(files("libs/platform-sdk-release.aar"))' not in sample_build:
-        raise PackageError("standalone sample must depend on its local platform-sdk-release.aar")
+    sdk_aar = f"{SDK_AAR_PREFIX}{sdk_version}.aar"
+    expected_dependency = f'implementation(files("libs/{sdk_aar}"))'
+    if expected_dependency not in sample_build:
+        raise PackageError(f"standalone sample must depend on its versioned local {sdk_aar}")
     app_id_match = re.search(r'applicationId\s*=\s*"([A-Za-z0-9_.]+)"', sample_build)
     host_match = re.search(r'providers\.gradleProperty\("remrssHostPackage"\)\.orElse\("([A-Za-z0-9_.]+)"\)', sample_build)
     if not app_id_match or not host_match:
@@ -344,7 +411,7 @@ def package(
     try:
         bundle = stage / output.name
         (bundle / "aar").mkdir(parents=True)
-        shutil.copy2(aar, bundle / "aar" / SDK_AAR)
+        shutil.copy2(aar, bundle / "aar" / sdk_aar)
         sample = bundle / "sample"
         for rel in TEMPLATE_FILES:
             src = standalone / rel
@@ -362,7 +429,7 @@ def package(
         if source_test.exists():
             copy_tree_files(source_test, sample / "app/src/test")
         (sample / "app/libs").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(aar, sample / "app/libs" / SDK_AAR)
+        shutil.copy2(aar, sample / "app/libs" / sdk_aar)
         apk_output = sample / "apk/rear-sdk-sample-debug.apk"
         apk_output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sample_apk, apk_output)
@@ -380,7 +447,7 @@ def package(
         metadata = {
             "schemaVersion": 1,
             "sdk": {"name": "ReMRSS Android Platform SDK", "version": sdk_version,
-                    "artifact": f"aar/{SDK_AAR}", "minSdk": 24, "minCompileSdk": min_compile_sdk,
+                    "artifact": f"aar/{sdk_aar}", "minSdk": 24, "minCompileSdk": min_compile_sdk,
                     "contract": CONTRACT, "capabilities": CAPABILITIES, "features": FEATURES,
                     "license": "GPL-3.0", "runtimeDependencies": RUNTIME_DEPENDENCIES,
                     "compileRequirements": ["Kotlin compiler must read metadata 2.4.0; verified with Kotlin Gradle Plugin 2.4.20"],
@@ -397,11 +464,13 @@ def package(
                 "hostApkProduced": host_apk_produced,
                 "hostApkVariant": ("release" if host_release_compiled or host_compiled else "debug") if host_apk_produced else None,
             },
-            "hostSdkInteroperability": {"status": "not-verified",
-                                         "note": "未完成该版本实机互通；referenceHost为源码版本参考，不是运行验证结果。"},
+            "hostSdkInteroperability": interop_metadata or {
+                "status": "not-verified",
+                "note": "没有提供与本 SDK 和 referenceHost 匹配的互通验收证据。",
+            },
             "sample": {"directory": "sample", "applicationId": application_id,
                        "apkApplicationId": actual_application_id, "applicationIdVerified": True,
-                       "aarDependency": "app/libs/platform-sdk-release.aar",
+                       "aarDependency": f"app/libs/{sdk_aar}",
                        "apk": "sample/apk/rear-sdk-sample-debug.apk", "apkVariant": "debug",
                        "defaultHostPackage": default_host, "hostSigningRequired": False},
         }
@@ -447,10 +516,12 @@ def package(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--aar", type=Path, required=True, help="built platform-sdk-release.aar")
+    parser.add_argument("--aar", type=Path, required=True, help="built platform-sdk-release.aar from the Gradle output directory")
     parser.add_argument("--sample-apk", type=Path, required=True, help="independently built sample debug APK")
     parser.add_argument("--output", type=Path, help="bundle directory; defaults to ignored RC4 planning delivery path")
-    parser.add_argument("--host-service", type=int, default=59)
+    parser.add_argument("--host-service", type=int, default=61)
+    parser.add_argument("--host-sdk-interop-receipt", type=Path,
+                        help="scoped Host-SDK interoperability evidence JSON; only validated scope fields enter metadata")
     parser.add_argument("--host-compile-verified", action="store_true",
                         help="legacy shorthand: record only after both Host debug and release compilation passed")
     parser.add_argument("--host-debug-compile-verified", action="store_true",
@@ -470,6 +541,7 @@ def main() -> int:
             host_debug_compiled=args.host_debug_compile_verified,
             host_release_compiled=args.host_release_compile_verified,
             host_apk_produced=args.host_apk_produced,
+            host_sdk_interop_receipt=args.host_sdk_interop_receipt,
         )
     except (PackageError, OSError, shutil.Error, zipfile.BadZipFile) as exc:
         parser.error(str(exc))

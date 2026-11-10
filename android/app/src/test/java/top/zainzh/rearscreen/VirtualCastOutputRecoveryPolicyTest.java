@@ -5,6 +5,90 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class VirtualCastOutputRecoveryPolicyTest {
+    @Test public void sameRecoveryEpisodeKeepsOneAttemptAndDeadlineAcrossSurfaceChurn() {
+        VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate gate =
+                new VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate();
+        int episode = gate.beginLoss(); // power-off loss; same session waits for ON
+        int deadline = VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, episode, false,
+                (e, d, timeout) -> assertEquals(VirtualCastOutputRecoveryPolicy.RECONNECT_TIMEOUT_MILLIS, timeout));
+        assertTrue(deadline != 0);
+        int attempt = gate.beginAttempt(episode);
+        assertTrue(gate.isCurrent(episode, attempt, true, false, true, true, true, true));
+        assertTrue(gate.complete(episode, attempt)); // exact host focus returned
+
+        // A same-episode SurfaceChanged can have a slow backend RPC. A second loss 251ms later
+        // remains within the original deadline and cannot restart the one-shot presentation.
+        int secondLoss = episode;
+        for (int churn = 0; churn < 5; churn++) {
+            secondLoss = gate.beginLoss();
+            assertEquals(episode, secondLoss);
+            assertEquals("same episode never reopens the one-shot focus budget", 0,
+                    gate.beginAttempt(secondLoss));
+            assertEquals("same continuous ON episode retains the original deadline", 0,
+                    VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, secondLoss, false,
+                            (e, d, timeout) -> fail("deadline must not be restarted")));
+        }
+        assertTrue(gate.isCurrentDeadline(episode, deadline));
+        assertTrue(gate.isEpisodeCurrent(episode));
+
+        int newPowerCycle = gate.beginPowerCycleLoss();
+        assertTrue("a real power cycle opens a distinct episode", newPowerCycle != episode);
+        assertFalse(gate.isCurrentDeadline(episode, deadline));
+        assertTrue(gate.beginAttempt(newPowerCycle) != 0);
+    }
+
+    @Test public void surfaceRecoveryCommitsOnlyAfterCurrentBackendReplyAndIgnoresOldGenerationFailure() {
+        VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate gate =
+                new VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate();
+        int episode = gate.beginLoss();
+        int deadline = VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, episode, false,
+                (e, d, timeout) -> { });
+        // A valid holder alone is not backend ownership; the same pending episode/deadline remains.
+        // Holder is valid, but an outstanding RPC has not acknowledged adoption: no commit,
+        // no watchdog cancellation, and the original bound remains live.
+        assertTrue(VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(true, true, true, true,
+                10, 10, true, gate.isEpisodeCurrent(episode)));
+        assertFalse(VirtualCastOutputRecoveryPolicy.canCommitSurfaceRecovery(false, true, true, true,
+                true, 10, 10, true, gate.isEpisodeCurrent(episode)));
+        assertTrue(gate.isCurrentDeadline(episode, deadline));
+
+        // A was in flight at generation 10; B has now been accepted at generation 11.
+        assertFalse("A's late exception cannot terminate B", VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(
+                true, true, true, true, 10, 11, false, gate.isEpisodeCurrent(episode)));
+        assertTrue("a real failure from current B remains terminally actionable",
+                VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(
+                        true, true, true, true, 11, 11, true, gate.isEpisodeCurrent(episode)));
+        assertFalse("a missing/ending session cannot commit a returned surface",
+                VirtualCastOutputRecoveryPolicy.canCommitSurfaceRecovery(true, false, false, true,
+                        true, 11, 11, true, gate.isEpisodeCurrent(episode)));
+        assertTrue(VirtualCastOutputRecoveryPolicy.canCommitSurfaceRecovery(true, true, true, true,
+                true, 11, 11, true, gate.isEpisodeCurrent(episode)));
+        assertTrue(gate.commitRecovery(episode));
+        assertFalse(gate.isCurrentDeadline(episode, deadline));
+
+        int exitingEpisode = gate.beginLoss();
+        assertFalse("explicit exit cannot launch recovery for a finishing Activity",
+                VirtualCastOutputRecoveryPolicy.isCurrentSurfaceRecovery(true, false, true, true,
+                        12, 12, true, gate.isEpisodeCurrent(exitingEpisode)));
+    }
+
+    @Test public void sleepingPowerSuspensionPausesDeadlineUntilRealResumeEdge() {
+        VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate gate =
+                new VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate();
+        int episode = gate.beginLoss();
+        int beforeSleep = VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, episode, false,
+                (e, d, timeout) -> { });
+        assertTrue(gate.pauseDeadlineForPowerSuspension(episode));
+        assertFalse(gate.isCurrentDeadline(episode, beforeSleep));
+        assertEquals("no timer is armed while the display is suspended", 0,
+                VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, episode, false,
+                        (e, d, timeout) -> fail("must wait for a real resume edge")));
+        int resumed = VirtualCastOutputRecoveryPolicy.scheduleReconnectDeadline(gate, episode, true,
+                (e, d, timeout) -> assertEquals(VirtualCastOutputRecoveryPolicy.RECONNECT_TIMEOUT_MILLIS, timeout));
+        assertTrue(resumed != 0);
+        assertTrue(gate.isCurrentDeadline(episode, resumed));
+    }
+
     @Test public void duplicateOnWhileOwnedPresentationIsInFlightKeepsItsEpochAndOnceAllowance() throws Exception {
         VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate gate =
                 new VirtualCastOutputRecoveryPolicy.MissingSurfacePresentationGate();
@@ -42,7 +126,11 @@ public final class VirtualCastOutputRecoveryPolicyTest {
             assertTrue(gate.complete(loss, attempt));
             assertEquals(0, gate.beginAttempt(loss));
 
-            int nextLoss = gate.beginLoss();
+            int repeatedLoss = gate.beginLoss();
+            assertEquals(loss, repeatedLoss);
+            assertEquals("one loss episode never reopens the presentation budget", 0,
+                    gate.beginAttempt(repeatedLoss));
+            int nextLoss = gate.beginPowerCycleLoss();
             int staleAttempt = gate.beginAttempt(nextLoss);
             assertTrue(staleAttempt != 0);
             VirtualCastRecoveryGuard staleGate = new VirtualCastRecoveryGuard(() ->

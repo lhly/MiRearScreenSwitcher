@@ -26,7 +26,7 @@ import java.io.InputStreamReader;
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
-    static final int USER_SERVICE_CONTRACT_VERSION = 59;
+    static final int USER_SERVICE_CONTRACT_VERSION = 61;
     @Override public String getRearDisplayState() { return RearDisplay.state(); }
     @Override public String getCompatibilityDiagnostics() {
         try { return new org.json.JSONObject(CompatibilityDiagnostics.report())
@@ -526,6 +526,16 @@ public class TaskService extends ITaskService.Stub {
             return RearSystemBridge.restoreLauncher();
         } catch (Exception e) {
             Log.e(TAG, "❌ EXCEPTION in enableSubScreenLauncher", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean restoreSubScreenLauncherOnly() throws RemoteException {
+        try {
+            return RearSystemBridge.restoreLauncher();
+        } catch (Exception e) {
+            Log.e(TAG, "Rear Launcher restore failed", e);
             return false;
         }
     }

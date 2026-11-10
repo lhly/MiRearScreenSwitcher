@@ -26,7 +26,7 @@ class PackageAndroidSdkTests(unittest.TestCase):
         (self.root / pkg.HOST_VERSION_FILE).write_text("versionName=4.0.0-rc.4\nversionCode=2025\n", encoding="utf-8")
         service = self.root / pkg.HOST_SERVICE_SOURCE
         service.parent.mkdir(parents=True)
-        service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 59;\n", encoding="utf-8")
+        service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 61;\n", encoding="utf-8")
         build = self.root / pkg.SDK_BUILD_FILE
         build.parent.mkdir(parents=True, exist_ok=True)
         build.write_text("defaultConfig { minSdk = 24 }\n", encoding="utf-8")
@@ -39,7 +39,7 @@ class PackageAndroidSdkTests(unittest.TestCase):
                 content = '''val hostPackage = providers.gradleProperty("remrssHostPackage").orElse("top.zainzh.rearscreen").get()
 android { defaultConfig { applicationId = "dev.remrss.sample.consumer"; minSdk = 24 } }
 buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("debug") } }
-dependencies { implementation(files("libs/platform-sdk-release.aar")) }
+dependencies { implementation(files("libs/platform-sdk-0.9.7.aar")) }
 '''
             else:
                 content = "template\n"
@@ -59,9 +59,9 @@ dependencies { implementation(files("libs/platform-sdk-release.aar")) }
         test = self.root / "sdk/sample/src/test"
         test.mkdir(parents=True)
         (test / "AppTest.kt").write_text("class AppTest\n", encoding="utf-8")
-        (self.root / "sdk/android/README.md").write_text("guide\n", encoding="utf-8")
+        (self.root / "sdk/android/README.md").write_text('''SDK `0.9.7` guide\n\n## 引用本地 AAR\n\n```kotlin\ndependencies {\n    implementation(files("libs/platform-sdk-0.9.7.aar"))\n}\n```\n\n## Next\n''', encoding="utf-8")
         (self.root / "sdk/android/docs").mkdir(parents=True, exist_ok=True)
-        (self.root / "sdk/android/docs/INTEGRATION.md").write_text("integration guide\n", encoding="utf-8")
+        (self.root / "sdk/android/docs/INTEGRATION.md").write_text('''SDK `0.9.7` integration guide\n\n## 1. 引用本地 AAR\n\n```kotlin\ndependencies {\n    implementation(files("libs/platform-sdk-0.9.7.aar"))\n}\n```\n\n## 2. Next\n''', encoding="utf-8")
         (self.root / "sdk/delivery/NOTICE.md").parent.mkdir(parents=True, exist_ok=True)
         (self.root / "sdk/delivery/NOTICE.md").write_text("notice\n", encoding="utf-8")
         (self.root / "LICENSE").write_text("license\n", encoding="utf-8")
@@ -94,6 +94,25 @@ print(f"package: name='{match.group(1)}' versionCode='1' versionName='1.0'")
         self.find_aapt_patcher.stop()
         self.temp.cleanup()
 
+    def _write_interop_receipt(self, **updates):
+        receipt = {
+            "schemaVersion": 1,
+            "result": "passed",
+            "sdkVersion": "0.9.7",
+            "referenceHost": {
+                "versionName": "4.0.0-rc.4",
+                "versionCode": 2025,
+                "internalServiceContract": 61,
+            },
+            "verifiedScopes": ["sdk.connect", "rear.notification.publish-display-terminal"],
+            "consumerKind": "independent exact-AAR fixture; bundled sample not installed",
+            "deviceEvidenceRoot": "/private/fixture/device-evidence",
+        }
+        receipt.update(updates)
+        path = Path(self.temp.name) / "interop-receipt.json"
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+        return path
+
     def _write_sample_apk(self, application_id):
         with zipfile.ZipFile(self.sample_apk, "w") as archive:
             archive.writestr("AndroidManifest.xml", f'<manifest package="{application_id}" />'.encode())
@@ -105,7 +124,7 @@ print(f"package: name='{match.group(1)}' versionCode='1' versionName='1.0'")
         self.assertEqual(metadata["sdk"]["version"], "0.9.7")
         self.assertEqual(metadata["referenceHost"]["versionName"], "4.0.0-rc.4")
         self.assertEqual(metadata["referenceHost"]["versionCode"], 2025)
-        self.assertEqual(metadata["referenceHost"]["internalServiceContract"], 59)
+        self.assertEqual(metadata["referenceHost"]["internalServiceContract"], 61)
         self.assertEqual(metadata["hostBuild"]["debugCompilation"], "not-recorded")
         self.assertEqual(metadata["hostBuild"]["releaseCompilation"], "not-recorded")
         self.assertEqual(metadata["hostBuild"]["debugAndReleaseCompilation"], "not-recorded")
@@ -131,18 +150,79 @@ print(f"package: name='{match.group(1)}' versionCode='1' versionName='1.0'")
         self.assertTrue((bundle / "sample/app/src/main/AndroidManifest.xml").is_file())
         self.assertEqual((bundle / "sample/app/src/test/AppTest.kt").read_text(), "class AppTest\n")
         self.assertTrue((bundle / "sample/gradle/wrapper/gradle-wrapper.jar").is_file())
-        self.assertTrue(zipfile.is_zipfile(bundle / "sample/app/libs/platform-sdk-release.aar"))
+        self.assertTrue(zipfile.is_zipfile(bundle / "sample/app/libs/platform-sdk-0.9.7.aar"))
+        self.assertEqual(metadata["sample"]["aarDependency"], "app/libs/platform-sdk-0.9.7.aar")
+        self.assertTrue(zipfile.is_zipfile(bundle / "aar/platform-sdk-0.9.7.aar"))
         self.assertTrue(zipfile.is_zipfile(bundle / "sample/apk/rear-sdk-sample-debug.apk"))
         self.assertTrue((bundle / "LICENSE").is_file())
         self.assertTrue((bundle / "NOTICE.md").is_file())
         self.assertFalse((bundle / ".remrss-sdk-delivery").exists())
-        self.assertEqual((bundle / "docs/INTEGRATION.md").read_text(), "integration guide\n")
+        self.assertIn('implementation(files("libs/platform-sdk-0.9.7.aar"))', (bundle / "docs/INTEGRATION.md").read_text())
         self.assertFalse((bundle / "sample/settings.gradle.kts").read_text().find("include(\":app\")") < 0)
         self.assertFalse((bundle / "sdk").exists())
         self.assertTrue(zipfile.is_zipfile(archive))
         with zipfile.ZipFile(archive) as zf:
             self.assertIn("bundle/delivery.json", zf.namelist())
             self.assertNotIn("bundle/.planning/findings.md", zf.namelist())
+
+    def test_scoped_interop_receipt_is_recorded_without_private_paths(self):
+        receipt_path = self._write_interop_receipt()
+        bundle, archive, metadata = pkg.package(
+            self.root, self.aar, self.sample_apk, self.output_parent / "scoped-interop",
+            host_sdk_interop_receipt=receipt_path,
+        )
+        interop = metadata["hostSdkInteroperability"]
+        self.assertEqual(interop["status"], "verified")
+        self.assertEqual(interop["consumerKind"], "independent exact-AAR fixture; bundled sample not installed")
+        self.assertEqual(interop["verifiedScopes"], ["sdk.connect", "rear.notification.publish-display-terminal"])
+        self.assertIn("不代表随包独立sample APK", interop["note"])
+        self.assertFalse((bundle / "deviceEvidenceRoot").exists())
+        with zipfile.ZipFile(archive) as zipped:
+            serialized = zipped.read("scoped-interop/delivery.json").decode("utf-8")
+            self.assertNotIn("deviceEvidenceRoot", serialized)
+            self.assertNotIn("/private/fixture/device-evidence", serialized)
+            self.assertNotIn("result", json.loads(serialized)["hostSdkInteroperability"])
+
+    def test_rejects_interop_receipt_when_sdk_or_host_reference_mismatches(self):
+        for field, value in (
+            ("sdkVersion", "0.9.6"),
+            ("referenceHost", {"versionName": "4.0.0-rc.3", "versionCode": 2025, "internalServiceContract": 61}),
+            ("referenceHost", {"versionName": "4.0.0-rc.4", "versionCode": 2024, "internalServiceContract": 61}),
+            ("referenceHost", {"versionName": "4.0.0-rc.4", "versionCode": 2025, "internalServiceContract": 60}),
+        ):
+            with self.subTest(field=field, value=value):
+                receipt_path = self._write_interop_receipt(**{field: value})
+                with self.assertRaises(pkg.PackageError):
+                    pkg.package(
+                        self.root, self.aar, self.sample_apk, self.output_parent / "mismatched-receipt",
+                        host_sdk_interop_receipt=receipt_path,
+                    )
+
+    def test_rejects_failed_or_empty_scope_interop_receipts(self):
+        for updates in ({"result": "failed"}, {"verifiedScopes": []}, {"consumerKind": "  "}):
+            with self.subTest(updates=updates):
+                receipt_path = self._write_interop_receipt(**updates)
+                with self.assertRaises(pkg.PackageError):
+                    pkg.package(
+                        self.root, self.aar, self.sample_apk, self.output_parent / "invalid-receipt",
+                        host_sdk_interop_receipt=receipt_path,
+                    )
+
+    def test_rejects_docs_with_a_different_sdk_version_before_writing_output(self):
+        (self.root / "sdk/android/README.md").write_text("SDK `0.3.0`\n", encoding="utf-8")
+        output = self.output_parent / "wrong-doc-version"
+        with self.assertRaisesRegex(pkg.PackageError, "README and integration guide must identify sdkVersion"):
+            pkg.package(self.root, self.aar, self.sample_apk, output)
+        self.assertFalse(output.exists())
+
+    def test_rejects_stale_build_filename_in_integration_install_example(self):
+        guide = self.root / "sdk/android/docs/INTEGRATION.md"
+        guide.write_text(guide.read_text(encoding="utf-8").replace(
+            "platform-sdk-0.9.7.aar", "platform-sdk-release.aar"), encoding="utf-8")
+        output = self.output_parent / "stale-install-guide"
+        with self.assertRaisesRegex(pkg.PackageError, "installation section must reference delivered platform-sdk-0.9.7.aar"):
+            pkg.package(self.root, self.aar, self.sample_apk, output)
+        self.assertFalse(output.exists())
 
     def test_accepts_apk_whose_official_badging_identity_matches_standalone_consumer(self):
         self._write_sample_apk("dev.remrss.sample.consumer")
@@ -240,11 +320,31 @@ print(f"package: name='{match.group(1)}' versionCode='1' versionName='1.0'")
             pkg.package(self.root, self.aar, self.sample_apk, output)
         self.assertFalse(output.exists())
 
+    def test_default_host_service_matches_real_rc4_contract_61(self):
+        self.assertEqual(pkg.package.__defaults__[0], 61)
+        _, _, metadata = pkg.package(
+            self.root, self.aar, self.sample_apk, self.output_parent / "default-service"
+        )
+        self.assertEqual(metadata["referenceHost"]["internalServiceContract"], 61)
+
+    def test_rejects_old_rc4_service_contracts_59_and_60_before_writing_output(self):
+        service = self.root / pkg.HOST_SERVICE_SOURCE
+        for stale_version in (59, 60):
+            with self.subTest(stale_version=stale_version):
+                service.write_text(
+                    f"private static final int USER_SERVICE_CONTRACT_VERSION = {stale_version};\n",
+                    encoding="utf-8",
+                )
+                output = self.output_parent / f"old-service-{stale_version}"
+                with self.assertRaisesRegex(pkg.PackageError, "Host TaskService service contract does not match internal service 61"):
+                    pkg.package(self.root, self.aar, self.sample_apk, output)
+                self.assertFalse(output.exists())
+
     def test_rejects_stale_internal_service_contract_before_writing_output(self):
         service = self.root / pkg.HOST_SERVICE_SOURCE
         service.write_text("private static final int USER_SERVICE_CONTRACT_VERSION = 58;\n", encoding="utf-8")
         output = self.output_parent / "stale-service"
-        with self.assertRaisesRegex(pkg.PackageError, "RC4 SDK reference metadata must match internal service contract 59"):
+        with self.assertRaisesRegex(pkg.PackageError, "RC4 SDK reference metadata must match internal service contract 61"):
             pkg.package(self.root, self.aar, self.sample_apk, output, host_service=58)
         self.assertFalse(output.exists())
 

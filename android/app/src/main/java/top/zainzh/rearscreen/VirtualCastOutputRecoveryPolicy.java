@@ -15,8 +15,9 @@ final class VirtualCastOutputRecoveryPolicy {
 
     /**
      * Deduplicates one missing-Surface presentation per real loss edge. A queued command is
-     * only in-flight; it consumes the once allowance after a result returns. New loss/close
-     * edges invalidate old command gates, while repeated ON notifications do not.
+     * in-flight recovery consumes one budget per episode. Surface churn invalidates the old
+     * command gate but does not reopen that budget or restart the deadline; only a backend
+     * commit, a genuine new power cycle, or close changes the episode.
      */
     static final class MissingSurfacePresentationGate {
         private static final int WAIT_INITIAL = 0;
@@ -27,22 +28,42 @@ final class VirtualCastOutputRecoveryPolicy {
         private int nextAttempt;
         private int activeAttempt;
         private boolean attemptResolved;
+        private boolean attemptBudgetUsed;
+        private boolean episodeActive;
         private int waitPhase = WAIT_INITIAL;
         private int nextDeadline;
         private int activeDeadline;
 
         synchronized int beginLoss() {
-            lossEpoch++;
-            activeAttempt = 0;
-            attemptResolved = false;
-            waitPhase = WAIT_INITIAL;
-            activeDeadline = 0;
+            return beginLoss(false);
+        }
+
+        synchronized int beginPowerCycleLoss() {
+            return beginLoss(true);
+        }
+
+        private int beginLoss(boolean newPowerCycle) {
+            if (!episodeActive || newPowerCycle) {
+                lossEpoch++;
+                activeAttempt = 0;
+                attemptResolved = false;
+                attemptBudgetUsed = false;
+                waitPhase = WAIT_INITIAL;
+                activeDeadline = 0;
+                episodeActive = true;
+            } else {
+                // A later Surface callback in the same failed recovery is not a new episode:
+                // retain its one-shot attempt and original bounded deadline.
+                activeAttempt = 0;
+            }
             return lossEpoch;
         }
 
         synchronized int beginAttempt(int expectedLossEpoch) {
-            if (expectedLossEpoch != lossEpoch || attemptResolved || activeAttempt != 0) return 0;
+            if (!episodeActive || waitPhase == WAIT_TERMINAL || expectedLossEpoch != lossEpoch || attemptBudgetUsed
+                    || attemptResolved || activeAttempt != 0) return 0;
             activeAttempt = ++nextAttempt;
+            attemptBudgetUsed = true;
             return activeAttempt;
         }
 
@@ -50,20 +71,21 @@ final class VirtualCastOutputRecoveryPolicy {
                                        boolean activeSession, boolean ending, boolean sameInstance,
                                        boolean sameSession, boolean reconnecting, boolean rearOn) {
             return activeSession && !ending && sameInstance && sameSession && reconnecting && rearOn
-                    && expectedLossEpoch == lossEpoch && expectedAttempt != 0
+                    && episodeActive && waitPhase != WAIT_TERMINAL && expectedLossEpoch == lossEpoch && expectedAttempt != 0
                     && expectedAttempt == activeAttempt && !attemptResolved;
         }
 
         synchronized boolean complete(int expectedLossEpoch, int expectedAttempt) {
-            if (expectedLossEpoch != lossEpoch || expectedAttempt == 0 || expectedAttempt != activeAttempt
-                    || attemptResolved) return false;
+            if (!episodeActive || expectedLossEpoch != lossEpoch || expectedAttempt == 0
+                    || expectedAttempt != activeAttempt) return false;
             activeAttempt = 0;
             attemptResolved = true;
             return true;
         }
 
         synchronized int beginDeadline(int expectedLossEpoch, boolean actualResumeEdge) {
-            if (expectedLossEpoch != lossEpoch || waitPhase == WAIT_ARMED || waitPhase == WAIT_TERMINAL)
+            if (!episodeActive || expectedLossEpoch != lossEpoch
+                    || waitPhase == WAIT_ARMED || waitPhase == WAIT_TERMINAL)
                 return 0;
             if (waitPhase == WAIT_FOR_RESUME_EDGE && !actualResumeEdge) return 0;
             waitPhase = WAIT_ARMED;
@@ -84,12 +106,37 @@ final class VirtualCastOutputRecoveryPolicy {
             return true;
         }
 
+        synchronized boolean pauseDeadlineForPowerSuspension(int expectedLossEpoch) {
+            if (!episodeActive || expectedLossEpoch != lossEpoch || waitPhase == WAIT_TERMINAL) return false;
+            activeDeadline = 0;
+            waitPhase = WAIT_FOR_RESUME_EDGE;
+            return true;
+        }
+
+        synchronized boolean isEpisodeCurrent(int expectedLossEpoch) {
+            return episodeActive && expectedLossEpoch == lossEpoch && waitPhase != WAIT_TERMINAL;
+        }
+
+        synchronized boolean commitRecovery(int expectedLossEpoch) {
+            if (!episodeActive || waitPhase == WAIT_TERMINAL || expectedLossEpoch != lossEpoch) return false;
+            episodeActive = false;
+            activeAttempt = 0;
+            attemptResolved = false;
+            attemptBudgetUsed = false;
+            activeDeadline = 0;
+            waitPhase = WAIT_INITIAL;
+            lossEpoch++;
+            return true;
+        }
+
         synchronized void invalidate() {
             lossEpoch++;
             activeAttempt = 0;
             attemptResolved = false;
+            attemptBudgetUsed = false;
             waitPhase = WAIT_TERMINAL;
             activeDeadline = 0;
+            episodeActive = false;
         }
 
         synchronized int currentLossEpoch() { return lossEpoch; }
@@ -128,7 +175,17 @@ final class VirtualCastOutputRecoveryPolicy {
     static PrimaryScreenOffDecision onPrimaryScreenOff(MissingSurfacePresentationGate gate,
                                                        boolean wakeAlreadyRequested,
                                                        boolean wasPrimaryInteractive) {
-        return new PrimaryScreenOffDecision(gate.beginLoss(),
+        return onPrimaryScreenOff(gate, wakeAlreadyRequested, wasPrimaryInteractive, true);
+    }
+
+    static PrimaryScreenOffDecision onPrimaryScreenOff(MissingSurfacePresentationGate gate,
+                                                       boolean wakeAlreadyRequested,
+                                                       boolean wasPrimaryInteractive,
+                                                       boolean recoveryPending) {
+        int lossEpoch = recoveryPending
+                ? (wasPrimaryInteractive ? gate.beginPowerCycleLoss() : gate.beginLoss())
+                : gate.currentLossEpoch();
+        return new PrimaryScreenOffDecision(lossEpoch,
                 shouldScheduleWakeForPowerCycle(wakeAlreadyRequested), wasPrimaryInteractive);
     }
 
@@ -181,6 +238,23 @@ final class VirtualCastOutputRecoveryPolicy {
                 || rearDisplayState == Display.STATE_DOZE_SUSPEND
                 || rearDisplayState == Display.STATE_ON_SUSPEND;
         return mainLocked || !mainInteractive || rearSleeping;
+    }
+
+    static boolean isCurrentSurfaceRecovery(boolean activeSession, boolean currentActivity,
+                                            boolean sameSession, boolean reconnecting,
+                                            int requestGeneration, int currentGeneration,
+                                            boolean sameSurface, boolean sameEpisode) {
+        return activeSession && currentActivity && sameSession && reconnecting
+                && requestGeneration == currentGeneration && sameSurface && sameEpisode;
+    }
+
+    static boolean canCommitSurfaceRecovery(boolean backendAccepted, boolean activeSession,
+                                            boolean currentActivity, boolean sameSession,
+                                            boolean reconnecting, int requestGeneration,
+                                            int currentGeneration, boolean sameSurface,
+                                            boolean sameEpisode) {
+        return backendAccepted && isCurrentSurfaceRecovery(activeSession, currentActivity, sameSession,
+                reconnecting, requestGeneration, currentGeneration, sameSurface, sameEpisode);
     }
 
     static boolean failHostReconnectTimeout(boolean mainLocked, boolean mainInteractive, int rearDisplayState) {

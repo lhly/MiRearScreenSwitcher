@@ -1,14 +1,14 @@
 # Android SDK 接入指南
 
-这份指南覆盖 SDK `0.3.0` 的已交付接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据，以及登记和逐次确认调用快捷操作、独立授权后发布自己的背屏通知。它不代表 cast、clock 或 FULL/region 能力已开放。
+这份指南覆盖 SDK `0.4.0` 的接口：查询背屏信息与能力、用户确认后打开一个独立 rear Activity、读取用户授权的平台数据，以及登记和逐次确认调用快捷操作、独立授权后发布自己的背屏通知。它不代表 cast、clock 或 FULL/region 能力已开放。
 
 ## 1. 引用本地 AAR
 
-把交付的 `platform-sdk-release.aar` 放入 Android app module 的 `libs/`，然后声明文件依赖：
+把交付包中的 `platform-sdk-0.4.0.aar` 放入 Android app module 的 `libs/`，然后声明文件依赖：
 
 ```kotlin
 dependencies {
-    implementation(files("libs/platform-sdk-release.aar"))
+    implementation(files("libs/platform-sdk-0.4.0.aar"))
 }
 ```
 
@@ -277,12 +277,12 @@ rear.requestRegisteredActionInvocation(actionRef) { result ->
 
 ## 本版可用范围
 
-本版提供：rear info/能力查询；前台用户确认的独立 Scene；Ready、viewport、可见性、当前 presentation 与受约束的 keep-visible；battery 与 system metrics 的授权、查询和可见订阅；用户登记、publisher隔离并逐次确认的快捷操作。它不提供 cast session、应用自有 rear notification、clock、FULL/region，也不嵌入 Root/Shizuku/QuickJS/Miuix/ROM实现。请按运行时 capability 与返回状态处理目标设备，不把未开放能力包装成可用接口。
+0.4.0 提供：rear info/能力查询；前台用户确认的独立 Scene；Ready、viewport、可见性、当前 presentation 与受约束的 keep-visible；battery 与 system metrics 的授权、查询和可见订阅；用户登记、publisher 隔离并逐次确认的快捷操作；以及每个发布者独立授权、仅作用于自身命名空间的自有背屏通知。通知受有限 TTL、配额和宿主显示策略约束。它不提供 cast session、clock、FULL/region，也不嵌入 Root/Shizuku/QuickJS/Miuix/ROM 实现。请按运行时 capability 与返回状态处理目标设备，不把未开放能力包装成可用接口。
 
 
 ## 9. 发布自己的背屏通知
 
-只有用户对当前应用及其签名明确授予发布权后，通知才会进入宿主队列。它与“选择哪些 App 的系统通知可镜像”是两项独立授权。前台 Activity 调用授权入口会打开宿主的 Miuix 确认页；用户可在同一页面关闭已有授权。SDK 的 `onEvent` 收到 `type == "notificationAuthorization"` 表示用户的选择已生效，`data.granted` 是最新状态。
+这是自有通知 API，不是系统通知镜像。它不要求应用启动前台服务，也不承诺第三方进程锁屏后后台常驻、定时唤醒或可靠运行；从应用当前有效的 `RearClient` 连接发起请求。只有用户对当前应用及其签名明确授予发布权后，通知才会进入宿主队列。它与“选择哪些 App 的系统通知可镜像”是两项独立授权。前台 Activity 调用授权入口会打开宿主的 Miuix 确认页；用户可在同一页面关闭已有授权。SDK 的 `onEvent` 收到 `type == "notificationAuthorization"` 表示用户的选择已生效，`data.granted` 是最新状态。
 
 ```kotlin
 rear.requestNotificationAuthorization(activity) { result ->
@@ -310,7 +310,7 @@ rear.publishNotification(notice) { result ->
 }
 ```
 
-`ACCEPTED` 只表示进入有界队列，不是已显示。通过 `RearPlatformEvent.notificationEvent` 观察后续结果：`DISPLAYED` 只在通知 Activity 实际出现在后屏且窗口可见，或投放胶囊完成可见布局后返回；`SUPPRESSED` 会说明全局开关、勿扰、撤权或显示策略原因；`ENDED`/`FAILED` 带有 `endedBy` 结束原因。临时通知/充电覆盖会在 TTL 未到期时恢复仍有效的自有通知；用户显式切屏/投放不会被通知重新夺回。
+`ACCEPTED` 只表示进入有界队列，不是已显示。通过 `RearPlatformEvent.notificationEvent` 观察后续结果：`DISPLAYED` 表示宿主确认通知 Activity 窗口在目标显示区可见，或通知胶囊完成可见布局；它不等同于证明某块物理面板已点亮或由面板真实呈现。`SUPPRESSED` 会说明全局开关、勿扰、撤权或显示策略原因；`ENDED`/`FAILED` 带有 `endedBy` 结束原因。临时通知/充电覆盖会在 TTL 未到期时恢复仍有效的自有通知；用户显式切屏/投放不会被通知重新夺回。
 
 ```kotlin
 RearClient(this) { event ->

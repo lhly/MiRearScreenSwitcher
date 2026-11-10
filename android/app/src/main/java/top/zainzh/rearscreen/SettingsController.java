@@ -155,7 +155,9 @@ final class SettingsController {
                     });
                 });
             }
-            @Override public void duration() { showDuration(); }
+            @Override public void duration() { composeUi.showDurationSheet(preferences.getDuration(), preferences.isNotificationNeverAutoClose()); }
+            @Override public void clickAction() { showNotificationClickAction(); }
+            @Override public void saveDuration(int seconds, boolean neverAutoClose) { saveNotificationDuration(seconds, neverAutoClose); }
             @Override public void action(String method) { SettingsController.this.action(method); }
             @Override public void updates() { checkForUpdates(); }
             @Override public void proxy(boolean enabled) { UpdateNetwork.setProxyEnabled(activity, enabled); updateResult = null; updateHome(); }
@@ -179,8 +181,8 @@ final class SettingsController {
             String draft = state.getString("native_number_draft", "");
             root.post(() -> {
                 if (destroyed) return;
-                if ("dpi".equals(kind)) showDpi(); else if ("duration".equals(kind)) showDuration();
-                modal.restoreDraft(draft);
+                if ("dpi".equals(kind)) { showDpi(); modal.restoreDraft(draft); }
+                else if ("duration".equals(kind)) composeUi.showDurationSheet(preferences.getDuration(), preferences.isNotificationNeverAutoClose());
             });
         }
     }
@@ -364,7 +366,8 @@ final class SettingsController {
         int selected = activity.getSharedPreferences("mrss_settings", Context.MODE_PRIVATE)
                 .getStringSet("notification_selected_apps", Collections.emptySet()).size();
         composeUi.updateSettings(selected, listenerGranted(), Build.VERSION.SDK_INT < 33 || activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-                preferences.getDuration(), updateSummaryText(), checkingUpdates, UpdateNetwork.proxyEnabled(activity));
+                preferences.getDuration(), updateSummaryText(), checkingUpdates, UpdateNetwork.proxyEnabled(activity),
+                preferences.isNotificationNeverAutoClose(), preferences.isNotificationDismissOnly());
     }
 
     private void toggle(String key, String method, boolean enabled) {
@@ -593,16 +596,38 @@ final class SettingsController {
     }
 
 
-    private void showDuration() {
-        numberDialog("duration", s("auto_destroy_time"), s("duration_range"), preferences.getDuration(), 1, Integer.MAX_VALUE, seconds -> {
-            int old = preferences.getDuration(); preferences.putDuration(seconds);
-            activity.runAction("setNotificationDuration", argument("duration", seconds), (value, error) -> {
-                if (destroyed) return;
-                if (error != null) { preferences.putDuration(old); toast(error); }
-                else toast(count("toast_duration_set", seconds));
-                updateHome();
-            });
-        }, null);
+    private void saveNotificationDuration(int seconds, boolean neverAutoClose) {
+        if (seconds <= 0) {
+            preferences.putBoolean("notification_never_auto_close", neverAutoClose);
+            activity.sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(activity.getPackageName()));
+            updateHome();
+            return;
+        }
+        int old = preferences.getDuration();
+        preferences.putDuration(seconds);
+        activity.runAction("setNotificationDuration", argument("duration", seconds), (value, error) -> {
+            if (error != null) {
+                preferences.putDuration(old);
+                if (!destroyed) toast(error);
+            } else {
+                preferences.putBoolean("notification_never_auto_close", neverAutoClose);
+                activity.sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(activity.getPackageName()));
+                if (!destroyed) toast(count("toast_duration_set", seconds));
+            }
+            if (!destroyed) updateHome();
+        });
+    }
+
+    private void showNotificationClickAction() {
+        modal.show(s("notification_click_action"), s("notification_click_action_help"),
+                new String[]{s("notification_click_open"), s("notification_click_dismiss"), s("cancel")},
+                new Runnable[]{() -> setNotificationDismissOnly(false), () -> setNotificationDismissOnly(true), null});
+    }
+
+    private void setNotificationDismissOnly(boolean dismissOnly) {
+        preferences.putBoolean("notification_dismiss_only", dismissOnly);
+        activity.sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").setPackage(activity.getPackageName()));
+        updateHome();
     }
 
     private void numberDialog(String kind, String title, String help, int value, int min, int max,

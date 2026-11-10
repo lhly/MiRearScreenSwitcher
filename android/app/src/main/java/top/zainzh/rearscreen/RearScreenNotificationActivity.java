@@ -19,6 +19,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.view.animation.AccelerateDecelerateInterpolator;
@@ -35,17 +36,31 @@ public class RearScreenNotificationActivity extends Activity {
     // 静态实例追踪
     private static volatile RearScreenNotificationActivity currentInstance = null;
     private static volatile long deferredFinishSessionId = Long.MIN_VALUE;
+    private final NotificationActivitySessionGate sessionGate = new NotificationActivitySessionGate();
+    private final NotificationRenderSessionGate renderSessionGate = new NotificationRenderSessionGate();
     
     private String packageName;
-    private long animationId;
-    private long acceptedAnimationId;
+    private volatile long animationId;
+    private volatile long acceptedAnimationId;
+    private boolean userBackCallbackRegistered;
+    private final android.window.OnBackInvokedCallback userBackCallback = () -> {
+        handleOrdinaryNotificationUserAction();
+        finish();
+    };
     private long expiresAtElapsedRealtimeMs = Long.MAX_VALUE;
     private int rearTaskId = -1;
     private final android.os.Handler lifecycleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable autoFinish = this::finish;
+    private Runnable autoFinish;
     private final java.util.concurrent.ExecutorService wakeupWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean contentInitialized = false;  // 标记内容是否已初始化
+    private volatile boolean presentationReady;
+    private volatile int presentationTaskId = -1;
     private boolean rearWindowConfigured;
+    private Runnable mainPlaceholderTimeout;
+    private long placeholderTimeoutSession = Long.MIN_VALUE;
+    private volatile long recreatingForSession = Long.MIN_VALUE;
+    private android.hardware.display.DisplayManager displayManager;
+    private android.hardware.display.DisplayManager.DisplayListener displayListener;
     private long ownedRenderReportedSession = Long.MIN_VALUE;
     private long ownedRenderDrawObservedSession = Long.MIN_VALUE;
     private android.view.ViewTreeObserver.OnDrawListener ownedRenderDrawListener;
@@ -69,9 +84,9 @@ public class RearScreenNotificationActivity extends Activity {
                     deferredFinishSessionId = expected;
                     return;
                 }
-                finish();
+                finishAcceptedSession(expected);
             } else if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
-                finish();
+                finishAcceptedSession(expected);
             }
         }
     };
@@ -90,6 +105,8 @@ public class RearScreenNotificationActivity extends Activity {
         super.onCreate(savedInstanceState);
         animationId = getIntent().getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, RearAnimationManager.getGeneration());
         acceptedAnimationId = animationId;
+        sessionGate.accept(animationId, false);
+        renderSessionGate.beginActivity(animationId);
         expiresAtElapsedRealtimeMs = getIntent().getLongExtra("expiresAtElapsedRealtimeMs", Long.MAX_VALUE);
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)) {
@@ -99,11 +116,16 @@ public class RearScreenNotificationActivity extends Activity {
             NotificationService.ownedNotificationEnded(animationId, "TIMEOUT");
             finish(); return;
         }
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, userBackCallback);
+        userBackCallbackRegistered = true;
         RearAnimationManager.registerAnimationActivityTask(animationId, getTaskId());
+        presentationTaskId = getTaskId();
         
         // 判断当前所在的屏幕
         int displayId = currentDisplayId();
         Log.d(TAG, String.format("[%tT.%tL] 📍 当前displayId=%d", onCreateStartTime, onCreateStartTime, displayId));
+        applyDisplayWindowPolicy(displayId);
         
         // 获取Intent数据
         packageName = getIntent().getStringExtra("packageName");
@@ -128,15 +150,6 @@ public class RearScreenNotificationActivity extends Activity {
         findViewById(R.id.notification_container).addOnLayoutChangeListener(
             (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> fitNotificationContent());
 
-        // V3.2: 保持常亮 + 锁屏显示
-        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            (isOwnedNotification() ? 0 : android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
-        
-        // 适配新API：锁屏时显示
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
-        }
-        
         // 如果在主屏启动，只是占位符，先隐藏内容，等待移动到背屏
         if (displayId == 0) {
             Log.d(TAG, String.format("[%tT.%tL] 💤 在主屏启动(占位)，隐藏内容等待移动", 
@@ -153,15 +166,19 @@ public class RearScreenNotificationActivity extends Activity {
             interruptFilter.addAction(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION");
             androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+            if (!isOwnedNotification() && !NotificationService.ordinaryNotificationActivityAttached(acceptedAnimationId, this)) {
+                finish(); return;
+            }
             currentInstance = this;
+            registerDisplayListener();
+            if (getIntent().getBooleanExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, false))
+                scheduleMainPlaceholderTimeout();
             scheduleDeferredFinish();
             return;
         }
         
         // --- 以下代码只在背屏执行 ---
         Log.d(TAG, String.format("[%tT.%tL] 🎯 在背屏执行，开始设置内容", onCreateStartTime, onCreateStartTime));
-        
-        contentInitialized = true;
         
         // 获取背屏信息并应用安全区域适配
         applySafeAreaPadding();
@@ -225,10 +242,14 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 开始动画
         startNotificationAnimation(appIconCenter, appNameContainer, contentContainer);
+        renderSessionGate.markRendered(animationId);
+        contentInitialized = true;
         reportOwnedNotificationDisplayedWhenVisible();
         
         // 点击跳转到应用（优先在背屏启动）
         container.setOnClickListener(v -> {
+            handleOrdinaryNotificationUserAction();
+            if (finishIfDismissOnly()) return;
             long clickTime = System.currentTimeMillis();
             Log.d(TAG, String.format("[%tT.%tL] 👆 收到点击，准备跳转 package=%s", clickTime, clickTime, packageName));
             try {
@@ -334,9 +355,14 @@ public class RearScreenNotificationActivity extends Activity {
             androidx.core.content.ContextCompat.registerReceiver(this, interruptReceiver, interruptFilter,
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, String.format("[%tT.%tL] ✓ 已注册通知动画广播接收器", onCreateEndTime, onCreateEndTime));
-        
+        if (!isOwnedNotification() && !NotificationService.ordinaryNotificationActivityAttached(acceptedAnimationId, this)) {
+            finish(); return;
+        }
         // 设置为当前实例
         currentInstance = this;
+        registerDisplayListener();
+        if (getIntent().getBooleanExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, false))
+            scheduleMainPlaceholderTimeout();
         scheduleDeferredFinish();
         
         // 初始化wakeup循环
@@ -427,34 +453,48 @@ public class RearScreenNotificationActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        reconcileDisplayState();
         reportOwnedNotificationDisplayedWhenVisible();
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
-        
-        // V3.2: 再次确保Window flags（保持常亮 + 锁屏显示）
-        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-            (isOwnedNotification() ? 0 : android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
-        
-        // 确保锁屏显示设置持续生效
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
+    }
+
+    /** Reconciles actual display placement; config/display callbacks need not be followed by onResume. */
+    private void reconcileDisplayState() {
+        presentationReady = false;
+        presentationTaskId = getTaskId();
+        int currentDisplayId = currentDisplayId();
+        applyDisplayWindowPolicy(currentDisplayId);
+        applySafeAreaPadding();
+        long resumeTime = System.currentTimeMillis();
+        if (wakeupHandler == null) wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        View container = findViewById(R.id.notification_container);
+        if (recreatingForSession == acceptedAnimationId) {
+            if (container != null) container.setVisibility(View.INVISIBLE);
+            stopWakeupLoop();
+            if (getIntent().getBooleanExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, false))
+                scheduleMainPlaceholderTimeout();
+            return;
         }
-        
-        // 确保Handler已初始化
-        if (wakeupHandler == null) {
-            wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        NotificationDisplayReconciliation.Decision placement = NotificationDisplayReconciliation.decide(
+                RearDisplay.isRear(currentDisplayId), contentInitialized, isOwnedNotification());
+        if (placement.hideContent) {
+            if (container != null) container.setVisibility(View.INVISIBLE);
+            stopWakeupLoop();
+            if (placement.keepWatchdog) scheduleMainPlaceholderTimeout();
+            return;
         }
-        
-        // 检查是否已从主屏移动到背屏（占位符变为实际显示）
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            int currentDisplayId = currentDisplayId();
-            View container = findViewById(R.id.notification_container);
-            
+        if (container != null && contentInitialized) container.setVisibility(View.VISIBLE);
+        if (placement.keepWatchdog) scheduleMainPlaceholderTimeout();
+        if (isOwnedNotification() && android.os.SystemClock.elapsedRealtime() >= expiresAtElapsedRealtimeMs) {
+            finishAcceptedSession(acceptedAnimationId);
+            return;
+        }
             Log.d(TAG, String.format("[%tT.%tL] 🔍 检查移动: displayId=%d, contentInitialized=%s, container=%s", 
                 resumeTime, resumeTime, currentDisplayId, contentInitialized, (container != null ? "存在" : "null")));
             
             // 如果当前在背屏且内容还未初始化（说明是从主屏移动过来的）
-            if (RearDisplay.isRear(currentDisplayId) && !contentInitialized && container != null) {
+            if (placement.initializeContent && container != null) {
                 Log.d(TAG, String.format("[%tT.%tL] 🔄 检测到从主屏移动到背屏，初始化内容", resumeTime, resumeTime));
                 
                 // 显示内容
@@ -466,7 +506,6 @@ public class RearScreenNotificationActivity extends Activity {
                 
                 // 应用安全区域适配（只调用一次）
                 applySafeAreaPadding();
-                contentInitialized = true;
                 
                 // 获取视图
                 ImageView appIconCenter = findViewById(R.id.app_icon_center);
@@ -526,10 +565,11 @@ public class RearScreenNotificationActivity extends Activity {
                 
                 // 启动动画
                 startNotificationAnimation(appIconCenter, appNameContainer, contentContainer);
-                reportOwnedNotificationDisplayedWhenVisible();
                 
                 // 设置点击事件和自动关闭
                 container.setOnClickListener(v -> {
+                    handleOrdinaryNotificationUserAction();
+                    if (finishIfDismissOnly()) return;
                     long clickTime = System.currentTimeMillis();
                     Log.d(TAG, String.format("[%tT.%tL] 👆 收到点击，准备跳转 package=%s", clickTime, clickTime, packageName));
                     try {
@@ -620,25 +660,35 @@ public class RearScreenNotificationActivity extends Activity {
                 });
                 
                 // V3.4: 根据设置的时间自动关闭
+                if (!renderSessionGate.markRendered(acceptedAnimationId)) {
+                    contentInitialized = false;
+                    container.setVisibility(View.INVISIBLE);
+                    scheduleMainPlaceholderTimeout();
+                    return;
+                }
+                contentInitialized = true;
+                reportOwnedNotificationDisplayedWhenVisible();
                 scheduleAutomaticFinish();
                 
                 // 启动wakeup循环
                 startWakeupLoop();
                 
                 Log.d(TAG, String.format("[%tT.%tL] ✓ 移动后初始化完成", resumeTime, resumeTime));
-            } else if (RearDisplay.isRear(currentDisplayId) && !isWakeupRunning) {
+            } else if (placement.startLegacyWakeLoop && !isWakeupRunning) {
                 // 如果已经在背屏但循环未启动，也启动（防止遗漏）
                 startWakeupLoop();
             }
-        }
+
+        completeRearPresentationIfReady();
     }
-    
+
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         applyNotificationStyle(getIntent().getBooleanExtra("darkMode", false));
         if (contentInitialized) applySafeAreaPadding();
         findViewById(R.id.notification_container).post(this::fitNotificationContent);
+        reconcileDisplayState();
         long configTime = System.currentTimeMillis();
         
         // 记录配置变化（用于调试）
@@ -650,14 +700,18 @@ public class RearScreenNotificationActivity extends Activity {
                 configTime, configTime, currentDisplayId, densityDpi));
         }
     }
-    
+
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) reportOwnedNotificationDisplayedWhenVisible();
+        if (hasFocus) {
+            completeRearPresentationIfReady();
+            reportOwnedNotificationDisplayedWhenVisible();
+        }
     }
 
     private void reportOwnedNotificationDisplayedWhenVisible() {
         if (!getIntent().getBooleanExtra("ownedNotification", false)) return;
+        if (!isActualRenderSession(acceptedAnimationId)) return;
         View root = findViewById(R.id.notification_root);
         if (root == null) return;
         long targetSession = acceptedAnimationId;
@@ -679,7 +733,8 @@ public class RearScreenNotificationActivity extends Activity {
                         ownedRenderDrawObserver = null;
                         ownedRenderDrawListener = null;
                     }
-                    if (!isValidOwnedNotificationWindow(root, targetSession) || ownedRenderReportedSession == targetSession) return;
+                    if (!isValidOwnedNotificationWindow(root, targetSession) || ownedRenderReportedSession == targetSession
+                            || !renderSessionGate.claimDisplayed(animationId, targetSession)) return;
                     ownedRenderReportedSession = targetSession;
                     NotificationService.ownedNotificationDisplayed(targetSession, currentDisplayId(), currentDisplayIsOn(),
                             drawEventUptime);
@@ -695,7 +750,7 @@ public class RearScreenNotificationActivity extends Activity {
     private boolean isValidOwnedNotificationWindow(View root, long targetSession) {
         boolean current = RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, targetSession) &&
                 NotificationService.isOwnedNotificationRenderCurrent(targetSession);
-        return OwnedNotificationDrawEvidence.qualifies(current, acceptedAnimationId == targetSession,
+        return OwnedNotificationDrawEvidence.qualifies(current, isActualRenderSession(targetSession),
                 !isFinishing() && !isDestroyed() && hasWindowFocus() && contentInitialized,
                 RearDisplay.isRear(currentDisplayId()) && currentDisplayIsOn(), true,
                 root.getWidth() > 0 && root.getHeight() > 0,
@@ -737,22 +792,116 @@ public class RearScreenNotificationActivity extends Activity {
 
     protected int currentDisplayId() { return getWindowManager().getDefaultDisplay().getDisplayId(); }
 
+    private void registerDisplayListener() {
+        displayManager = (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (displayManager == null) return;
+        displayListener = new android.hardware.display.DisplayManager.DisplayListener() {
+            @Override public void onDisplayAdded(int displayId) { reconcileIfCurrent(); }
+            @Override public void onDisplayRemoved(int displayId) { reconcileIfCurrent(); }
+            @Override public void onDisplayChanged(int displayId) { reconcileIfCurrent(); }
+            private void reconcileIfCurrent() {
+                if (Looper.myLooper() == Looper.getMainLooper()) reconcileDisplayState();
+                else lifecycleHandler.post(() -> {
+                    if (currentInstance == RearScreenNotificationActivity.this && !isFinishing() && !isDestroyed())
+                        reconcileDisplayState();
+                });
+            }
+        };
+        displayManager.registerDisplayListener(displayListener, lifecycleHandler);
+    }
+
+    static NotificationIntentDelivery.Result updateCurrentNotification(Intent intent) {
+        RearScreenNotificationActivity active = currentInstance;
+        if (active == null || active.isFinishing() || active.isDestroyed())
+            return new NotificationIntentDelivery.Result(NotificationIntentDelivery.Outcome.NO_ACTIVE, -1);
+        long expectedSession = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, Long.MIN_VALUE);
+        NotificationIntentDelivery delivery = new NotificationIntentDelivery();
+        int[] taskIdAtClaim = {-1};
+        active.runOnUiThread(() -> {
+            try {
+                delivery.runClaimed(() -> {
+                    if (currentInstance == active && !active.isFinishing() && !active.isDestroyed()) {
+                        taskIdAtClaim[0] = active.getTaskId();
+                        try { active.onNewIntent(intent); }
+                        catch (Throwable error) {
+                            Log.e(TAG, "notification_intent_commit_failed session=" + expectedSession, error);
+                        }
+                    }
+                    return taskIdAtClaim[0] > 0 && active.acceptedAnimationId == expectedSession
+                            && active.sessionGate.isCurrent(expectedSession) ? taskIdAtClaim[0] : -1;
+                }, () -> {
+                    if (active.acceptedAnimationId == expectedSession) active.finishAcceptedSession(expectedSession);
+                });
+            } catch (Throwable error) {
+                Log.e(TAG, "notification_intent_delivery_failed session=" + expectedSession, error);
+            }
+        });
+        try {
+            if (delivery.await(700, java.util.concurrent.TimeUnit.MILLISECONDS)) return delivery.result();
+            if (delivery.cancelPending()) return delivery.result();
+            if (delivery.await(1300, java.util.concurrent.TimeUnit.MILLISECONDS)) return delivery.result();
+            if (delivery.terminateClaimed()) return delivery.result();
+            if (delivery.state() == NotificationIntentDelivery.State.COMPLETED
+                    || delivery.state() == NotificationIntentDelivery.State.CANCELLED
+                    || delivery.state() == NotificationIntentDelivery.State.TERMINATED) return delivery.result();
+            throw new IllegalStateException("notification intent delivery remained non-terminal");
+        } catch (InterruptedException interrupted) {
+            if (!delivery.cancelPending()) delivery.terminateClaimed();
+            Thread.currentThread().interrupt();
+            if (delivery.state() == NotificationIntentDelivery.State.CANCELLED
+                    || delivery.state() == NotificationIntentDelivery.State.TERMINATED) return delivery.result();
+            return new NotificationIntentDelivery.Result(NotificationIntentDelivery.Outcome.TERMINATED, -1);
+        } catch (RuntimeException error) {
+            Log.e(TAG, "notification_intent_delivery_unresolved session=" + expectedSession, error);
+            delivery.terminateClaimed();
+            return new NotificationIntentDelivery.Result(NotificationIntentDelivery.Outcome.TERMINATED, -1);
+        }
+    }
+
     private void scheduleDeferredFinish() {
         if (deferredFinishSessionId != animationId) return;
         deferredFinishSessionId = Long.MIN_VALUE;
         long target = animationId;
         lifecycleHandler.post(() -> {
-            if (currentInstance == this && animationId == target
-                    && RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, target)) finish();
+            if (currentInstance == this && acceptedAnimationId == target
+                    && RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, target)) finishAcceptedSession(target);
         });
     }
 
     private void scheduleAutomaticFinish() {
-        lifecycleHandler.removeCallbacks(autoFinish);
+        if (autoFinish != null) lifecycleHandler.removeCallbacks(autoFinish);
+        if (!NotificationDisplayOptions.hasAutomaticFinish(isOwnedNotification(),
+                getIntent().getBooleanExtra("keepUntilNotificationRemoved", false))) {
+            autoFinish = null;
+            return;
+        }
+        long expectedSession = acceptedAnimationId;
+        autoFinish = () -> finishAcceptedSession(expectedSession);
         long durationMs = isOwnedNotification()
-                ? Math.max(0L, expiresAtElapsedRealtimeMs - android.os.SystemClock.elapsedRealtime())
-                : getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10) * 1000L;
+                ? NotificationService.remainingOwnedNotificationTtlMs(expiresAtElapsedRealtimeMs,
+                        android.os.SystemClock.elapsedRealtime())
+                : NotificationDisplayOptions.configuredDurationMillis(
+                        getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10));
         lifecycleHandler.postDelayed(autoFinish, durationMs);
+    }
+
+    private void handleOrdinaryNotificationUserAction() {
+        if (!isOwnedNotification())
+            NotificationService.ordinaryNotificationUserHandled(acceptedAnimationId);
+    }
+
+    private boolean finishIfDismissOnly() {
+        boolean dismissOnly = getSharedPreferences("mrss_settings", MODE_PRIVATE).getBoolean("notification_dismiss_only", false);
+        if (NotificationDisplayOptions.shouldLaunchSourceApp(isOwnedNotification(), dismissOnly)) return false;
+        finishAcceptedSession(acceptedAnimationId);
+        return true;
+    }
+
+    private void finishAcceptedSession(long expectedSession) {
+        if (currentInstance != this || acceptedAnimationId != expectedSession
+                || !sessionGate.finish(expectedSession)) return;
+        presentationReady = false;
+        finish();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -760,30 +909,73 @@ public class RearScreenNotificationActivity extends Activity {
         long nextId = intent.getLongExtra(RearAnimationManager.EXTRA_SESSION_ID, 0);
         if (!RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, nextId)) return;
         long previousId = acceptedAnimationId;
-        if (previousId != nextId && getIntent().getBooleanExtra("ownedNotification", false))
-            NotificationService.ownedNotificationEnded(previousId, "COVERED");
+        boolean previousWasOwned = getIntent().getBooleanExtra("ownedNotification", false);
+        if (!sessionGate.accept(nextId, isFinishing())) return;
+        if (previousId != nextId && !previousWasOwned)
+            NotificationService.ordinaryNotificationActivityHandoff(previousId, this);
         acceptedAnimationId = nextId;
+        renderSessionGate.acceptHandoff(nextId);
+        presentationReady = false;
+        presentationTaskId = -1;
         ownedRenderReportedSession = Long.MIN_VALUE;
         ownedRenderDrawObservedSession = Long.MIN_VALUE;
         clearOwnedRenderDrawListener();
+        if (userBackCallbackRegistered) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(userBackCallback);
+            userBackCallbackRegistered = false;
+        }
+        View container = findViewById(R.id.notification_container);
+        if (container != null) container.setVisibility(View.INVISIBLE);
         setIntent(intent);
+        if (!getIntent().getBooleanExtra("ownedNotification", false)
+                && !NotificationService.ordinaryNotificationActivityAttached(nextId, this)) {
+            finishAcceptedSession(nextId);
+            return;
+        }
         expiresAtElapsedRealtimeMs = intent.getLongExtra("expiresAtElapsedRealtimeMs", Long.MAX_VALUE);
-        lifecycleHandler.removeCallbacks(autoFinish);
+        rearTaskId = intent.getIntExtra("rearTaskId", -1);
+        if (autoFinish != null) lifecycleHandler.removeCallbacks(autoFinish);
         stopWakeupLoop();
+        cancelMainPlaceholderTimeout();
+        recreatingForSession = nextId;
+        if (previousId != nextId && previousWasOwned)
+            NotificationService.ownedNotificationEnded(previousId, "COVERED");
+        if (getIntent().getBooleanExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, false))
+            scheduleMainPlaceholderTimeout();
         recreate();
     }
 
     @Override protected void onDestroy() {
+        if (userBackCallbackRegistered) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(userBackCallback);
+            userBackCallbackRegistered = false;
+        }
+        presentationReady = false;
         lifecycleHandler.removeCallbacksAndMessages(null);
+        if (displayManager != null && displayListener != null) {
+            displayManager.unregisterDisplayListener(displayListener);
+            displayListener = null;
+            displayManager = null;
+        }
         clearOwnedRenderDrawListener();
-        if (isOwnedNotification() && ownedRenderReportedSession != acceptedAnimationId && !isChangingConfigurations())
+        if (isOwnedNotification() && ownedRenderReportedSession != acceptedAnimationId && !isChangingConfigurations()
+                && recreatingForSession != acceptedAnimationId)
             NotificationService.ownedNotificationEnded(acceptedAnimationId, "RENDER_FAILED");
         stopWakeupLoop();
         wakeupWorker.shutdown();
         try { unregisterReceiver(interruptReceiver); } catch (IllegalArgumentException ignored) { }
         super.onDestroy();
+        if (!isOwnedNotification() && isChangingConfigurations()) {
+            NotificationService.ordinaryNotificationActivityDetachedForRecreation(acceptedAnimationId, this);
+            if (this == currentInstance) currentInstance = null;
+        }
         if (this != currentInstance || isChangingConfigurations()) return;
+        if (recreatingForSession == acceptedAnimationId) {
+            currentInstance = null;
+            return;
+        }
         currentInstance = null;
+        if (!isOwnedNotification() && NotificationService.ordinaryNotificationActivityDestroyed(acceptedAnimationId, this)) return;
         if (getIntent().getBooleanExtra("ownedNotification", false)) {
             String endReason = !RearAnimationManager.isCurrent(RearAnimationManager.AnimationType.NOTIFICATION, animationId)
                     ? (RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NONE ? "DISPLAY_UNAVAILABLE" : "COVERED")
@@ -935,8 +1127,8 @@ public class RearScreenNotificationActivity extends Activity {
      */
     private void applySafeAreaPadding() {
         try {
-            if (!rearWindowConfigured && RearDisplay.isRear(currentDisplayId())) {
-                rearWindowConfigured = true;
+            boolean rear = RearDisplay.isRear(currentDisplayId());
+            if (rear) {
                 androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
                 android.view.WindowManager.LayoutParams window = getWindow().getAttributes();
                 if (android.os.Build.VERSION.SDK_INT >= 30) window.layoutInDisplayCutoutMode =
@@ -946,7 +1138,16 @@ public class RearScreenNotificationActivity extends Activity {
                 getWindow().setAttributes(window);
                 androidx.core.view.WindowCompat.getInsetsController(getWindow(), findViewById(R.id.notification_root))
                         .hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            } else if (rearWindowConfigured) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+                android.view.WindowManager.LayoutParams window = getWindow().getAttributes();
+                if (android.os.Build.VERSION.SDK_INT >= 28)
+                    window.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+                getWindow().setAttributes(window);
+                androidx.core.view.WindowCompat.getInsetsController(getWindow(), findViewById(R.id.notification_root))
+                        .show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
             }
+            rearWindowConfigured = rear;
             androidx.core.view.WindowInsetsCompat insets = androidx.core.view.ViewCompat.getRootWindowInsets(findViewById(R.id.notification_root));
             if (insets != null && insets.getDisplayCutout() != null) {
                 androidx.core.view.DisplayCutoutCompat cutout = insets.getDisplayCutout();
@@ -1019,8 +1220,73 @@ public class RearScreenNotificationActivity extends Activity {
      */
     private boolean isOwnedNotification() { return getIntent().getBooleanExtra("ownedNotification", false); }
 
+    private void applyDisplayWindowPolicy(int displayId) {
+        boolean rear = RearDisplay.isRear(displayId);
+        int controlledFlags = android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON;
+        getWindow().clearFlags(controlledFlags);
+        getWindow().addFlags(NotificationWindowPolicy.flags(rear, isOwnedNotification()));
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1)
+            setShowWhenLocked(NotificationWindowPolicy.showWhenLocked(rear));
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+            setTurnScreenOn(NotificationWindowPolicy.turnScreenOn());
+    }
+
+    private void scheduleMainPlaceholderTimeout() {
+        if (mainPlaceholderTimeout != null && placeholderTimeoutSession == acceptedAnimationId) return;
+        cancelMainPlaceholderTimeout();
+        long expectedSession = acceptedAnimationId;
+        placeholderTimeoutSession = expectedSession;
+        mainPlaceholderTimeout = () -> {
+            if (acceptedAnimationId == expectedSession && !isFinishing()
+                    && !isSessionPresentationReady(expectedSession, getTaskId())) {
+                Log.w(TAG, "locked_placeholder_not_ready session=" + expectedSession + " display=" + currentDisplayId());
+                finishAcceptedSession(expectedSession);
+            }
+        };
+        lifecycleHandler.postDelayed(mainPlaceholderTimeout, 3000L);
+    }
+
+    private void cancelMainPlaceholderTimeout() {
+        if (mainPlaceholderTimeout != null) lifecycleHandler.removeCallbacks(mainPlaceholderTimeout);
+        mainPlaceholderTimeout = null;
+        placeholderTimeoutSession = Long.MIN_VALUE;
+    }
+
+    private void completeRearPresentationIfReady() {
+        presentationTaskId = getTaskId();
+        presentationReady = isRearPresentationReadyOnMain();
+        if (presentationReady) cancelMainPlaceholderTimeout();
+    }
+
+    private boolean isRearPresentationReadyOnMain() {
+        if (isFinishing() || isDestroyed() || !sessionGate.isCurrent(acceptedAnimationId)
+                || !isActualRenderSession(acceptedAnimationId)
+                || !contentInitialized || !RearDisplay.isRear(currentDisplayId())
+                || !currentDisplayIsOn() || !hasWindowFocus()) return false;
+        View root = findViewById(R.id.notification_root);
+        View container = findViewById(R.id.notification_container);
+        return root != null && container != null && root.isAttachedToWindow() && root.isShown()
+                && root.getWindowVisibility() == View.VISIBLE && container.isShown();
+    }
+
+    static boolean isSessionPresentationReady(long sessionId, int expectedTaskId) {
+        RearScreenNotificationActivity active = currentInstance;
+        if (active == null || active.acceptedAnimationId != sessionId || active.isFinishing() || active.isDestroyed()
+                || !active.sessionGate.isCurrent(sessionId) || active.presentationTaskId != expectedTaskId
+                || !active.isActualRenderSession(sessionId) || !active.presentationReady) return false;
+        return true;
+    }
+
+    private boolean isActualRenderSession(long sessionId) {
+        return recreatingForSession != sessionId
+                && renderSessionGate.isRenderedBy(animationId, sessionId)
+                && acceptedAnimationId == sessionId;
+    }
+
     private void startWakeupLoop() {
-        if (isOwnedNotification()) return;
+        if (isOwnedNotification() || getIntent().getBooleanExtra("keepUntilNotificationRemoved", false)) return;
         if (isWakeupRunning) {
             Log.w(TAG, "⚠️ Wakeup loop already running");
             return;

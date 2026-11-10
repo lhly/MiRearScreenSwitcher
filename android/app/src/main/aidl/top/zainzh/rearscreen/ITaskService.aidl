@@ -195,5 +195,7 @@ interface ITaskService {
     boolean reportOwnedNotificationActivity(int displayId, long notificationSessionId,
             long expiresAtElapsedRealtimeMs, long drawEventUptime,
             ISceneTaskActionGate currentGate) = 60;
+    /** Restore only the rear Launcher through the privileged backend; leaves virtual casting/input ownership untouched. */
+    boolean restoreSubScreenLauncherOnly() = 61;
 }
 

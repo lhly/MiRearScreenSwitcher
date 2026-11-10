@@ -15,6 +15,9 @@ internal object LegacyDisplayOccupancy {
     private const val PACKAGE = "physical_projection_package"
     private const val DISPLAY = "physical_projection_display"
     private const val DISPLAY_IDENTITY = "physical_projection_identity"
+    private const val LAUNCHER_DISABLED = "physical_projection_launcher_disabled"
+    private const val GENERATION = "physical_projection_generation"
+    private const val GENERATION_SEQUENCE = "physical_projection_generation_sequence"
     private val lock = Any()
     private val ownershipEpoch = LegacyProjectionOwnershipEpoch()
 
@@ -26,15 +29,81 @@ internal object LegacyDisplayOccupancy {
         require(taskId > 0 && packageName.isNotBlank() && displayId > 0)
         val physicalIdentity = runCatching { RearDisplay.identity() }.getOrDefault("")
         synchronized(lock) {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val generation = prefs.getLong(GENERATION_SEQUENCE, 0L) + 1L
+            prefs.edit()
+                .putLong(GENERATION_SEQUENCE, generation)
+                .putLong(GENERATION, generation)
                 .putInt(TASK, taskId)
                 .putString(PACKAGE, packageName)
                 .putInt(DISPLAY, displayId)
                 .putString(DISPLAY_IDENTITY, physicalIdentity)
+                .putBoolean(LAUNCHER_DISABLED, false)
                 .apply()
             ownershipEpoch.projectionCommitted()
         }
     }
+
+    @JvmStatic fun physicalProjectionGeneration(context: Context, taskId: Int, displayId: Int): Long =
+        synchronized(lock) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (taskId <= 0 || prefs.getInt(TASK, -1) != taskId || prefs.getInt(DISPLAY, -1) != displayId)
+                return@synchronized 0L
+            val current = prefs.getLong(GENERATION, 0L)
+            if (current > 0L) return@synchronized current
+            val migrated = prefs.getLong(GENERATION_SEQUENCE, 0L) + 1L
+            if (!prefs.edit().putLong(GENERATION_SEQUENCE, migrated).putLong(GENERATION, migrated).commit())
+                return@synchronized 0L
+            migrated
+        }
+
+    /** Returns the exact committed owner; retains a launcher cleanup record after its task leaves. */
+    @JvmStatic fun physicalProjectionTask(context: Context, service: ITaskService, selectedRearDisplay: Int): String? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val taskId = prefs.getInt(TASK, -1)
+        val packageName = prefs.getString(PACKAGE, null) ?: return null
+        val displayId = prefs.getInt(DISPLAY, -1)
+        val physicalIdentity = prefs.getString(DISPLAY_IDENTITY, null)
+        val currentIdentity = runCatching { RearDisplay.identity() }.getOrNull()
+        if (taskId <= 0 || displayId != selectedRearDisplay || physicalIdentity == null ||
+            physicalIdentity.isNotBlank() && currentIdentity != physicalIdentity) {
+            clearIfCurrent(context, taskId)
+            return null
+        }
+        val stillOwned = try {
+            service.isTaskOnDisplay(taskId, displayId) && service.getPackageNameFromTaskId(taskId) == packageName
+        } catch (_: Exception) { null }
+        if (stillOwned == null) return null
+        if (!stillOwned && !prefs.getBoolean(LAUNCHER_DISABLED, false)) {
+            clearIfCurrent(context, taskId)
+            return null
+        }
+        return "$packageName:$taskId"
+    }
+
+    @JvmStatic fun physicalProjectionLauncherDisabled(context: Context, taskId: Int, displayId: Int): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return taskId > 0 && prefs.getInt(TASK, -1) == taskId && prefs.getInt(DISPLAY, -1) == displayId &&
+            prefs.getBoolean(LAUNCHER_DISABLED, false)
+    }
+
+    @JvmStatic fun markPhysicalLauncherDisabled(context: Context, taskId: Int, displayId: Int): Boolean =
+        synchronized(lock) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (taskId <= 0 || prefs.getInt(TASK, -1) != taskId || prefs.getInt(DISPLAY, -1) != displayId)
+                return@synchronized false
+            prefs.edit().putBoolean(LAUNCHER_DISABLED, true).commit()
+        }
+
+    @JvmStatic fun clearPhysicalProjection(context: Context, taskId: Int, displayId: Int, generation: Long): Boolean =
+        synchronized(lock) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (generation <= 0L || prefs.getInt(TASK, -1) != taskId || prefs.getInt(DISPLAY, -1) != displayId ||
+                prefs.getLong(GENERATION, 0L) != generation) return@synchronized false
+            prefs.edit().remove(TASK).remove(PACKAGE).remove(DISPLAY).remove(DISPLAY_IDENTITY)
+                .remove(LAUNCHER_DISABLED).remove(GENERATION).apply()
+            true
+        }
 
     /** Fail closed for a known owner if the privileged identity query itself cannot complete. */
     fun hasPhysicalProjection(context: Context, service: ITaskService, selectedRearDisplay: Int): Boolean {
@@ -54,7 +123,7 @@ internal object LegacyDisplayOccupancy {
         } catch (_: Exception) {
             return true
         }
-        if (!stillOwned) clearIfCurrent(context, taskId)
+        if (!stillOwned && !prefs.getBoolean(LAUNCHER_DISABLED, false)) clearIfCurrent(context, taskId)
         return stillOwned
     }
 
@@ -62,7 +131,8 @@ internal object LegacyDisplayOccupancy {
         synchronized(lock) {
             val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (prefs.getInt(TASK, -1) != observedTaskId) return
-            prefs.edit().clear().apply()
+            prefs.edit().remove(TASK).remove(PACKAGE).remove(DISPLAY).remove(DISPLAY_IDENTITY)
+                .remove(LAUNCHER_DISABLED).remove(GENERATION).apply()
             ownershipEpoch.staleRecordPruned()
         }
     }

@@ -32,6 +32,16 @@ final class NativeStrings {
             case "apps_access_help": id = R.string.ui_apps_access_help; break;
             case "author_anti": id = R.string.ui_author_anti; break;
             case "auto_destroy_time": id = R.string.ui_auto_destroy_time; break;
+            case "notification_duration_title": id = R.string.ui_notification_duration_title; break;
+            case "notification_never_close": id = R.string.ui_notification_never_close; break;
+            case "notification_never_close_help": id = R.string.ui_notification_never_close_help; break;
+            case "notification_click_action": id = R.string.ui_notification_click_action; break;
+            case "notification_click_action_help": id = R.string.ui_notification_click_action_help; break;
+            case "notification_click_open": id = R.string.ui_notification_click_open; break;
+            case "notification_click_dismiss": id = R.string.ui_notification_click_dismiss; break;
+            case "minutes_value": id = R.string.ui_minutes_value; break;
+            case "unit_seconds": id = R.string.ui_unit_seconds; break;
+            case "unit_minutes": id = R.string.ui_unit_minutes; break;
             case "back": id = R.string.ui_back; break;
             case "cancel": id = R.string.ui_cancel; break;
             case "charging_always_help": id = R.string.ui_charging_always_help; break;

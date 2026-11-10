@@ -277,8 +277,9 @@ public class RearScreenChargingActivity extends Activity {
         currentInstance = null;
         if (isChangingConfigurations()) return;
         boolean ownsAnimation = ChargingService.onAnimationFinished(requestId);
-        if (!ownsAnimation || interrupted
-                || !RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, animationId)) return;
+        if (!ownsAnimation || interrupted) return;
+        if (NotificationService.resumePersistentOrdinaryNotificationAfterCharging(animationId, rearTaskId)) return;
+        if (!RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING, animationId)) return;
         ITaskService service = ChargingService.getTaskService();
         if (service == null) service = NotificationService.getTaskService();
         if (service == null) service = restoreService;

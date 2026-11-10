@@ -405,7 +405,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                         if (taskService != null) {
                             try {
                                 int dpi = (int) call.argument("dpi");
-                                boolean success = taskService.setRearDpi(dpi);
+                                boolean success = RearAnimationManager.callDisplayAction(() -> taskService.setRearDpi(dpi));
                                 result.success(success);
                             } catch (Exception e) {
                                 Log.e(TAG, "Failed to set rear DPI", e);
@@ -420,7 +420,7 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                     case "resetRearDpi": {
                         if (taskService != null) {
                             try {
-                                boolean success = taskService.resetRearDpi();
+                                boolean success = RearAnimationManager.callDisplayAction(() -> taskService.resetRearDpi());
                                 result.success(success);
                             } catch (Exception e) {
                                 Log.e(TAG, "Failed to reset rear DPI", e);
@@ -477,7 +477,8 @@ public class MainActivity extends androidx.activity.ComponentActivity {
                             try {
                                 int displayId = (int) call.argument("displayId");
                                 int rotation = (int) call.argument("rotation");
-                                boolean success = taskService.setDisplayRotation(displayId, rotation);
+                                boolean success = RearAnimationManager.callDisplayAction(
+                                        () -> taskService.setDisplayRotation(displayId, rotation));
                                 result.success(success);
                             } catch (Exception e) {
                                 result.error("ERROR", e.getMessage(), null);

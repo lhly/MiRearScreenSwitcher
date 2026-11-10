@@ -92,6 +92,17 @@ public class NotificationService extends NotificationListenerService {
     
     // 静态实例，供外部访问
     private static NotificationService instance;
+    private static final OrdinaryNotificationSessionFinalizer ORDINARY_SESSION_FINALIZER = new OrdinaryNotificationSessionFinalizer();
+    private volatile String activeOrdinaryNotificationKey;
+    private volatile long activeOrdinaryNotificationPostTime;
+    private volatile long activeOrdinaryNotificationSession = Long.MIN_VALUE;
+    private volatile boolean activeOrdinaryNotificationPersistent;
+    private volatile String activeOrdinaryNotificationPackage;
+    private volatile String activeOrdinaryNotificationTitle;
+    private volatile String activeOrdinaryNotificationText;
+    private volatile long activeOrdinaryNotificationWhen;
+    private final OrdinaryNotificationChargeReturn.Lease ordinaryChargeLease =
+            new OrdinaryNotificationChargeReturn.Lease();
     private final java.util.concurrent.ConcurrentHashMap<Long, OwnedNotificationRender> ownedNotificationRenders =
             new java.util.concurrent.ConcurrentHashMap<>();
     
@@ -111,10 +122,19 @@ public class NotificationService extends NotificationListenerService {
         public void onReceive(Context context, Intent intent) {
             if ((BuildConfig.APPLICATION_ID + ".RELOAD_NOTIFICATION_SETTINGS").equals(intent.getAction())) {
                 Log.d(TAG, "🔄 收到重新加载设置的广播");
+                boolean wasHideTitle = privacyHideTitle, wasHideContent = privacyHideContent;
+                boolean wasPersistent = activeOrdinaryNotificationPersistent;
                 loadNotificationServiceSettings(); // 重新加载开关状态
                 loadSettings(); // 重新加载其他设置
+                boolean renderPolicyChanged = wasHideTitle != privacyHideTitle || wasHideContent != privacyHideContent
+                        || !selectedApps.contains(activeOrdinaryNotificationPackage)
+                        || (onlyWhenLocked && !isMainScreenCovered)
+                        || (followDndMode && isDndActive())
+                        || (wasPersistent && !prefs.getBoolean("notification_never_auto_close", false));
+                if (wasPersistent && renderPolicyChanged) finishTrackedPersistentNotification();
                 top.zainzh.rearscreen.platform.RearCapabilityCore.get(NotificationService.this).onNotificationGlobalPolicyChanged();
             } else if (android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED.equals(intent.getAction())) {
+                if (activeOrdinaryNotificationPersistent && followDndMode && isDndActive()) finishTrackedPersistentNotification();
                 top.zainzh.rearscreen.platform.RearCapabilityCore.get(NotificationService.this).onNotificationGlobalPolicyChanged();
             }
         }
@@ -214,13 +234,232 @@ public class NotificationService extends NotificationListenerService {
     }
 
     void closeNotificationDisplaysForServiceOff() {
+        ordinaryChargeLease.clear();
         try { top.zainzh.rearscreen.platform.RearCapabilityCore.get(this).onNotificationGlobalPolicyChanged(); }
         catch (Exception ignored) { }
         long sessionId = RearAnimationManager.captureSessionId(RearAnimationManager.AnimationType.NOTIFICATION);
+        long ordinarySession = activeOrdinaryNotificationSession;
+        activeOrdinaryNotificationKey = null;
+        activeOrdinaryNotificationPostTime = 0;
+        activeOrdinaryNotificationSession = Long.MIN_VALUE;
+        activeOrdinaryNotificationPersistent = false;
+        activeOrdinaryNotificationPackage = null;
+        activeOrdinaryNotificationTitle = null;
+        activeOrdinaryNotificationText = null;
+        activeOrdinaryNotificationWhen = 0;
         disabledNotificationSessionId = sessionId;
-        postNotificationFinishForSession(this, mainHandler, sessionId);
+        if (ordinarySession != Long.MIN_VALUE) ORDINARY_SESSION_FINALIZER.requestFinish(ordinarySession);
+        if (!ORDINARY_SESSION_FINALIZER.requestFinish(sessionId))
+            postNotificationFinishForSession(this, mainHandler, sessionId);
         RearCastNotification.clearNotification(RearCastNotification.captureNotificationToken());
         unregisterMainProximitySensor();
+    }
+
+    private boolean isDndActive() {
+        try {
+            android.app.NotificationManager manager = (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            return manager != null && manager.getCurrentInterruptionFilter() != android.app.NotificationManager.INTERRUPTION_FILTER_ALL;
+        } catch (Exception ignored) { return false; }
+    }
+
+    private void finishTrackedPersistentNotification() {
+        long expected = activeOrdinaryNotificationSession;
+        ordinaryChargeLease.clear();
+        activeOrdinaryNotificationKey = null;
+        activeOrdinaryNotificationPostTime = 0;
+        activeOrdinaryNotificationSession = Long.MIN_VALUE;
+        activeOrdinaryNotificationPersistent = false;
+        activeOrdinaryNotificationPackage = null;
+        activeOrdinaryNotificationTitle = null;
+        activeOrdinaryNotificationText = null;
+        activeOrdinaryNotificationWhen = 0;
+        if (expected != Long.MIN_VALUE) ORDINARY_SESSION_FINALIZER.requestFinish(expected);
+    }
+
+    private void clearPersistentNoticeSnapshot(long expectedSessionId) {
+        if (activeOrdinaryNotificationSession != expectedSessionId) return;
+        activeOrdinaryNotificationKey = null;
+        activeOrdinaryNotificationPostTime = 0;
+        activeOrdinaryNotificationSession = Long.MIN_VALUE;
+        activeOrdinaryNotificationPersistent = false;
+        activeOrdinaryNotificationPackage = null;
+        activeOrdinaryNotificationTitle = null;
+        activeOrdinaryNotificationText = null;
+        activeOrdinaryNotificationWhen = 0;
+    }
+
+    static boolean ordinaryNotificationActivityAttached(long sessionId, Object window) {
+        return ORDINARY_SESSION_FINALIZER.activityAttached(sessionId, window);
+    }
+    static void ordinaryNotificationActivityHandoff(long sessionId, Object window) {
+        ORDINARY_SESSION_FINALIZER.activityHandoff(sessionId, window);
+    }
+    static void ordinaryNotificationActivityDetachedForRecreation(long sessionId, Object window) {
+        ORDINARY_SESSION_FINALIZER.activityDetachedForRecreation(sessionId, window);
+    }
+    /** Called synchronously from real user controls, before Activity finish or app-launch work begins. */
+    static void ordinaryNotificationUserHandled(long sessionId) {
+        NotificationService service = instance;
+        if (service != null && service.ordinaryChargeLease.userHandled(sessionId))
+            service.clearPersistentNoticeSnapshot(sessionId);
+    }
+
+    static boolean ordinaryNotificationActivityDestroyed(long sessionId, Object window) {
+        NotificationService service = instance;
+        if (service != null) {
+            if (service.ordinaryChargeLease.ordinaryActivityDestroyed(sessionId,
+                    RearAnimationManager.currentChargingSessionId()))
+                service.clearPersistentNoticeSnapshot(sessionId);
+        }
+        return ORDINARY_SESSION_FINALIZER.activityDestroyed(sessionId, window);
+    }
+
+    static void chargingSessionStarted(RearAnimationManager.Session session) {
+        NotificationService service = instance;
+        if (service == null || session == null) return;
+        service.ordinaryChargeLease.chargingStarted(session.id, session.replacedSessionId,
+                session.previous == RearAnimationManager.AnimationType.NOTIFICATION,
+                session.previous == RearAnimationManager.AnimationType.CHARGING);
+    }
+
+    static boolean resumePersistentOrdinaryNotificationAfterCharging(long chargeSessionId, int returnTaskId) {
+        NotificationService service = instance;
+        if (service == null) return false;
+        return OrdinaryNotificationChargeReturn.resumeAfterCharge(new OrdinaryNotificationChargeReturn.Host() {
+            @Override public OrdinaryNotificationChargeReturn.Notice currentPersistentNotice(long expectedChargeSession) {
+                OrdinaryNotificationChargeReturn.Notice notice = service.ordinaryChargeLease.noticeCoveredBy(expectedChargeSession);
+                return service.matchesActiveNotice(notice) ? notice : null;
+            }
+            @Override public OrdinaryNotificationChargeReturn.Notice refreshForCurrentPolicy(
+                    OrdinaryNotificationChargeReturn.Notice notice) {
+                return service.resolveCurrentPersistentNotice(notice);
+            }
+            @Override public void discardIfCurrent(OrdinaryNotificationChargeReturn.Notice notice) {
+                if (service.matchesActiveNotice(notice) || service.ordinaryChargeLease.isCurrent(notice))
+                    service.finishTrackedPersistentNotification();
+            }
+            @Override public OrdinaryNotificationChargeReturn.ResumedSession beginAfterCharge(
+                    OrdinaryNotificationChargeReturn.Notice notice, long expectedChargeSession, int taskId) {
+                if (service.taskServiceReleased || !service.matchesActiveNotice(notice)
+                        || !service.ordinaryChargeLease.isCurrent(notice)) return null;
+                OrdinaryNotificationChargeReturn.Notice current = service.resolveCurrentPersistentNotice(notice);
+                if (current == null) {
+                    service.finishTrackedPersistentNotification();
+                    return null;
+                }
+                RearAnimationManager.Session resumed = RearAnimationManager.beginPersistentNotificationDuringCharging(
+                        expectedChargeSession, taskId);
+                if (resumed == null) return null;
+                service.activeOrdinaryNotificationSession = resumed.id;
+                service.activeOrdinaryNotificationTitle = current.title;
+                service.activeOrdinaryNotificationText = current.text;
+                service.activeOrdinaryNotificationWhen = current.when;
+                service.ordinaryChargeLease.resumed(notice, current, resumed.id);
+                service.registerOrdinaryNotificationSession(resumed);
+                return new OrdinaryNotificationChargeReturn.ResumedSession(resumed.id, resumed.rearTaskId,
+                        current.withSessionId(resumed.id));
+            }
+            @Override public void launch(OrdinaryNotificationChargeReturn.Notice notice,
+                    OrdinaryNotificationChargeReturn.ResumedSession resumedSession) {
+                RearAnimationManager.Session resumed = new RearAnimationManager.Session(resumedSession.id,
+                        RearAnimationManager.AnimationType.NOTIFICATION, RearAnimationManager.AnimationType.NONE,
+                        resumedSession.returnTaskId);
+                service.disabledNotificationSessionId = Long.MIN_VALUE;
+                service.animationWorker.execute(() -> RearAnimationManager.runDisplayAction(() -> {
+                    OrdinaryNotificationChargeReturn.Notice latest =
+                            service.ordinaryChargeLease.noticeForSession(resumed.id);
+                    OrdinaryNotificationChargeReturn.Notice current = service.resolveCurrentPersistentNotice(latest);
+                    if (current == null) {
+                        service.finishTrackedPersistentNotification();
+                        ORDINARY_SESSION_FINALIZER.requestFinish(resumed.id);
+                        ORDINARY_SESSION_FINALIZER.launchFinished(resumed.id);
+                        return;
+                    }
+                    service.updatePersistentNoticeContent(current);
+                    service.launchNotification(resumed, current.packageName, current.title, current.text,
+                            current.when, current.key, current.postTime, true);
+                }));
+            }
+        }, chargeSessionId, returnTaskId);
+    }
+
+    private boolean matchesActiveNotice(OrdinaryNotificationChargeReturn.Notice notice) {
+        return notice != null && activeOrdinaryNotificationPersistent
+                && activeOrdinaryNotificationSession == notice.sessionId
+                && activeOrdinaryNotificationPostTime == notice.postTime
+                && java.util.Objects.equals(activeOrdinaryNotificationKey, notice.key)
+                && java.util.Objects.equals(activeOrdinaryNotificationPackage, notice.packageName);
+    }
+
+    private OrdinaryNotificationChargeReturn.Notice resolveCurrentPersistentNotice(
+            OrdinaryNotificationChargeReturn.Notice notice) {
+        if (!matchesActiveNotice(notice) || !ordinaryChargeLease.isCurrent(notice) || taskServiceReleased) return null;
+        SharedPreferences currentSettings = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+        SharedPreferences flutterSettings = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
+        PersistentNotificationResumePolicy.Snapshot currentPolicy = new PersistentNotificationResumePolicy.Snapshot(
+                new PersistentNotificationResumePolicy.CurrentSettings() {
+                    @Override public boolean serviceEnabled() {
+                        return currentSettings.contains("notification_service_enabled")
+                                ? currentSettings.getBoolean("notification_service_enabled", false)
+                                : flutterSettings.getBoolean("flutter.notification_service_enabled", false);
+                    }
+                    @Override public boolean keepUntilRemoved() {
+                        return currentSettings.contains("notification_never_auto_close")
+                                ? currentSettings.getBoolean("notification_never_auto_close", false)
+                                : flutterSettings.getBoolean("flutter.notification_never_auto_close", false);
+                    }
+                    @Override public boolean packageSelected(String packageName) {
+                        return currentSettings.getStringSet("notification_selected_apps", java.util.Collections.emptySet())
+                                .contains(packageName);
+                    }
+                    @Override public boolean onlyWhenLocked() {
+                        return currentSettings.getBoolean("notification_only_when_locked", false);
+                    }
+                    @Override public boolean mainScreenCovered() { return isMainScreenCovered; }
+                    @Override public boolean followDnd() {
+                        return currentSettings.getBoolean("notification_follow_dnd_mode", true);
+                    }
+                    @Override public boolean dndActive() { return isDndActive(); }
+                    @Override public boolean hideTitle() {
+                        return currentSettings.getBoolean("notification_privacy_hide_title", false);
+                    }
+                    @Override public boolean hideContent() {
+                        return currentSettings.getBoolean("notification_privacy_hide_content", false);
+                    }
+                }, notice.packageName);
+        StatusBarNotification source = null;
+        try {
+            StatusBarNotification[] active = getActiveNotifications();
+            if (active == null) return null;
+            for (StatusBarNotification item : active) {
+                if (notice.key.equals(item.getKey()) && notice.postTime == item.getPostTime()
+                        && notice.packageName.equals(item.getPackageName())) {
+                    source = item;
+                    break;
+                }
+            }
+        } catch (RuntimeException failure) {
+            Log.w(TAG, "persistent_notification_resume_source_check_failed", failure);
+            return null;
+        }
+        if (!PersistentNotificationResumePolicy.allows(notice, source != null, currentPolicy)) return null;
+        android.app.Notification notification = source.getNotification();
+        CharSequence rawTitle = notification != null && notification.extras != null
+                ? notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) : null;
+        CharSequence rawText = notification != null && notification.extras != null
+                ? notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT) : null;
+        return PersistentNotificationResumePolicy.renderCurrent(notice,
+                rawTitle == null ? "" : rawTitle.toString(), rawText == null ? "" : rawText.toString(),
+                notification == null ? 0L : notification.when, currentPolicy.hideTitle, currentPolicy.hideContent,
+                getString(R.string.privacy_mode_enabled), getString(R.string.new_message_placeholder));
+    }
+
+    private void updatePersistentNoticeContent(OrdinaryNotificationChargeReturn.Notice notice) {
+        if (!matchesActiveNotice(notice)) return;
+        activeOrdinaryNotificationTitle = notice.title;
+        activeOrdinaryNotificationText = notice.text;
+        activeOrdinaryNotificationWhen = notice.when;
+        ordinaryChargeLease.updateContent(notice);
     }
 
     static void disableForUser(Context context) {
@@ -377,7 +616,7 @@ public class NotificationService extends NotificationListenerService {
             Log.d(TAG, "🚀 开始显示背屏通知: " + packageName);
             
             // 触发背屏通知显示
-            showNotificationOnRearScreen(packageName, title, text, when);
+            showNotificationOnRearScreen(packageName, title, text, when, sbn.getKey(), sbn.getPostTime());
             
         } catch (Exception e) {
             Log.e(TAG, "❌ 处理通知时出错", e);
@@ -569,20 +808,39 @@ public class NotificationService extends NotificationListenerService {
             render.prepared = true;
             if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
             String component = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-            String command = "am start --display " + RearDisplay.requireId() + " -n " + component
+            boolean locked = LegacyNotificationLaunchRoute.forKeyguard(isPrimaryKeyguardLocked())
+                    == LegacyNotificationLaunchRoute.Route.HIDDEN_MAIN_THEN_REAR;
+            int launchDisplay = locked ? 0 : RearDisplay.requireId();
+            String command = "am start --display " + launchDisplay + " -n " + component
                     + " --es packageName " + RearAnimationDisplay.quote(render.packageName)
                     + " --es title " + RearAnimationDisplay.quote(render.title)
                     + " --es text " + RearAnimationDisplay.quote(render.text)
                     + " --el when " + android.os.SystemClock.uptimeMillis()
                     + " --ez darkMode " + prefs.getBoolean("notification_dark_mode", false)
                     + " --ez ownedNotification true"
+                    + (locked ? " --ez " + RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT + " true" : "")
                     + " --el expiresAtElapsedRealtimeMs " + render.expiresAtElapsedRealtimeMs
                     + " --ei rearTaskId " + render.session.rearTaskId
                     + " --el " + RearAnimationManager.EXTRA_SESSION_ID + " " + sessionId;
             if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
-            boolean started = service.executeShellCommand(command);
+            Intent activityIntent = new Intent(this, RearScreenNotificationActivity.class)
+                    .putExtra("packageName", render.packageName).putExtra("title", render.title)
+                    .putExtra("text", render.text).putExtra("when", android.os.SystemClock.uptimeMillis())
+                    .putExtra("darkMode", prefs.getBoolean("notification_dark_mode", false))
+                    .putExtra("ownedNotification", true)
+                    .putExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, locked)
+                    .putExtra("expiresAtElapsedRealtimeMs", render.expiresAtElapsedRealtimeMs)
+                    .putExtra("rearTaskId", render.session.rearTaskId)
+                    .putExtra(RearAnimationManager.EXTRA_SESSION_ID, sessionId);
+            java.util.function.BooleanSupplier launchCurrent = () -> isOwnedNotificationRenderCurrent(render)
+                    && (!locked || isPrimaryKeyguardLocked());
+            int taskId = locked
+                    ? startLockedNotificationTask(service, component, command, activityIntent, launchCurrent)
+                    : (launchCurrent.getAsBoolean() && service.executeShellCommand(command) ? -2 : -1);
             if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
-            if (!started || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(),
+            boolean foreground = taskId == -2 || (taskId > 0 && awaitLockedNotificationPresentation(service, taskId,
+                    sessionId, launchCurrent));
+            if (!foreground || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(),
                     () -> isOwnedNotificationRenderCurrent(render))) {
                 if (!isOwnedNotificationRenderCurrent(render)) { reportOwnedInvalidation(render); restoreOwnedPreparation(render, service); return; }
                 throw new IllegalStateException("Notification is not foreground on rear display");
@@ -626,11 +884,32 @@ public class NotificationService extends NotificationListenerService {
     }
 
     void showNotificationOnRearScreen(String packageName, String title, String text, long when) {
+        showNotificationOnRearScreen(packageName, title, text, when, null, 0);
+    }
+
+    void showNotificationOnRearScreen(String packageName, String title, String text, long when, String notificationKey, long postTime) {
         // The existing host can present a passive capsule without changing display or input ownership.
         if (!RearAnimationManager.isAnimationPlaying() && RearCastNotification.offer(packageName, title, text,
                 android.os.SystemClock.elapsedRealtime(), prefs.getInt("notification_duration", 10),
                 prefs.getBoolean("notification_dark_mode", false))) return;
         RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
+        registerOrdinaryNotificationSession(session);
+        activeOrdinaryNotificationKey = notificationKey;
+        activeOrdinaryNotificationPostTime = postTime;
+        activeOrdinaryNotificationSession = session.id;
+        boolean keepUntilRemoved = NotificationDisplayOptions.shouldKeepUntilRemoved(
+                prefs.getBoolean("notification_never_auto_close", false), notificationKey, postTime);
+        activeOrdinaryNotificationPersistent = keepUntilRemoved;
+        activeOrdinaryNotificationPackage = packageName;
+        activeOrdinaryNotificationTitle = title;
+        activeOrdinaryNotificationText = text;
+        activeOrdinaryNotificationWhen = when;
+        if (keepUntilRemoved) {
+            ordinaryChargeLease.noticePresented(new OrdinaryNotificationChargeReturn.Notice(
+                    notificationKey, postTime, packageName, title, text, when, session.id));
+        } else {
+            ordinaryChargeLease.clear();
+        }
         disabledNotificationSessionId = Long.MIN_VALUE;
         if (session.previous == RearAnimationManager.AnimationType.CHARGING) {
             RearAnimationManager.markInterruptedChargingAsAlwaysOn(prefs.getBoolean("charging_always_on_enabled", false));
@@ -639,7 +918,25 @@ public class NotificationService extends NotificationListenerService {
         }
         // 同类通知由onNewIntent换代，避免旧广播/固定延时关闭新窗口。
         animationWorker.execute(() -> RearAnimationManager.runDisplayAction(() ->
-                launchNotification(session, packageName, title, text, when)));
+                launchNotification(session, packageName, title, text, when, notificationKey, postTime, keepUntilRemoved)));
+    }
+
+    @Override public void onNotificationRemoved(StatusBarNotification sbn) {
+        super.onNotificationRemoved(sbn);
+        if (sbn == null || !NotificationDisplayOptions.matchesRemoval(activeOrdinaryNotificationKey,
+                activeOrdinaryNotificationPostTime, sbn.getKey(), sbn.getPostTime(),
+                activeOrdinaryNotificationPersistent, activeOrdinaryNotificationSession)) return;
+        long expected = activeOrdinaryNotificationSession;
+        ordinaryChargeLease.sourceRemoved(sbn.getKey(), sbn.getPostTime());
+        activeOrdinaryNotificationKey = null;
+        activeOrdinaryNotificationPostTime = 0;
+        activeOrdinaryNotificationSession = Long.MIN_VALUE;
+        activeOrdinaryNotificationPersistent = false;
+        activeOrdinaryNotificationPackage = null;
+        activeOrdinaryNotificationTitle = null;
+        activeOrdinaryNotificationText = null;
+        activeOrdinaryNotificationWhen = 0;
+        if (expected != Long.MIN_VALUE) ORDINARY_SESSION_FINALIZER.requestFinish(expected);
     }
 
     private boolean isCurrent(RearAnimationManager.Session session) {
@@ -652,50 +949,169 @@ public class NotificationService extends NotificationListenerService {
                 && disabledNotificationSessionId == session.id;
     }
 
-    private void endDisabledNotificationBeforeLaunch(RearAnimationManager.Session session, boolean prepared, ITaskService service) {
-        if (!isDisabledNotificationSession(session) || !RearAnimationManager.endAnimation(session.type, session.id)) return;
-        if (prepared && service != null) ChargingService.restoreAfterAnimation(service, session.rearTaskId, session.id);
+    private void endDisabledNotificationBeforeLaunch(RearAnimationManager.Session session) {
+        if (!isDisabledNotificationSession(session)) return;
+        ORDINARY_SESSION_FINALIZER.requestFinish(session.id);
     }
 
-    private void launchNotification(RearAnimationManager.Session session, String packageName, String title, String text, long when) {
+    private void registerOrdinaryNotificationSession(RearAnimationManager.Session session) {
+        ORDINARY_SESSION_FINALIZER.register(session.id, new OrdinaryNotificationSessionFinalizer.Host() {
+            @Override public boolean isCurrent(long sessionId) { return NotificationService.this.isCurrent(session); }
+            @Override public boolean hasDifferentOwner(long sessionId) {
+                RearAnimationManager.AnimationType owner = RearAnimationManager.getCurrentAnimation();
+                return owner != RearAnimationManager.AnimationType.NONE && !RearAnimationManager.isCurrent(owner, sessionId);
+            }
+            @Override public boolean end(long sessionId) {
+                return RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION, sessionId);
+            }
+            @Override public void finishActivity(long sessionId) {
+                postNotificationFinishForSession(NotificationService.this, mainHandler, sessionId);
+            }
+            @Override public void restore(long sessionId) { restoreOrdinaryNotificationSession(session); }
+        });
+    }
+
+    private void restoreOrdinaryNotificationSession(RearAnimationManager.Session session) {
+        if (RearAnimationManager.shouldResumeChargingAnimation()) {
+            RearAnimationManager.clearChargingAlwaysOnFlag();
+            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".RESUME_CHARGING_ANIMATION").setPackage(getPackageName()));
+            return;
+        }
+        ITaskService service = taskService != null ? taskService : ChargingService.getTaskService();
+        if (service != null) ChargingService.restoreAfterAnimation(service, session.rearTaskId, session.id);
+        top.zainzh.rearscreen.platform.RearCapabilityCore.get(this).onNotificationPresentationAvailable();
+    }
+
+    private void launchNotification(RearAnimationManager.Session session, String packageName, String title, String text, long when,
+                                    String notificationKey, long postTime, boolean keepUntilRemoved) {
         ITaskService service = null;
-        boolean prepared = false;
         try {
-            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, false, null); return; }
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session); return; }
             if (taskService == null) bindTaskService();
             long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
             while (taskService == null && isCurrent(session) && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(50);
             service = taskService;
-            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, false, service); return; }
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session); return; }
             if (service == null) throw new IllegalStateException("TaskService unavailable");
             acquireWakeLock(6000);
             RearScreenKeeperService.pauseMonitoring();
-            prepared = true;
+            ORDINARY_SESSION_FINALIZER.markPrepared(session.id);
             RearAnimationDisplay.prepare(service, session, getPackageName());
-            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session, true, service); return; }
+            if (!isCurrent(session)) { endDisabledNotificationBeforeLaunch(session); return; }
+            String displayTitle = title;
+            String displayText = text;
+            long displayWhen = when;
+            if (keepUntilRemoved) {
+                OrdinaryNotificationChargeReturn.Notice current = resolveCurrentPersistentNotice(
+                        ordinaryChargeLease.noticeForSession(session.id));
+                if (current == null) {
+                    finishTrackedPersistentNotification();
+                    return;
+                }
+                updatePersistentNoticeContent(current);
+                displayTitle = current.title;
+                displayText = current.text;
+                displayWhen = current.when;
+            }
             String component = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-            String command = "am start --display " + RearDisplay.requireId() + " -n " + component
-                    + " --es packageName " + RearAnimationDisplay.quote(packageName)
-                    + " --es title " + RearAnimationDisplay.quote(title)
-                    + " --es text " + RearAnimationDisplay.quote(text)
-                    + " --el when " + when
-                    + " --ez darkMode " + prefs.getBoolean("notification_dark_mode", false)
-                    + " --ez ownedNotification false"
-                    + " --ei rearTaskId " + session.rearTaskId
-                    + " --el " + RearAnimationManager.EXTRA_SESSION_ID + " " + session.id;
-            if (!service.executeShellCommand(command)
-                    || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(), () -> isCurrent(session))) {
+            boolean locked = LegacyNotificationLaunchRoute.forKeyguard(isPrimaryKeyguardLocked())
+                    == LegacyNotificationLaunchRoute.Route.HIDDEN_MAIN_THEN_REAR;
+            Intent activityIntent = notificationActivityIntent(packageName, displayTitle, displayText, displayWhen, session, locked, notificationKey, postTime, keepUntilRemoved);
+            String command = notificationActivityCommand(component, locked ? 0 : RearDisplay.requireId(),
+                    packageName, displayTitle, displayText, displayWhen, session, locked, notificationKey, postTime, keepUntilRemoved);
+            java.util.function.BooleanSupplier launchCurrent = () -> isCurrent(session)
+                    && (!locked || isPrimaryKeyguardLocked());
+            int taskId = locked
+                    ? startLockedNotificationTask(service, component, command, activityIntent, launchCurrent)
+                    : (launchCurrent.getAsBoolean() && service.executeShellCommand(command) ? -2 : -1);
+            boolean ready = !locked || (taskId > 0 && awaitLockedNotificationPresentation(service, taskId,
+                    session.id, launchCurrent));
+            if (taskId == -1 || !ready || !RearAnimationDisplay.awaitForeground(service, component, getPackageName(), () -> isCurrent(session))) {
                 throw new IllegalStateException("Notification is not foreground on rear display");
             }
             Log.i(TAG, "launch_verified display_id=" + RearDisplay.requireId() + " session=" + session.id);
         } catch (Exception error) {
             Log.e(TAG, "launch_failed session=" + session.id, error);
-            sendBroadcast(new Intent(BuildConfig.APPLICATION_ID + ".FINISH_NOTIFICATION_ANIMATION")
-                    .setPackage(getPackageName()).putExtra(RearAnimationManager.EXTRA_SESSION_ID, session.id));
-            if (RearAnimationManager.endAnimation(session.type, session.id) && prepared && service != null) {
-                ChargingService.restoreRearScreen(service, session.rearTaskId, session.id);
-            }
-        } finally { releaseWakeLock(); }
+            ORDINARY_SESSION_FINALIZER.requestFinish(session.id);
+        } finally {
+            releaseWakeLock();
+            ORDINARY_SESSION_FINALIZER.launchFinished(session.id);
+        }
+    }
+
+    private boolean isPrimaryKeyguardLocked() {
+        android.app.KeyguardManager keyguard = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        return keyguard != null && keyguard.isKeyguardLocked();
+    }
+
+    private int startLockedNotificationTask(ITaskService service, String component, String command,
+                                            Intent activityIntent, java.util.function.BooleanSupplier current) throws Exception {
+        NotificationIntentDelivery.Result delivery = RearScreenNotificationActivity.updateCurrentNotification(activityIntent);
+        if (delivery.outcome == NotificationIntentDelivery.Outcome.TERMINATED)
+            throw new IllegalStateException("notification session delivery was precisely terminated");
+        if (delivery.outcome == NotificationIntentDelivery.Outcome.ACCEPTED) {
+            int activeTask = delivery.taskId;
+            if (activeTask <= 0) throw new IllegalStateException("accepted notification delivery has no task id");
+            if (!current.getAsBoolean()) return -1;
+            if (service.isTaskOnDisplay(activeTask, RearDisplay.requireId())) return current.getAsBoolean() ? activeTask : -1;
+            return current.getAsBoolean() && service.moveTaskToDisplay(activeTask, RearDisplay.requireId())
+                    && current.getAsBoolean() ? activeTask : -1;
+        }
+        if (!delivery.mayStartFreshPlaceholder())
+            throw new IllegalStateException("notification session delivery is not safe to retry: " + delivery.outcome);
+        return RearAnimationDisplay.startLockedPlaceholder(service, component, command,
+                RearDisplay.requireId(), current);
+    }
+
+    private boolean awaitLockedNotificationPresentation(ITaskService service, int taskId, long sessionId,
+                                                         java.util.function.BooleanSupplier current) throws Exception {
+        for (int attempt = 0; attempt < 70 && current.getAsBoolean(); attempt++) {
+            if (RearScreenNotificationActivity.isSessionPresentationReady(sessionId, taskId)
+                    && service.isTaskOnDisplay(taskId, RearDisplay.requireId())) return true;
+            Thread.sleep(50);
+        }
+        return false;
+    }
+
+    static long remainingOwnedNotificationTtlMs(long deadlineElapsedRealtimeMs, long nowElapsedRealtimeMs) {
+        return Math.max(0L, deadlineElapsedRealtimeMs - nowElapsedRealtimeMs);
+    }
+
+    private String notificationActivityCommand(String component, int displayId, String packageName,
+                                               String title, String text, long when,
+                                               RearAnimationManager.Session session, boolean lockedPlaceholder,
+                                               String notificationKey, long postTime, boolean keepUntilRemoved) {
+        return "am start --display " + displayId + " -n " + component
+                + " --es packageName " + RearAnimationDisplay.quote(packageName)
+                + " --es title " + RearAnimationDisplay.quote(title)
+                + " --es text " + RearAnimationDisplay.quote(text)
+                + " --el when " + when
+                + " --ez darkMode " + prefs.getBoolean("notification_dark_mode", false)
+                + " --ez ownedNotification false"
+                + " --ez keepUntilNotificationRemoved " + keepUntilRemoved
+                + " --el notificationPostTime " + postTime
+                + (notificationKey == null ? "" : " --es notificationKey " + RearAnimationDisplay.quote(notificationKey))
+                + (lockedPlaceholder ? " --ez " + RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT + " true" : "")
+                + " --ei rearTaskId " + session.rearTaskId
+                + " --el " + RearAnimationManager.EXTRA_SESSION_ID + " " + session.id;
+    }
+
+    private Intent notificationActivityIntent(String packageName, String title, String text, long when,
+                                               RearAnimationManager.Session session, boolean lockedPlaceholder,
+                                               String notificationKey, long postTime, boolean keepUntilRemoved) {
+        return new Intent(this, RearScreenNotificationActivity.class)
+                .putExtra("packageName", packageName)
+                .putExtra("title", title)
+                .putExtra("text", text)
+                .putExtra("when", when)
+                .putExtra("darkMode", prefs.getBoolean("notification_dark_mode", false))
+                .putExtra("ownedNotification", false)
+                .putExtra("keepUntilNotificationRemoved", keepUntilRemoved)
+                .putExtra("notificationKey", notificationKey)
+                .putExtra("notificationPostTime", postTime)
+                .putExtra(RearAnimationDisplay.EXTRA_LOCKED_REAR_PLACEMENT, lockedPlaceholder)
+                .putExtra("rearTaskId", session.rearTaskId)
+                .putExtra(RearAnimationManager.EXTRA_SESSION_ID, session.id);
     }
 
     private void acquireWakeLock(long timeoutMs) {
@@ -834,6 +1250,8 @@ public class NotificationService extends NotificationListenerService {
                 boolean isCovered = (distance < maxRange * 0.2f);
                 
                 isMainScreenCovered = isCovered;
+                if (!isCovered && onlyWhenLocked && activeOrdinaryNotificationPersistent)
+                    finishTrackedPersistentNotification();
                 
                 if (isCovered) {
                     Log.d(TAG, "📱 主屏接近传感器：被遮盖 (距离: " + distance + " cm)");
@@ -857,6 +1275,11 @@ public class NotificationService extends NotificationListenerService {
         Log.d(TAG, "✓ 通知监听器已就绪");
     }
     
+    @Override public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        closeNotificationDisplaysForServiceOff();
+    }
+
     @Override
     public void onDestroy() {
         closeOwnedDisplaysOnDestroy();

@@ -108,7 +108,7 @@ jobs:
         run: |
           mkdir -p sdk/sample/standalone/app/libs sdk/sample/standalone/app/src/main
           cp build/platform-sdk/outputs/aar/platform-sdk-release.aar \
-            sdk/sample/standalone/app/libs/platform-sdk-release.aar
+            sdk/sample/standalone/app/libs/platform-sdk-0.4.0.aar
           cp -R sdk/sample/src/main/. sdk/sample/standalone/app/src/main/
 
       - name: Build standalone SDK sample APK
@@ -124,7 +124,7 @@ jobs:
           python3 tools/package_android_sdk.py \
             --aar build/platform-sdk/outputs/aar/platform-sdk-release.aar \
             --sample-apk sdk/sample/standalone/app/build/outputs/apk/debug/app-debug.apk \
-            --output "$sdk_bundle" --host-release-compile-verified --host-apk-produced
+            --output "$sdk_bundle" --host-service 61 --host-release-compile-verified --host-apk-produced
           cp "$sdk_bundle.zip" "dist/$sdk_name"
           (cd dist && sha256sum "$sdk_name" >> SHA256SUMS)
           echo "sdk_name=$sdk_name" >> "$GITHUB_OUTPUT"

@@ -9,6 +9,16 @@
     <string name="ui_apps_access_help" formatted="false">應用清單權限未開啟，可前往系統設定授權後重新整理。</string>
     <string name="ui_author_anti" formatted="false">原始作者：AntiOblivionis</string>
     <string name="ui_auto_destroy_time" formatted="false">自動銷毀時間</string>
+    <string name="ui_notification_duration_title" formatted="false">通知顯示時間</string>
+    <string name="ui_notification_never_close" formatted="false">不自動關閉</string>
+    <string name="ui_notification_never_close_help" formatted="false">通知仍有效時持續顯示。保持螢幕開啟會增加耗電；通知撤回或關閉此功能時仍會結束。</string>
+    <string name="ui_notification_click_action" formatted="false">點擊通知</string>
+    <string name="ui_notification_click_action_help" formatted="false">選擇點按背螢提醒後的操作。</string>
+    <string name="ui_notification_click_open" formatted="false">在主螢幕開啟應用程式</string>
+    <string name="ui_notification_click_dismiss" formatted="false">僅關閉背螢提醒</string>
+    <string name="ui_minutes_value" formatted="false">{0} 分鐘</string>
+    <string name="ui_unit_seconds" formatted="false">秒</string>
+    <string name="ui_unit_minutes" formatted="false">分鐘</string>
     <string name="ui_back" formatted="false">返回</string>
     <string name="ui_cancel" formatted="false">取消</string>
     <string name="ui_charging_always_help" formatted="false">充電期間持續顯示動畫和電量</string>

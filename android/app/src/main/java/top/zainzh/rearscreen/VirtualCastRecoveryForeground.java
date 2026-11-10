@@ -31,7 +31,8 @@ final class VirtualCastRecoveryForeground {
         final int displayId, targetTaskId;
         final int displayPower, powerBefore, powerAfter;
         final int rowCount, hiddenRows, visibleLauncherRows, visibleOtherRows, pendingRows, sleepingRows,
-                sleepingLauncherRows, sleepingOtherRows, sleepingUnknownRows, unknownRows;
+                sleepingLauncherRows, sleepingLauncherRequestedFalseRows, sleepingLauncherRequestedTrueRows,
+                sleepingLauncherRequestedUnknownRows, sleepingOtherRows, sleepingUnknownRows, unknownRows;
         final boolean targetPresent;
         final String targetBase, targetTop, targetVisible, targetRequested, targetSleeping;
 
@@ -48,7 +49,9 @@ final class VirtualCastRecoveryForeground {
             boolean found = false;
             String base = "missing", top = "missing", visible = "unknown", requested = "unknown", sleeping = "unknown";
             int rows = 0, hidden = 0, launchers = 0, visibleOther = 0, pending = 0, asleep = 0,
-                    sleepingLauncher = 0, sleepingOther = 0, sleepingUnknown = 0, unknown = 0;
+                    sleepingLauncher = 0, sleepingLauncherRequestedFalse = 0,
+                    sleepingLauncherRequestedTrue = 0, sleepingLauncherRequestedUnknown = 0,
+                    sleepingOther = 0, sleepingUnknown = 0, unknown = 0;
             if (snapshot != null && snapshot.tasks != null) {
                 for (RearDisplayCastOccupancy.Task task : snapshot.tasks) {
                     if (task == null) { unknown++; continue; }
@@ -69,6 +72,9 @@ final class VirtualCastRecoveryForeground {
                         if (task.basePackage != null && task.basePackage.equals(task.topPackage)
                                 && isKnownLauncher(task.topPackage)) {
                             sleepingLauncher++;
+                            if (Boolean.FALSE.equals(task.requested)) sleepingLauncherRequestedFalse++;
+                            else if (Boolean.TRUE.equals(task.requested)) sleepingLauncherRequestedTrue++;
+                            else sleepingLauncherRequestedUnknown++;
                         } else if (task.basePackage != null && task.basePackage.equals(task.topPackage)) {
                             sleepingOther++;
                         } else {
@@ -97,6 +103,9 @@ final class VirtualCastRecoveryForeground {
             pendingRows = pending;
             sleepingRows = asleep;
             sleepingLauncherRows = sleepingLauncher;
+            sleepingLauncherRequestedFalseRows = sleepingLauncherRequestedFalse;
+            sleepingLauncherRequestedTrueRows = sleepingLauncherRequestedTrue;
+            sleepingLauncherRequestedUnknownRows = sleepingLauncherRequestedUnknown;
             sleepingOtherRows = sleepingOther;
             sleepingUnknownRows = sleepingUnknown;
             unknownRows = unknown;
@@ -112,7 +121,11 @@ final class VirtualCastRecoveryForeground {
                     + " target_sleeping=" + targetSleeping + " rows=" + rowCount + " hidden=" + hiddenRows
                     + " visible_launcher=" + visibleLauncherRows + " visible_other=" + visibleOtherRows
                     + " pending=" + pendingRows + " sleeping=" + sleepingRows
-                    + " sleeping_launcher=" + sleepingLauncherRows + " sleeping_other=" + sleepingOtherRows
+                    + " sleeping_launcher=" + sleepingLauncherRows
+                    + " sleeping_launcher_requested_false=" + sleepingLauncherRequestedFalseRows
+                    + " sleeping_launcher_requested_true=" + sleepingLauncherRequestedTrueRows
+                    + " sleeping_launcher_requested_unknown=" + sleepingLauncherRequestedUnknownRows
+                    + " sleeping_other=" + sleepingOtherRows
                     + " sleeping_unknown=" + sleepingUnknownRows + " unknown=" + unknownRows
                     + " refusal=" + safeReason(refusal) + " effect=" + safeEffect(effect);
         }
@@ -126,8 +139,9 @@ final class VirtualCastRecoveryForeground {
      * The target is independently proven by the live session task id, exact display, and matching
      * base/top Host package. Such a target may itself be hidden, pending-show, or sleeping: focus
      * is the operation that can resume that exact task. Every non-target candidate still needs a
-     * unique, visible known rear launcher; unknown, pending, sleeping, or visible third-party rows
-     * remain fail-closed.
+     * unique, visible known rear launcher, unless the remaining row is an invisible known
+     * sleeping system launcher explicitly marked not requested. Unknown, pending, sleeping
+     * third-party, or visible third-party rows remain fail-closed.
      */
     static Decision resolve(RearDisplayCastOccupancy.Snapshot snapshot, int expectedDisplayId,
                             int hostTaskId, String hostPackage) {
@@ -139,6 +153,7 @@ final class VirtualCastRecoveryForeground {
 
         RearDisplayCastOccupancy.Task foreground = null;
         RearDisplayCastOccupancy.Task target = null;
+        boolean inactiveSleepingLauncher = false;
         for (RearDisplayCastOccupancy.Task task : snapshot.tasks) {
             if (task == null || task.taskId < 0)
                 return decision(Disposition.EVIDENCE_UNAVAILABLE, hostTaskId, expectedDisplayId, "invalid_row", diagnostic);
@@ -170,6 +185,15 @@ final class VirtualCastRecoveryForeground {
             }
 
             if (task.clearlyHidden(snapshot.displayState)) continue;
+            if (Boolean.FALSE.equals(task.visible) && Boolean.FALSE.equals(task.requested)
+                    && Boolean.TRUE.equals(task.sleeping)
+                    && task.topPackage != null
+                    && task.topPackage.equals(task.basePackage) && isKnownLauncher(task.topPackage)) {
+                // A dormant system launcher is not a competing foreground owner. Focusing the
+                // exact live Host remains safe when this stale sleep row is the only candidate.
+                inactiveSleepingLauncher = true;
+                continue;
+            }
             if (Boolean.TRUE.equals(task.sleeping))
                 return decision(Disposition.EVIDENCE_UNAVAILABLE, hostTaskId, expectedDisplayId, "external_sleeping", diagnostic);
             if (Boolean.FALSE.equals(task.visible) && Boolean.TRUE.equals(task.requested))
@@ -190,6 +214,11 @@ final class VirtualCastRecoveryForeground {
 
         if (target == null)
             return decision(Disposition.EVIDENCE_UNAVAILABLE, hostTaskId, expectedDisplayId, "target_missing", diagnostic);
+        if (foreground == null && inactiveSleepingLauncher)
+            return decision(Disposition.FOCUS_HOST, hostTaskId, expectedDisplayId,
+                    target.sleeping != null && target.sleeping ? "sleeping_launcher_target_sleeping"
+                            : target.requested != null && target.requested ? "sleeping_launcher_target_pending"
+                            : "sleeping_launcher_target_hidden", diagnostic);
         if (foreground == null)
             return decision(Disposition.EVIDENCE_UNAVAILABLE, hostTaskId, expectedDisplayId, "no_visible_candidate", diagnostic);
         if (foreground.taskId == hostTaskId)

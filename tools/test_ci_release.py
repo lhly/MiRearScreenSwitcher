@@ -33,10 +33,11 @@ class ReleaseChecks(unittest.TestCase):
         self.assertIn('python3 tools/package_android_sdk.py', workflow)
         self.assertIn('--aar build/platform-sdk/outputs/aar/platform-sdk-release.aar', workflow)
         self.assertIn('cp build/platform-sdk/outputs/aar/platform-sdk-release.aar', workflow)
-        self.assertIn('sdk/sample/standalone/app/libs/platform-sdk-release.aar', workflow)
+        self.assertIn('sdk/sample/standalone/app/libs/platform-sdk-0.4.0.aar', workflow)
         self.assertIn('cp -R sdk/sample/src/main/. sdk/sample/standalone/app/src/main/', workflow)
         self.assertIn('--sample-apk sdk/sample/standalone/app/build/outputs/apk/debug/app-debug.apk', workflow)
-        self.assertIn('--host-release-compile-verified --host-apk-produced', workflow)
+        self.assertIn('--output \"$sdk_bundle\" --host-service 61 --host-release-compile-verified --host-apk-produced', workflow)
+        self.assertNotIn('--host-sdk-interop-receipt', workflow)
         self.assertNotIn('--output "$sdk_bundle" --host-compile-verified', workflow)
         self.assertIn('(cd dist && sha256sum "$sdk_name" >> SHA256SUMS)', workflow)
         release_job = workflow.split('\n  release:\n', 1)[1].split('\n  update-version:\n', 1)[0]

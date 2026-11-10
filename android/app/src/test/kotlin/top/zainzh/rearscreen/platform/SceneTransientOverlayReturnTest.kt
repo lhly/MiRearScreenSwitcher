@@ -132,7 +132,7 @@ class SceneTransientOverlayReturnTest {
                 when (invalidation) {
                     "close" -> fixture.coordinator.closeScene(owner, handle.sessionId)
                     "owner_revoke" -> fixture.coordinator.closeOwnerSessions(owner, SceneCloseReason.OWNER_REVOKED)
-                    "projection_takeover" -> fixture.coordinator.closeOwnerSessions(owner, SceneCloseReason.PREEMPTED)
+                    "projection_takeover" -> fixture.coordinator.closeAllScenes(SceneCloseReason.PREEMPTED)
                     else -> fixture.ownershipEpoch.incrementAndGet()
                 }
                 fixture.coordinator.handleDisplaySignal(handle.sessionId, handle.generation, SceneDisplaySignal.RearProximity(false))
@@ -163,6 +163,49 @@ class SceneTransientOverlayReturnTest {
             assertTrue("the surviving display-on edge returns the same task after the overlay chain", fixture.recovered.await(2, TimeUnit.SECONDS))
             assertEquals(listOf(56091), fixture.gateway.recoveredTaskIds)
             assertEquals(listOf(SceneRecoveryWakeDecision.ALREADY_ON), fixture.gateway.wakeDecisions)
+        } finally { fixture.close() }
+    }
+
+    @Test fun persistentNoticeReturnAtomicallyInheritsTheLiveChargingSceneLease() {
+        val fixture = Fixture()
+        try {
+            val handle = fixture.openVisibleScene()
+            val adapter = SceneAnimationOverlayAdapter({ fixture.coordinator }, { fixture.ownershipEpoch.get() })
+            assertTrue(adapter.begin(610L)) // ordinary persistent notice A
+            fixture.coordinator.reportSceneVisibility(owner, handle.sessionId, handle.generation, false)
+            assertTrue(adapter.begin(611L, replacesOverlayId = 610L, inheritsLegacyReturn = true)) // charging
+            assertFalse(adapter.end(610L))
+
+            // The production transfer calls begin(newId, replaces=chargeId) while charge is still owner.
+            assertTrue(adapter.begin(612L, replacesOverlayId = 611L, inheritsLegacyReturn = true)) // resumed A
+            assertFalse("there is no release/reacquire gap that can schedule a Scene restore",
+                fixture.recovered.await(250, TimeUnit.MILLISECONDS))
+            assertTrue(fixture.gateway.recoveredTaskIds.isEmpty())
+            assertFalse("late charge destruction cannot end the replacement lease", adapter.end(611L))
+
+            assertTrue("A's final end returns through the original Scene lease", adapter.end(612L))
+            assertTrue(fixture.recovered.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf(56091), fixture.gateway.recoveredTaskIds)
+            assertEquals(1, fixture.gateway.callCount)
+        } finally { fixture.close() }
+    }
+
+    @Test fun castOwnershipRevokesTheInheritedChargeReturnLease() {
+        val fixture = Fixture()
+        try {
+            val handle = fixture.openVisibleScene()
+            val adapter = SceneAnimationOverlayAdapter({ fixture.coordinator }, { fixture.ownershipEpoch.get() })
+            assertTrue(adapter.begin(620L))
+            fixture.coordinator.reportSceneVisibility(owner, handle.sessionId, handle.generation, false)
+            assertTrue(adapter.begin(621L, replacesOverlayId = 620L, inheritsLegacyReturn = true))
+
+            // A verified cast changes the actual display-owner epoch while charge owns the overlay.
+            fixture.ownershipEpoch.incrementAndGet()
+            assertTrue(adapter.begin(622L, replacesOverlayId = 621L, inheritsLegacyReturn = true))
+            assertFalse(adapter.end(621L))
+            assertTrue("the replacement inherits the cast revocation instead of recovering the Scene", adapter.end(622L))
+            assertFalse(fixture.recovered.await(450, TimeUnit.MILLISECONDS))
+            assertTrue(fixture.gateway.recoveredTaskIds.isEmpty())
         } finally { fixture.close() }
     }
 
@@ -330,7 +373,7 @@ class SceneTransientOverlayReturnTest {
                 when (invalidation) {
                     "explicit_close" -> assertTrue(fixture.coordinator.closeScene(owner, handle.sessionId).success)
                     "owner_revoke" -> fixture.coordinator.closeOwnerSessions(owner, SceneCloseReason.OWNER_REVOKED)
-                    "projection_takeover" -> fixture.coordinator.closeOwnerSessions(owner, SceneCloseReason.PREEMPTED)
+                    "projection_takeover" -> fixture.coordinator.closeAllScenes(SceneCloseReason.PREEMPTED)
                     else -> fixture.ownershipEpoch.incrementAndGet() // verified legacy projection changes the display owner epoch
                 }
                 fixture.coordinator.endTransientOverlay(40L + index)

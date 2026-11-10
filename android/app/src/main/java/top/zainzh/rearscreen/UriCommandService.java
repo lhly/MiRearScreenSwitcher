@@ -28,6 +28,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
+import top.zainzh.rearscreen.platform.LegacyDisplayOccupancy;
 
 /**
  * V2.6: URI命令处理服务
@@ -192,9 +193,7 @@ public class UriCommandService extends IntentService {
             if ("true".equalsIgnoreCase(currentParam) || "1".equals(currentParam)) {
                 // 切换当前应用 - 完全复用TileService逻辑
                 Log.d(TAG, "→ 模式：切换当前应用");
-                // 先应用配置参数，再切换
-                applyConfigParams(uri);
-                switchCurrentAppToRear();
+                switchCurrentAppToRear(uri);
             } else if (activity != null) {
                 // 启动指定Activity到背屏
                 Log.d(TAG, "→ 模式：启动指定Activity");
@@ -218,107 +217,36 @@ public class UriCommandService extends IntentService {
     /**
      * 切换当前应用到背屏 - 完全复用TileService的逻辑
      */
-    private void switchCurrentAppToRear() {
+    private void switchCurrentAppToRear(Uri uri) {
         try {
-            // Recheck admission after configuration, without using the Tile's cached task as ownership.
-            try {
-                RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
-                        taskService, getPackageName(), RearDisplay.requireId());
-                Log.i(TAG, "cast_gate mode=physical stage=current disposition=" + occupancy.disposition
-                        + " hidden_tasks=" + occupancy.hiddenTasks + " result=" + (occupancy.allowed() ? "allow" : "busy"));
-                if (!occupancy.allowed()) return;
-            } catch (Exception e) {
-                Log.w(TAG, "cast_gate mode=physical stage=current result=query_error error=" + e.getClass().getSimpleName());
-                showToast("无法确认背屏占用状态，请稍后重试");
-                return;
-            }
+            RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                    taskService, getPackageName(), RearDisplay.requireId());
+            Log.i(TAG, "cast_gate mode=physical stage=current disposition=" + occupancy.disposition
+                    + " hidden_tasks=" + occupancy.hiddenTasks + " result=" + (occupancy.allowed() ? "allow" : "busy"));
+            if (!occupancy.allowed()) return;
 
-            // 先确认目标，再改变背屏策略；空目标不启动无 owner 的前台服务。
             CurrentMainTaskSelector.Result currentTarget = CurrentMainTaskSelector.await(
                     displayId -> taskService.getDisplayCastOccupancy(displayId), getPackageName(), 4000, 100);
             String currentApp = currentTarget.target == null ? null : currentTarget.target.legacyForegroundValue();
-            if (currentApp == null) {
-                Log.i(TAG, "cast_target mode=physical kind=main_foreground result=unresolved reason="
-                        + currentTarget.reason);
-                Log.w(TAG, "No current task; do not start an unowned foreground keeper");
+            if (currentApp == null || !currentApp.contains(":")) {
+                Log.i(TAG, "cast_target mode=physical kind=main_foreground result=unresolved reason=" + currentTarget.reason);
                 showToast("无法确认当前主屏应用，请回到目标应用后重试");
                 return;
             }
-
-            // 禁用系统背屏Launcher（关键！防止挤占）
-            try {
-                taskService.disableSubScreenLauncher();
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to disable SubScreenLauncher", e);
-            }
-
-            // 步骤3: 立即启动前台Service（让通知快速出现）
-            Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
-            serviceIntent.putExtra("lastMovedTask", currentApp);
-
-            // V2.5: 传递背屏常亮开关状态
-            try {
-                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences",
-                        MODE_PRIVATE);
-                boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
-                serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
-            } catch (Exception e) {
-                // 默认为开启
-                serviceIntent.putExtra("keepScreenOnEnabled", true);
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
+            String[] parts = currentApp.split(":", 2);
+            String packageName = VirtualCastRequest.packageName(parts[0]);
+            int taskId = Integer.parseInt(parts[1]);
+            PhysicalCastRequestFlow.Result result = PhysicalCastRequestFlow.prepareAndHandoff(
+                    new PhysicalCastRequestFlow.Target(packageName, taskId), createPhysicalCastPort(uri, null));
+            if (result.committed) {
+                Log.i(TAG, "cast_stage mode=physical target=main_foreground status=move_success");
+                wakeRearDisplayAfterCommit();
+                showToast(result.keeperStarted
+                        ? getAppName(packageName) + " " + getString(R.string.toast_cast_to_rear)
+                        : "已投放；后台守护未启动，仍可使用原返回入口结束投放");
             } else {
-                startService(serviceIntent);
-            }
-
-            if (currentApp != null && currentApp.contains(":")) {
-                String[] parts = currentApp.split(":");
-                String packageName = parts[0];
-                int taskId = Integer.parseInt(parts[1]);
-
-                // 步骤4: 切换到display 1 (背屏)
-                boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
-
-                if (success) {
-                    Log.i(TAG, "cast_stage mode=physical target=main_foreground status=move_success");
-                    RearAnimationManager.projectionStarted(this, taskId, packageName);
-                    Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
-
-                    // 步骤5: 主动点亮背屏 (通过TaskService启动Activity，绕过BAL限制) - 关键步骤！
-                    try {
-                        if (taskService != null) {
-                            try {
-                                boolean launchResult = taskService.launchWakeActivity(RearDisplay.requireId());
-                                if (!launchResult) {
-                                    Log.w(TAG, "TaskService launch failed, fallback to shell");
-                                    // Fallback: shell命令启动
-                                    String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
-                                            + RearScreenWakeupActivity.class.getName();
-                                    taskService.executeShellCommand(cmd);
-                                }
-                            } catch (NoSuchMethodError e) {
-                                // 旧版本TaskService没有launchWakeActivity，使用shell命令
-                                String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
-                                        + RearScreenWakeupActivity.class.getName();
-                                taskService.executeShellCommand(cmd);
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to launch wake activity: " + e.getMessage());
-                    }
-
-                    Log.d(TAG, "✅ " + packageName + " 已切换到背屏");
-
-                    // Toast提示
-                    String appName = getAppName(packageName);
-                    showToast(appName + " " + getString(R.string.toast_cast_to_rear));
-                } else {
-                    Log.i(TAG, "cast_stage mode=physical target=main_foreground status=move_failed result=not_committed");
-                    Log.e(TAG, "❌ 切换失败");
-                    showToast(getString(R.string.toast_switch_failed));
-                }
+                Log.i(TAG, "cast_stage mode=physical target=main_foreground status=" + result.failure + " result=not_committed");
+                showToast(getString(R.string.toast_switch_failed));
             }
         } catch (Exception e) {
             Log.e(TAG, "切换失败", e);
@@ -331,283 +259,174 @@ public class UriCommandService extends IntentService {
      */
     private void switchSpecificAppToRear(String activity, String packageName, Uri uri) {
         final boolean isSpecificActivity = activity != null;
-        final String targetPackageName = packageName != null ? packageName
-                : activity != null && activity.contains("/") ? activity.substring(0, activity.indexOf("/")) : null;
         try {
-            if (targetPackageName != null) {
-                boolean mayContinue = true;
-                try {
-                    mayContinue = VirtualCastRequest.stopTargetPackageUnlessSceneOwned(targetPackageName, () ->
-                            taskService.executeShellCommand("am force-stop " + targetPackageName));
-                } catch (Exception stopFailure) {
-                    // Preserve the legacy best-effort cleanup contract: a failed stop still
-                    // proceeds, while an exact live Scene package is deliberately never stopped.
-                    Log.w(TAG, "Target cleanup unavailable; continuing without force-stop error="
-                            + stopFailure.getClass().getSimpleName());
-                }
-                if (!mayContinue) {
-                    Log.i(TAG, "cast_gate mode=physical stage=target_process result=busy reason=active_scene_package");
-                    showToast("该应用的背屏场景仍在运行，请先关闭场景再投放");
-                    return;
-                }
-            }
-
-            // 步骤0: 先设置DPI和旋转（在启动应用前设置好背屏参数）
-            applyConfigParams(uri);
-
-            // 步骤1: 禁用系统背屏Launcher
-            taskService.disableSubScreenLauncher();
-            Thread.sleep(100);
-
-            // 步骤1.5: 清理目标应用的旧task（如果存在）- 防止获取到旧task
-            if (targetPackageName != null) {
-                Log.d(TAG, "→ 清理目标包的旧task");
-                Thread.sleep(300);
-            }
-
-            // 步骤2: 在主屏启动应用（先在主屏启动，才能获取taskId）
-            String launchCmd;
-            if (activity != null) {
-                launchCmd = "am start -n " + activity;
-                Log.d(TAG, "→ 使用指定Activity启动: " + activity);
+            final String targetPackage;
+            final String launchCmd;
+            if (isSpecificActivity) {
+                String component = VirtualCastRequest.component(activity);
+                targetPackage = component.substring(0, component.indexOf('/'));
+                launchCmd = "am start -n " + component;
             } else {
-                // 使用pm命令获取主Activity，比monkey更可靠
-                launchCmd = "cmd package resolve-activity --brief " + packageName + " | tail -n 1";
-                String mainActivity = taskService.executeShellCommandWithResult(launchCmd);
-
-                if (mainActivity != null && !mainActivity.trim().isEmpty()
-                        && !mainActivity.contains("No activity found")) {
-                    mainActivity = mainActivity.trim();
-                    launchCmd = "am start -n " + mainActivity;
-                    Log.d(TAG, "→ 解析到主Activity: " + mainActivity);
+                targetPackage = VirtualCastRequest.packageName(packageName);
+                String resolved = taskService.executeShellCommandWithResult(
+                        "cmd package resolve-activity --brief " + targetPackage + " | tail -n 1");
+                String component = resolved == null ? "" : resolved.trim();
+                if (!component.isEmpty() && !component.contains("No activity found")
+                        && component.startsWith(targetPackage + "/")) {
+                    launchCmd = "am start -n " + VirtualCastRequest.component(component);
                 } else {
-                    // Fallback: 使用pm dump获取主Activity
-                    launchCmd = "pm dump " + packageName + " | grep -A 1 'android.intent.action.MAIN' | grep -o '"
-                            + packageName + "[^\\s]*' | head -n 1";
-                    mainActivity = taskService.executeShellCommandWithResult(launchCmd);
-
-                    if (mainActivity != null && !mainActivity.trim().isEmpty()) {
-                        mainActivity = mainActivity.trim();
-                        launchCmd = "am start -n " + mainActivity;
-                        Log.d(TAG, "→ 通过pm dump解析到主Activity: " + mainActivity);
+                    String dumped = taskService.executeShellCommandWithResult("pm dump " + targetPackage
+                            + " | grep -A 1 'android.intent.action.MAIN' | grep -o '" + targetPackage
+                            + "[^\\s]*' | head -n 1");
+                    component = dumped == null ? "" : dumped.trim();
+                    if (!component.isEmpty() && component.startsWith(targetPackage + "/")) {
+                        launchCmd = "am start -n " + VirtualCastRequest.component(component);
                     } else {
-                        // 最后的Fallback: 使用Intent方式启动
                         launchCmd = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "
-                                + packageName;
-                        Log.w(TAG, "→ 使用Intent方式启动（未能解析主Activity）");
+                                + targetPackage;
                     }
                 }
             }
 
-            Log.d(TAG, "→ 执行启动命令: " + launchCmd);
-            taskService.executeShellCommand(launchCmd);
-            Log.d(TAG, "✓ 启动命令已执行");
-
-            // 步骤3: 等待应用启动并验证，最多重试3次
-            String targetApp = null;
-            String actualPackage = null;
-            int taskId = -1;
-            int maxRetries = 3;
-
-            for (int retry = 0; retry < maxRetries; retry++) {
-                Thread.sleep(500 + retry * 200); // 首次500ms，之后递增
-
-                targetApp = taskService.getCurrentForegroundApp();
-                Log.d(TAG, "  尝试 " + (retry + 1) + "/" + maxRetries + " 获取前台应用: " + targetApp);
-
-                if (targetApp == null || !targetApp.contains(":")) {
-                    Log.w(TAG, "  未能获取应用，继续重试...");
-                    continue;
-                }
-
-                String[] parts = targetApp.split(":");
-                actualPackage = parts[0];
-
-                // 验证是否是目标应用（支持packageName和activity两种验证）
-                boolean isTargetApp = false;
-                if (packageName != null) {
-                    isTargetApp = actualPackage.equals(packageName);
-                } else if (activity != null) {
-                    // 从activity提取包名进行验证
-                    String activityPackage = activity.contains("/") ? activity.substring(0, activity.indexOf("/"))
-                            : activity;
-                    isTargetApp = actualPackage.equals(activityPackage);
-                } else {
-                    // 无验证条件，接受任何应用（不应该到这里）
-                    isTargetApp = true;
-                }
-
-                if (!isTargetApp) {
-                    String expectedPkg = packageName != null ? packageName
-                            : (activity != null ? activity.substring(0, activity.indexOf("/")) : "unknown");
-                    Log.w(TAG, "  应用不匹配: " + actualPackage + " vs " + expectedPkg);
-
-                    // 最后一次重试前，强制启动目标应用
-                    if (retry < maxRetries - 1) {
-                        final String actualPackageToStop = actualPackage;
-                        boolean mayStopActualPackage = VirtualCastRequest.stopTargetPackageUnlessSceneOwned(actualPackageToStop, () ->
-                                taskService.executeShellCommand("am force-stop " + actualPackageToStop));
-                        if (!mayStopActualPackage) {
-                            Log.i(TAG, "cast_gate mode=physical stage=retry_process result=busy reason=active_scene_package");
-                            showToast("当前背屏场景仍在运行，未停止该应用");
-                            return;
-                        }
-                        Log.w(TAG, "  停止本次启动错配的应用并重试");
-                        Thread.sleep(200);
-                        // 重新执行启动命令
-                        taskService.executeShellCommand(launchCmd);
-                        continue;
-                    } else {
-                        Log.e(TAG, "  ❌ 多次重试后仍然无法启动目标应用");
-                        return;
-                    }
-                } else {
-                    // 成功启动目标应用
-                    taskId = Integer.parseInt(parts[1]);
-                    Log.d(TAG, "✓ 成功启动目标应用，taskId: " + taskId);
-                    break;
-                }
-            }
-
-            if (taskId == -1) {
-                Log.e(TAG, "❌ 未能获取启动的应用taskId");
+            PhysicalCastRequestFlow.Result result = PhysicalCastRequestFlow.launchAndHandoff(
+                    targetPackage, 3, createPhysicalCastPort(uri, launchCmd));
+            if (!result.committed) {
+                Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
+                        + " status=" + result.failure + " result=not_committed");
+                showToast(getString(R.string.toast_switch_failed));
                 return;
             }
 
-            // 步骤4: 启动RearScreenKeeperService
-            Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
-            serviceIntent.putExtra("lastMovedTask", targetApp);
-
-            // 传递背屏常亮开关状态
+            int taskId = result.target.taskId;
+            String actualPackage = result.target.packageName;
+            Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
+                    + " status=move_success");
             try {
-                android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences",
-                        MODE_PRIVATE);
-                boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
-                serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
-            } catch (Exception e) {
-                serviceIntent.putExtra("keepScreenOnEnabled", true);
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
-
-            // 步骤5: 移动到背屏
-            Log.d(TAG, "→ 步骤5: 移动投放Task到背屏");
-            boolean success = taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
-
-            if (success) {
-                Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
-                        + " status=move_success");
-                RearAnimationManager.projectionStarted(this, taskId, targetApp.split(":", 2)[0]);
-                Log.d(TAG, "✅ Task已移动到背屏 (taskId=" + taskId + ")");
-
-                // 步骤5.5: 等待应用在背屏稳定显示
                 Thread.sleep(300);
-                Log.d(TAG, "→ 等待应用稳定");
-
-                // 步骤5.6: 移动到背屏后再次验证并应用DPI（确保生效）
-                String dpiStr = uri.getQueryParameter("dpi");
-                if (dpiStr != null) {
-                    try {
-                        int dpi = Integer.parseInt(dpiStr);
-                        Log.d(TAG, "→ 再次验证DPI并应用: " + dpi);
-                        // 验证当前DPI
-                        int currentDpi = taskService.getCurrentRearDpi();
-                        Log.d(TAG, "  当前背屏DPI: " + currentDpi);
-                        if (currentDpi != dpi) {
-                            Log.w(TAG, "  DPI不匹配，重新设置");
-                            taskService.setRearDpi(dpi);
-                            Thread.sleep(200);
-                        } else {
-                            Log.d(TAG, "  ✓ DPI已生效");
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "DPI验证失败: " + e.getMessage());
-                    }
-                }
-
-                // 步骤6: 主动点亮背屏（关键步骤！）
-                Log.d(TAG, "→ 步骤6: 点亮背屏");
+                String dpiValue = uri.getQueryParameter("dpi");
+                if (dpiValue != null && taskService.getCurrentRearDpi() != Integer.parseInt(dpiValue))
+                    taskService.setRearDpi(Integer.parseInt(dpiValue));
+                wakeRearDisplayAfterCommit();
+            } catch (Exception e) { Log.w(TAG, "Post-commit display presentation adjustment failed", e); }
+            String rotationValue = uri.getQueryParameter("rotation");
+            if (rotationValue != null) {
                 try {
-                    boolean launchResult = taskService.launchWakeActivity(RearDisplay.requireId());
-                    if (!launchResult) {
-                        Log.w(TAG, "TaskService launch failed, fallback to shell");
-                        String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
-                                + RearScreenWakeupActivity.class.getName();
-                        taskService.executeShellCommand(cmd);
-                    }
-                    Log.d(TAG, "✓ 背屏已点亮");
-                } catch (NoSuchMethodError e) {
-                    // 旧版本兼容
-                    String cmd = "am start --display " + RearDisplay.requireId() + " -n " + getPackageName() + "/"
-                            + RearScreenWakeupActivity.class.getName();
-                    taskService.executeShellCommand(cmd);
-                    Log.d(TAG, "✓ 背屏已点亮（旧版本fallback）");
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to launch wake activity: " + e.getMessage());
-                }
-
-                // 步骤7: 如果设置了旋转，验证并检查应用状态
-                String rotationStr = uri.getQueryParameter("rotation");
-                if (rotationStr != null) {
-                    Log.d(TAG, "→ 步骤7: 验证旋转并检查应用状态");
-                    try {
-                        int targetRotation = Integer.parseInt(rotationStr);
-
-                        // 等待旋转生效
-                        Thread.sleep(500);
-
-                        // 验证旋转是否生效
-                        int currentRotation = taskService.getDisplayRotation(RearDisplay.requireId());
-                        Log.d(TAG, "  目标旋转: " + targetRotation + ", 当前旋转: " + currentRotation);
-
-                        if (currentRotation != targetRotation) {
-                            Log.w(TAG, "  ⚠ 旋转不匹配，重新设置");
-                            taskService.setDisplayRotation(RearDisplay.requireId(), targetRotation);
-                            Thread.sleep(500); // 等待重新设置生效
-                        } else {
-                            Log.d(TAG, "  ✓ 旋转已生效");
-                        }
-
-                        // 检查应用是否还在背屏（可能被旋转杀死）
-                        boolean stillOnRear = taskService.isTaskOnDisplay(taskId, RearDisplay.requireId());
-                        Log.d(TAG, "  应用是否还在背屏: " + stillOnRear);
-
-                        if (!stillOnRear) {
-                            // 应用被旋转杀死了，重新投放
-                            Log.w(TAG, "  ⚠ 应用因旋转被杀，重新投放");
-                            taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
-                            Thread.sleep(200);
-                            Log.d(TAG, "  ✓ 应用已复活");
-                        } else {
-                            Log.d(TAG, "  ✓ 应用正常运行");
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "旋转验证/检查失败: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                } else {
-                    Log.d(TAG, "→ 步骤7: 跳过（无旋转参数）");
-                }
-
-                Log.d(TAG, "✅ " + actualPackage + " 已切换到背屏");
-
-                // Toast提示
-                String appName = getAppName(actualPackage);
-                showToast(appName + " " + getString(R.string.toast_cast_to_rear));
-            } else {
-                Log.i(TAG, "cast_stage mode=physical target=" + (isSpecificActivity ? "explicit_activity" : "package_task")
-                        + " status=move_failed result=not_committed");
-                Log.e(TAG, "❌ 移动到背屏失败");
-                showToast(getString(R.string.toast_switch_failed));
+                    int rotation = Integer.parseInt(rotationValue);
+                    if (taskService.getDisplayRotation(RearDisplay.requireId()) != rotation)
+                        taskService.setDisplayRotation(RearDisplay.requireId(), rotation);
+                    if (!taskService.isTaskOnDisplay(taskId, RearDisplay.requireId()))
+                        taskService.moveTaskToDisplay(taskId, RearDisplay.requireId());
+                } catch (Exception e) { Log.w(TAG, "Post-commit rotation check failed", e); }
             }
-
+            showToast(result.keeperStarted
+                    ? getAppName(actualPackage) + " " + getString(R.string.toast_cast_to_rear)
+                    : "已投放；后台守护未启动，仍可使用原返回入口结束投放");
         } catch (Exception e) {
             Log.e(TAG, "切换指定应用失败", e);
             showToast("切换失败: " + e.getMessage());
+        }
+    }
+
+    private PhysicalCastRequestFlow.Port createPhysicalCastPort(Uri uri, String launchCmd) {
+        return new PhysicalCastRequestFlow.Port() {
+            private CastDisplayConfigSnapshot config;
+            @Override public void prepare() throws Exception {
+                config = CastDisplayConfigSnapshot.capture(taskService, uri);
+                applyConfigParams(uri);
+            }
+            @Override public String launchAndObserve(int attempt) throws Exception {
+                if (launchCmd == null) throw new IllegalStateException("No launch command for current-task request");
+                if (attempt > 0) Thread.sleep(200);
+                if (!taskService.executeShellCommand(launchCmd))
+                    throw new IllegalStateException("Target launch command was rejected");
+                Thread.sleep(500L + attempt * 200L);
+                return taskService.getCurrentForegroundApp();
+            }
+            @Override public boolean moveToRear(int id) throws Exception {
+                RearDisplayCastOccupancy.Result occupancy = RearDisplayCastOccupancy.query(
+                        taskService, getPackageName(), RearDisplay.requireId());
+                if (!occupancy.allowed()) {
+                    Log.i(TAG, "cast_gate mode=physical stage=commit result=busy disposition=" + occupancy.disposition);
+                    return false;
+                }
+                return taskService.isTaskOnDisplay(id, 0) && taskService.moveTaskToDisplay(id, RearDisplay.requireId());
+            }
+            @Override public void projectionCommitted(int id, String pkg) {
+                RearAnimationManager.projectionStarted(UriCommandService.this, id, pkg);
+            }
+            @Override public void disableLauncher(PhysicalCastRequestFlow.Target target) throws Exception {
+                if (!taskService.disableSubScreenLauncher())
+                    throw new IllegalStateException("SubScreenLauncher disable failed");
+                if (!LegacyDisplayOccupancy.markPhysicalLauncherDisabled(
+                        UriCommandService.this, target.taskId, RearDisplay.requireId()))
+                    throw new IllegalStateException("Physical launcher ownership record changed");
+            }
+            @Override public boolean startKeeper(String packageTask) {
+                Intent serviceIntent = new Intent(UriCommandService.this, RearScreenKeeperService.class)
+                        .putExtra("lastMovedTask", packageTask);
+                String[] owner = packageTask.split(":", 2);
+                if (owner.length == 2) {
+                    try {
+                        serviceIntent.putExtra("physicalCastOwnerGeneration",
+                                LegacyDisplayOccupancy.physicalProjectionGeneration(
+                                        UriCommandService.this, Integer.parseInt(owner[1]), RearDisplay.requireId()));
+                    } catch (NumberFormatException ignored) { }
+                }
+                try {
+                    boolean keepOn = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                            .getBoolean("flutter.keep_screen_on_enabled", true);
+                    serviceIntent.putExtra("keepScreenOnEnabled", keepOn);
+                } catch (Exception ignored) { serviceIntent.putExtra("keepScreenOnEnabled", true); }
+                ComponentName started = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                        ? startForegroundService(serviceIntent) : startService(serviceIntent);
+                if (started == null) throw new IllegalStateException("Keeper start was not accepted");
+                return true;
+            }
+            @Override public void rollbackPreparation() {
+                if (config != null) config.restore(taskService);
+            }
+            @Override public void postCommitFailure(Exception failure) {
+                Log.w(TAG, "Physical cast committed; post-commit maintenance failed", failure);
+            }
+        };
+    }
+
+    private void wakeRearDisplayAfterCommit() {
+        try {
+            if (taskService.launchWakeActivity(RearDisplay.requireId())) return;
+            Log.w(TAG, "TaskService launch failed, fallback to shell");
+            taskService.executeShellCommand("am start --display " + RearDisplay.requireId() + " -n "
+                    + getPackageName() + "/" + RearScreenWakeupActivity.class.getName());
+        } catch (NoSuchMethodError olderService) {
+            try {
+                taskService.executeShellCommand("am start --display " + RearDisplay.requireId() + " -n "
+                        + getPackageName() + "/" + RearScreenWakeupActivity.class.getName());
+            } catch (Exception e) { Log.w(TAG, "Failed to wake rear display after cast commit", e); }
+        } catch (Exception e) { Log.w(TAG, "Failed to wake rear display after cast commit", e); }
+    }
+
+    private static final class CastDisplayConfigSnapshot {
+        private final CastDisplayConfigRollback snapshot;
+        private CastDisplayConfigSnapshot(CastDisplayConfigRollback snapshot) { this.snapshot = snapshot; }
+        static CastDisplayConfigSnapshot capture(ITaskService service, Uri uri) throws Exception {
+            boolean dpi = uri.getQueryParameter("dpi") != null;
+            boolean rotation = uri.getQueryParameter("rotation") != null;
+            CastDisplayConfigRollback.Port port = displayConfigPort(service);
+            return new CastDisplayConfigSnapshot(CastDisplayConfigRollback.capture(port, dpi, rotation));
+        }
+        void restore(ITaskService service) {
+            try { snapshot.restore(displayConfigPort(service)); }
+            catch (Exception e) { Log.w(TAG, "Failed to restore request display configuration", e); }
+        }
+        private static CastDisplayConfigRollback.Port displayConfigPort(ITaskService service) {
+            return new CastDisplayConfigRollback.Port() {
+                @Override public int displayId() { return RearDisplay.requireId(); }
+                @Override public String displayIdentity() { return RearDisplay.identity(); }
+                @Override public Integer dpi() throws Exception { return service.getCurrentRearDpi(); }
+                @Override public Integer rotation(int id) throws Exception { return service.getDisplayRotation(id); }
+                @Override public void setDpi(int value) throws Exception { service.setRearDpi(value); }
+                @Override public void setRotation(int id, int value) throws Exception { service.setDisplayRotation(id, value); }
+            };
         }
     }
 

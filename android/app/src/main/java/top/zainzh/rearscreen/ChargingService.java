@@ -187,6 +187,7 @@ public class ChargingService extends Service {
         cancelRequest();
         BatteryManager battery = (BatteryManager) getSystemService(BATTERY_SERVICE);
         RearAnimationManager.Session session = RearAnimationManager.beginAnimation(RearAnimationManager.AnimationType.CHARGING);
+        NotificationService.chargingSessionStarted(session);
         ChargingRequest request = new ChargingRequest(battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY), session);
         activeRequest = request;
         RearAnimationManager.AnimationType previous = session.previous;

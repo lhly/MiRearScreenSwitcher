@@ -9,6 +9,16 @@
     <string name="ui_apps_access_help" formatted="false">App visibility permission is unavailable. Grant access in system settings, then refresh.</string>
     <string name="ui_author_anti" formatted="false">Original author: AntiOblivionis</string>
     <string name="ui_auto_destroy_time" formatted="false">Auto Destroy Time</string>
+    <string name="ui_notification_duration_title" formatted="false">Notification display time</string>
+    <string name="ui_notification_never_close" formatted="false">Don’t close automatically</string>
+    <string name="ui_notification_never_close_help" formatted="false">Stays visible while the notification is active. Keeping the screen on uses more battery; it still ends if the notification is removed or the feature is turned off.</string>
+    <string name="ui_notification_click_action" formatted="false">Tap notification</string>
+    <string name="ui_notification_click_action_help" formatted="false">Choose what a tap on the rear-screen reminder does.</string>
+    <string name="ui_notification_click_open" formatted="false">Open app on main screen</string>
+    <string name="ui_notification_click_dismiss" formatted="false">Dismiss rear reminder only</string>
+    <string name="ui_minutes_value" formatted="false">{0} minutes</string>
+    <string name="ui_unit_seconds" formatted="false">Seconds</string>
+    <string name="ui_unit_minutes" formatted="false">Minutes</string>
     <string name="ui_back" formatted="false">Back</string>
     <string name="ui_cancel" formatted="false">Cancel</string>
     <string name="ui_charging_always_help" formatted="false">Keep the animation and battery level visible</string>

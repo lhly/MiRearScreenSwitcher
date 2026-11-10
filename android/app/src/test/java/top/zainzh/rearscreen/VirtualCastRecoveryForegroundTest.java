@@ -100,10 +100,60 @@ public final class VirtualCastRecoveryForegroundTest {
         String summary = decision.diagnostic.format(decision.refusal, "foreground_unverified", Display.STATE_ON);
 
         assertEquals(VirtualCastRecoveryForeground.Disposition.EVIDENCE_UNAVAILABLE, decision.disposition);
-        assertTrue(summary.contains("sleeping=3 sleeping_launcher=1 sleeping_other=1 sleeping_unknown=1"));
+        assertTrue(summary.contains("sleeping=3 sleeping_launcher=1"));
+        assertTrue(summary.contains("sleeping_other=1 sleeping_unknown=1"));
+        assertTrue(summary.contains("sleeping_launcher_requested_false=1 sleeping_launcher_requested_true=0 sleeping_launcher_requested_unknown=0"));
         assertFalse(summary.contains(HOME));
         assertFalse(summary.contains(THIRD_PARTY));
         assertFalse(summary.contains("tasks"));
+    }
+
+    @Test public void exactSleepingHostCanRecoverPastOnlyInactiveSleepingSystemLauncher() throws Exception {
+        RearDisplayCastOccupancy.Snapshot snapshot = snapshot("activity_task",
+                task(HOST_TASK, HOST, HOST, false, false, true),
+                task(51, HOME, HOME, false, false, true));
+        VirtualCastRecoveryForeground.Decision decision = resolve(snapshot);
+        AtomicInteger focusedTask = new AtomicInteger(-1);
+
+        assertEquals(VirtualCastRecoveryForeground.Disposition.FOCUS_HOST, decision.disposition);
+        assertEquals("focused", VirtualCastRecoveryForeground.perform(decision, HOST_TASK, DISPLAY,
+                taskId -> { focusedTask.set(taskId); return true; }));
+        assertEquals("recovery only focuses the exact active virtual-session host", HOST_TASK, focusedTask.get());
+        assertEquals("true", decision.diagnostic.targetSleeping);
+    }
+
+    @Test public void sleepingThirdPartyBlocksButKnownSleepingLauncherCanBeReconciled() {
+        RearDisplayCastOccupancy.Snapshot thirdParty = snapshot("activity_task",
+                task(HOST_TASK, HOST, HOST, false, false, true),
+                task(61, THIRD_PARTY, THIRD_PARTY, false, false, true));
+        assertEquals(VirtualCastRecoveryForeground.Disposition.EVIDENCE_UNAVAILABLE,
+                resolve(thirdParty).disposition);
+
+        RearDisplayCastOccupancy.Snapshot launcherRequested = snapshot("activity_task",
+                task(HOST_TASK, HOST, HOST, false, false, true),
+                task(51, HOME, HOME, false, true, true));
+        assertEquals("requested invisible sleeping system Launcher is still pending, not proven dormant",
+                VirtualCastRecoveryForeground.Disposition.EVIDENCE_UNAVAILABLE,
+                resolve(launcherRequested).disposition);
+
+        RearDisplayCastOccupancy.Snapshot launcherRequestUnknown = snapshot("activity_task",
+                task(HOST_TASK, HOST, HOST, false, false, true),
+                task(51, HOME, HOME, false, null, true));
+        VirtualCastRecoveryForeground.Decision unknownDecision = resolve(launcherRequestUnknown);
+        assertEquals("missing requested evidence cannot be treated as false",
+                VirtualCastRecoveryForeground.Disposition.EVIDENCE_UNAVAILABLE, unknownDecision.disposition);
+        String summary = unknownDecision.diagnostic.format(unknownDecision.refusal,
+                "foreground_unverified", Display.STATE_ON);
+        assertTrue(summary.contains("sleeping_launcher_requested_false=0"));
+        assertTrue(summary.contains("sleeping_launcher_requested_true=0"));
+        assertTrue(summary.contains("sleeping_launcher_requested_unknown=1"));
+
+        RearDisplayCastOccupancy.Snapshot contradictoryVisible = snapshot("activity_task",
+                task(HOST_TASK, HOST, HOST, false, false, true),
+                task(51, HOME, HOME, true, true, true));
+        assertEquals("contradictory visible-and-sleeping evidence remains fail-closed",
+                VirtualCastRecoveryForeground.Disposition.EVIDENCE_UNAVAILABLE,
+                resolve(contradictoryVisible).disposition);
     }
 
     @Test public void hiddenThirdPartyDoesNotObscureVisibleLauncherButVisibleThirdPartyDoes() throws Exception {

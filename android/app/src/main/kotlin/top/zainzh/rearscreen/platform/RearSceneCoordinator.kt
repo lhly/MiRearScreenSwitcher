@@ -230,7 +230,7 @@ internal class RearSceneCoordinator(
         }
         owned.forEach { (id, record) ->
             record.launch?.let { launch ->
-                android.util.Log.i("RearSceneCast", "scene_closed reason=${reason.name} task=${launch.taskId} display=${launch.displayId}")
+                runCatching { android.util.Log.i("RearSceneCast", "scene_closed reason=${reason.name} task=${launch.taskId} display=${launch.displayId}") }
             }
             record.launch?.let { runCatching { gateway.finishOwnedTask(record.owner, it) } }
             finishLeaseResources(id, record, reason)

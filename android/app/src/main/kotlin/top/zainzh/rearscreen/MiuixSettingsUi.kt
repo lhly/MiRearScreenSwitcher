@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -46,6 +48,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,6 +74,8 @@ class MiuixSettingsUi(
         fun tutorial()
         fun apps()
         fun duration()
+        fun clickAction()
+        fun saveDuration(seconds: Int, neverAutoClose: Boolean)
         fun action(method: String)
         fun updates()
         fun proxy(enabled: Boolean)
@@ -89,13 +94,20 @@ class MiuixSettingsUi(
     private data class SafeInsets(val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 0, val ime: Int = 0)
     private var state by mutableStateOf(HomeState())
     private data class SettingsState(val selected: Int = 0, val listener: Boolean = false, val posting: Boolean = true,
-        val duration: Int = 8, val updates: String = "", val checking: Boolean = false, val proxy: Boolean = false)
+        val duration: Int = 8, val updates: String = "", val checking: Boolean = false, val proxy: Boolean = false,
+        val neverAutoClose: Boolean = false, val dismissOnly: Boolean = false)
     private var settings by mutableStateOf(SettingsState())
+    private var durationSheetVisible by mutableStateOf(false)
+    private var durationValue by mutableIntStateOf(savedState?.getInt("notification_duration_draft_value", 10) ?: 10)
+    private var durationUnitMinutes by mutableStateOf(savedState?.getBoolean("notification_duration_draft_minutes", false) ?: false)
+    private var durationNeverAutoClose by mutableStateOf(savedState?.getBoolean("notification_duration_draft_never", false) ?: false)
+    private var durationChanged by mutableStateOf(savedState?.getBoolean("notification_duration_draft_changed", false) ?: false)
     private var picker by mutableStateOf<AppPickerModel?>(null)
     private val notificationsList = savedState.listState("notifications_list")
     private val modulesList = savedState.listState("modules_list")
     private val settingsList = savedState.listState("settings_list")
     private val aboutList = savedState.listState("about_list")
+    init { durationSheetVisible = savedState?.getBoolean("notification_duration_sheet", false) ?: false }
     private var uriConflict by mutableStateOf(false)
     private var navigationHeight by mutableIntStateOf(0)
     private var page by mutableIntStateOf(savedState?.getInt("native_page", 0)?.let {
@@ -131,8 +143,9 @@ class MiuixSettingsUi(
     }
     fun getView(): View = view
     fun showPicker(model: AppPickerModel?) { picker = model }
-    fun updateSettings(selected: Int, listener: Boolean, posting: Boolean, duration: Int, updates: String, checking: Boolean, proxy: Boolean) {
-        settings = SettingsState(selected, listener, posting, duration, updates, checking, proxy)
+    fun updateSettings(selected: Int, listener: Boolean, posting: Boolean, duration: Int, updates: String, checking: Boolean,
+        proxy: Boolean, neverAutoClose: Boolean = false, dismissOnly: Boolean = false) {
+        settings = SettingsState(selected, listener, posting, duration, updates, checking, proxy, neverAutoClose, dismissOnly)
     }
     fun updateUriConflict(conflict: Boolean) { uriConflict = conflict }
     fun showPage(target: Int) { page = target; navigationRequest++ }
@@ -142,6 +155,11 @@ class MiuixSettingsUi(
         state = HomeState(status, summary, action, dpi, rotation, busy, values.toMap())
     }
     fun saveState(bundle: Bundle) {
+        bundle.putBoolean("notification_duration_sheet", durationSheetVisible)
+        bundle.putInt("notification_duration_draft_value", durationValue)
+        bundle.putBoolean("notification_duration_draft_minutes", durationUnitMinutes)
+        bundle.putBoolean("notification_duration_draft_never", durationNeverAutoClose)
+        bundle.putBoolean("notification_duration_draft_changed", durationChanged)
         bundle.saveList("notifications_list", notificationsList)
         bundle.saveList("modules_list", modulesList)
         bundle.saveList("settings_list", settingsList)
@@ -151,6 +169,15 @@ class MiuixSettingsUi(
         bundle.putInt("native_subpage", subpage)
         bundle.putInt("native_route_version", 2)
         bundle.putString("native_module_id", selectedModuleId)
+    }
+    fun showDurationSheet(seconds: Int, neverAutoClose: Boolean) {
+        if (!durationSheetVisible) {
+            durationValue = if (seconds < 60) seconds.coerceIn(1, 60) else ((seconds.toLong() + 59L) / 60L).coerceIn(1L, 60L).toInt()
+            durationUnitMinutes = seconds >= 60
+            durationNeverAutoClose = neverAutoClose
+            durationChanged = false
+        }
+        durationSheetVisible = true
     }
     private fun s(key: String) = NativeStrings.get(activity, key)
 
@@ -701,10 +728,53 @@ class MiuixSettingsUi(
                             AppDivider()
                             SettingsToggle("only_when_locked", "upside_help", "notification_only_when_locked", "setOnlyWhenLocked")
                             AppDivider()
-                            AppRow(s("auto_destroy_time"), s("duration_help"), action = actions::duration,
-                                trailing = { Text(s("seconds_value").replace("{0}", settings.duration.toString()), fontSize = 15.sp, color = AppPalette.accent(), modifier = Modifier.widthIn(max = 100.dp)) })
+                            AppRow(s("notification_duration_title"), s("duration_help"), action = actions::duration,
+                                trailing = { Text(durationSummary(settings.duration), fontSize = 15.sp, color = AppPalette.accent(), modifier = Modifier.widthIn(max = 130.dp)) })
+                            AppDivider()
+                            AppRow(s("notification_click_action"), null, action = actions::clickAction,
+                                trailing = { Text(s(if (settings.dismissOnly) "notification_click_dismiss" else "notification_click_open"),
+                                    fontSize = 14.sp, color = AppPalette.accent(), modifier = Modifier.widthIn(max = 150.dp)) })
                         }
                     }
+                }
+            }
+        }
+        DurationBottomSheet()
+    }
+
+    private fun durationSummary(seconds: Int): String = when {
+        settings.neverAutoClose -> s("notification_never_close")
+        seconds < 60 -> s("seconds_value").replace("{0}", seconds.toString())
+        seconds % 60 == 0 -> s("minutes_value").replace("{0}", (seconds / 60).toString())
+        else -> s("seconds_value").replace("{0}", seconds.toString())
+    }
+
+    @Composable private fun DurationBottomSheet() {
+        WindowBottomSheet(show = durationSheetVisible, title = s("notification_duration_title"),
+            onDismissRequest = { durationSheetVisible = false }) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    top.yukonga.miuix.kmp.basic.NumberPicker(value = durationValue,
+                        onValueChange = { durationValue = it; durationChanged = true },
+                        modifier = Modifier.weight(1f), enabled = !durationNeverAutoClose, range = 1..60)
+                    top.yukonga.miuix.kmp.basic.NumberPicker(value = if (durationUnitMinutes) 1 else 0,
+                        onValueChange = { durationUnitMinutes = it == 1; durationChanged = true },
+                        modifier = Modifier.weight(1f), enabled = !durationNeverAutoClose, range = 0..1,
+                        label = { if (it == 0) s("unit_seconds") else s("unit_minutes") })
+                }
+                AppToggle(s("notification_never_close"), s("notification_never_close_help"), durationNeverAutoClose,
+                    onChange = { durationNeverAutoClose = it })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(s("cancel"), { durationSheetVisible = false }, Modifier.weight(1f), minHeight = 48.dp)
+                    TextButton(s("confirm"), {
+                        val seconds = NotificationDisplayOptions.durationAfterConfirmation(
+                            settings.duration, durationChanged, durationValue, durationUnitMinutes)
+                        durationSheetVisible = false
+                        if (durationChanged || durationNeverAutoClose != activity.getSharedPreferences("mrss_settings", android.content.Context.MODE_PRIVATE)
+                                .getBoolean("notification_never_auto_close", false))
+                            actions.saveDuration(if (durationChanged) seconds else -1, durationNeverAutoClose)
+                    }, Modifier.weight(1f), minHeight = 48.dp, colors = ButtonDefaults.textButtonColorsPrimary())
                 }
             }
         }
