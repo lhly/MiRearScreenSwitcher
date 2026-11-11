@@ -57,3 +57,10 @@ progress.md
 /tools/quark_release_job.py
 /tools/quark_release_sync.py
 /tools/test_quark_release_sync.py
+
+# Local maintainer tool, archived media, and editor setting
+/tools/export_github_signing_secrets.py
+/pic_res/kuan.png
+/pic_res/logo.png
+/pic_res/logo_sc.png
+/.vscode/settings.json
