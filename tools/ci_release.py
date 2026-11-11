@@ -18,6 +18,8 @@ from release_notes import format_release_notes, validate_release_notes
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ID = 'top.zainzh.rearscreen'
+REPOSITORY = 'lhly/ReMRSS'
+LEGACY_REPOSITORY = 'lhly/MiRearScreenSwitcher'
 SEMVER = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
 
 
@@ -153,7 +155,7 @@ def verify_apk(apk, metadata, dist, project=ROOT):
         assets.append(dist / name)
     checksums = ''.join(f'{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n' for asset in assets)
     (dist / 'SHA256SUMS').write_text(checksums, encoding='ascii')
-    repository = os.environ.get('GITHUB_REPOSITORY', 'lhly/MiRearScreenSwitcher')
+    repository = os.environ.get('GITHUB_REPOSITORY', REPOSITORY)
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('Invalid GitHub repository name.')
     # CI artifact only: APK digest/size come from the verified bytes, not hand-entered values.

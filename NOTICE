@@ -5,8 +5,8 @@ Original author: AntiOblivionis
 Upstream testing contributor: 汐木泽
 
 Current maintainer: 冷火凉烟 (GitHub: lhly)
-Maintained project: https://github.com/lhly/MiRearScreenSwitcher
-Issue tracker: https://github.com/lhly/MiRearScreenSwitcher/issues
+Maintained project: https://github.com/lhly/ReMRSS
+Issue tracker: https://github.com/lhly/ReMRSS/issues
 
 This independent fork has been modified since 2026-10-11, including shared
 Shizuku service lifecycle fixes and the Android native settings interface.
@@ -37,7 +37,7 @@ This modified program is distributed under the GNU General Public License,
 version 3. See LICENSE for the complete terms, including the absence of warranty.
 
 Source for a published APK is provided at the matching v<version> tag:
-https://github.com/lhly/MiRearScreenSwitcher/tags
+https://github.com/lhly/ReMRSS/tags
 Build instructions are included in docs/android-studio-release.md at that tag.
 Third-party assets retain their respective ownership; see README.md.
 

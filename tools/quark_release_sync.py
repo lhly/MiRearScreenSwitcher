@@ -19,11 +19,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from ci_release import LEGACY_REPOSITORY, REPOSITORY
 from update_version_manifest import validate_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / '.local/quark-release-sync/config.json'
-REPOSITORY = 'lhly/MiRearScreenSwitcher'
+REPOSITORY_NAMES = {REPOSITORY, LEGACY_REPOSITORY}
 FEED_URL = f'https://raw.githubusercontent.com/{REPOSITORY}/main/updates/remrss/version.json'
 MAX_APK = 256 * 1024 * 1024
 
@@ -87,11 +88,24 @@ class Http:
         return json.loads(path.read_text())
 
 
+def project_url(url, suffix):
+    return any(url == f'https://github.com/{name}{suffix}' for name in REPOSITORY_NAMES)
+
+
+def normalized_identity(value):
+    """A repository rename changes URLs, not release IDs or published bytes."""
+    if isinstance(value, dict):
+        return {key: normalized_identity(item) for key, item in value.items()}
+    legacy = f'https://github.com/{LEGACY_REPOSITORY}/'
+    if isinstance(value, str) and value.startswith(legacy):
+        return f'https://github.com/{REPOSITORY}/' + value[len(legacy):]
+    return value
+
+
 def manifest_identity(manifest):
     version = validate_manifest(manifest, require_apk=True)
     tag = manifest['tag']
-    expected = f'https://github.com/{REPOSITORY}/releases/download/{tag}/ReMRSS-{tag}.apk'
-    if manifest['apk']['url'] != expected:
+    if not project_url(manifest['apk']['url'], f'/releases/download/{tag}/ReMRSS-{tag}.apk'):
         raise SyncError('稳定版清单中的下载地址不属于本项目。')
     return version, {'tag': tag, 'versionCode': manifest['versionCode'], 'apk': manifest['apk']}
 
@@ -311,7 +325,7 @@ def run(config, state_path, work, http, quark_factory=Quark, session_input=None,
         if old.get('status') == 'complete' and old.get('versionCode', 0) > identity['versionCode']:
             return {'status': 'skipped', 'reason': 'older_than_uploaded_release'}
     record = state['releases'].get(identity['tag'])
-    if record and any(record.get(k) != v for k, v in identity.items()):
+    if record and any(normalized_identity(record.get(k)) != normalized_identity(v) for k, v in identity.items()):
         raise SyncError('已记录的正式版本内容发生变化，未上传。')
     if record and record.get('target_fid') != config['quark_target_fid']:
         raise SyncError('目标目录已改变，请使用独立状态文件重新配置。')
@@ -367,7 +381,7 @@ def locked(path):
 
 def load_config(path):
     config = json.loads(path.read_text())
-    if config.get('schema_version') != 1 or config.get('repository') != REPOSITORY:
+    if config.get('schema_version') != 1 or config.get('repository') not in REPOSITORY_NAMES:
         raise SyncError('本地同步配置不属于本项目。')
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', config.get('minimum_version', '')):
         raise SyncError('最低同步版本配置无效。')

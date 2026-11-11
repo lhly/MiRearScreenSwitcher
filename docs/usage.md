@@ -1,6 +1,6 @@
 # ReMRSS 使用指南
 
-本指南按当前 ReMRSS 界面整理。各版本的功能以对应 [Release](https://github.com/lhly/MiRearScreenSwitcher/releases) 说明为准；可在“背屏”页打开离线“使用教程”，点击章节展开步骤，末尾“教程来源”保留腾讯原图文教程入口。
+本指南按当前 ReMRSS 界面整理。各版本的功能以对应 [Release](https://github.com/lhly/ReMRSS/releases) 说明为准；可在“背屏”页打开离线“使用教程”，点击章节展开步骤，末尾“教程来源”保留腾讯原图文教程入口。
 
 ## 初次设置
 
@@ -98,7 +98,7 @@
 - **通知未出现**：检查来源应用是否产生新通知、应用选择、通知使用权、勿扰/倒扣条件和后台限制。
 - **充电动画未出现**：检查功能开关、当前权限来源的连接状态及后台限制。
 
-仍有问题时，在“关于 → 诊断信息”查看连接状态，向 [Issues](https://github.com/lhly/MiRearScreenSwitcher/issues) 提供机型、系统版本、操作步骤和实际现象。
+仍有问题时，在“关于 → 诊断信息”查看连接状态，向 [Issues](https://github.com/lhly/ReMRSS/issues) 提供机型、系统版本、操作步骤和实际现象。
 
 [返回项目首页](../README.md)
 

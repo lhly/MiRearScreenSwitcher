@@ -93,7 +93,7 @@ class ReleaseChecks(unittest.TestCase):
             dist.mkdir()
             (dist / 'release-notes.json').write_text(json.dumps({'tag': notes_tag, 'releaseNotes': notes}), encoding='utf-8')
             (dist / 'release-notes.md').write_text(format_release_notes(notes) if notes_markdown is None else notes_markdown, encoding='utf-8')
-            with patch.dict(os.environ, {'RELEASE_CERT_SHA256': '1' * 64, 'ANDROID_HOME': directory}), patch('ci_release.subprocess.run', side_effect=inspect):
+            with patch.dict(os.environ, {'RELEASE_CERT_SHA256': '1' * 64, 'ANDROID_HOME': directory}, clear=True), patch('ci_release.subprocess.run', side_effect=inspect):
                 try:
                     verify_apk(apk, metadata, dist, project)
                 except ValueError:
@@ -103,6 +103,7 @@ class ReleaseChecks(unittest.TestCase):
             self.assertEqual((dist / 'LICENSE').read_bytes(), (project / 'LICENSE').read_bytes())
             self.assertEqual((dist / 'NOTICE').read_bytes(), (project / 'NOTICE').read_bytes())
             manifest = json.loads((dist / 'version-artifact.json').read_text())
+            self.assertEqual(manifest['apk']['url'], 'https://github.com/lhly/ReMRSS/releases/download/v3.3.2/ReMRSS-v3.3.2.apk')
             self.assertEqual(manifest['apk']['sha256'], hashlib.sha256((dist / metadata['apk_name']).read_bytes()).hexdigest())
             self.assertEqual(manifest['apk']['size'], (dist / metadata['apk_name']).stat().st_size)
             self.assertEqual(manifest['apk']['packageName'], 'top.zainzh.rearscreen')

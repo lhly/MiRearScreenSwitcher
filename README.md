@@ -19,9 +19,9 @@
 
 ## 下载
 
-前往 [最新正式版](https://github.com/lhly/MiRearScreenSwitcher/releases/latest) 下载 APK；发布页同时提供 `SHA256SUMS` 和对应版本源码。
+前往 [最新正式版](https://github.com/lhly/ReMRSS/releases/latest) 下载 APK；发布页同时提供 `SHA256SUMS` 和对应版本源码。
 
-[历史版本](https://github.com/lhly/MiRearScreenSwitcher/releases) · [更新日志](CHANGELOG.md)
+[历史版本](https://github.com/lhly/ReMRSS/releases) · [更新日志](CHANGELOG.md)
 
 ## 快速上手
 
@@ -43,7 +43,7 @@
 - [使用指南](docs/usage.md)：日常操作、权限、后台运行、故障排查和自动化。
 - [源码构建](BUILDING.md)：环境准备、调试构建与自行签名。
 - [文档索引](docs/README.md)：功能设置、兼容与排障、迁移和更新。
-- [提交问题](https://github.com/lhly/MiRearScreenSwitcher/issues)：请附上机型、系统版本、复现步骤和诊断信息。
+- [提交问题](https://github.com/lhly/ReMRSS/issues)：请附上机型、系统版本、复现步骤和诊断信息。
 
 ## 许可证与致谢
 

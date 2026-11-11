@@ -20,7 +20,7 @@
 
 ## 提交反馈
 
-向 [Issues](https://github.com/lhly/MiRearScreenSwitcher/issues) 提供：
+向 [Issues](https://github.com/lhly/ReMRSS/issues) 提供：
 
 - 机型、系统版本和 ReMRSS 版本。
 - 使用的权限来源、直接或虚拟投放方式，以及目标 App。

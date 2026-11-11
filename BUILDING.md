@@ -1,6 +1,6 @@
 # 从源码构建 ReMRSS
 
-需要调试或自行签名时，使用与目标版本一致的 tag 源码。直接安装软件请前往 [正式版下载](https://github.com/lhly/MiRearScreenSwitcher/releases/latest)。
+需要调试或自行签名时，使用与目标版本一致的 tag 源码。直接安装软件请前往 [正式版下载](https://github.com/lhly/ReMRSS/releases/latest)。
 
 宿主 APK 的最低系统版本为 Android 16（API 36）；独立 Android SDK AAR 仍以 API 24 为最低版本，集成方式见 [SDK 指南](sdk/android/README.md)。
 

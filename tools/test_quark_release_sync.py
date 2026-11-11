@@ -231,6 +231,24 @@ class ReleaseSyncTest(unittest.TestCase):
         with self.assertRaises(sync.SyncError):
             self.run_sync()
 
+    def test_stable_repository_rename_keeps_completed_release_identity(self):
+        with patch.object(self.http, 'download', wraps=self.http.download) as download:
+            self.run_sync()
+        self.assertEqual(len(download.call_args_list), 4)
+        for call in download.call_args_list:
+            self.assertTrue(call.args[0].startswith(f'https://github.com/{sync.REPOSITORY}/releases/download/'))
+        self.http.feed['apk']['url'] = self.http.feed['apk']['url'].replace(sync.LEGACY_REPOSITORY, sync.REPOSITORY)
+        self.assertEqual(self.run_sync()['status'], 'unchanged')
+        self.assertEqual(len(self.quark.uploads), 4)
+
+    def test_config_accepts_current_and_existing_repository_names(self):
+        path = self.root / 'config.json'
+        for name in (sync.REPOSITORY, sync.LEGACY_REPOSITORY):
+            with self.subTest(name=name):
+                config = dict(self.config, schema_version=1, repository=name)
+                sync.write_json(path, config)
+                self.assertEqual(sync.load_config(path), config)
+
     def test_corrupt_artifact_never_uploaded(self):
         self.http.contents['LICENSE'] = b'corrupted'
         with self.assertRaises(sync.SyncError):

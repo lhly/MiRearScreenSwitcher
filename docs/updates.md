@@ -1,6 +1,6 @@
 # 下载与更新
 
-在应用的“检查更新”入口检查新版本，也可以从 [GitHub 最新正式版](https://github.com/lhly/MiRearScreenSwitcher/releases/latest) 下载 APK。
+在应用的“检查更新”入口检查新版本，也可以从 [GitHub 最新正式版](https://github.com/lhly/ReMRSS/releases/latest) 下载 APK。
 
 ## 应用内更新
 

@@ -51,7 +51,7 @@ public class AppIdentityTest {
 
     @Test public void updatesUseIsolatedFeedAndRejectLegacyPackageMetadata() {
         assertEquals("top.zainzh.rearscreen", ProjectInfo.RELEASE_PACKAGE);
-        assertEquals("https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json", ProjectInfo.VERSION_MANIFEST);
+        assertEquals("https://raw.githubusercontent.com/lhly/ReMRSS/main/updates/remrss/version.json", ProjectInfo.VERSION_MANIFEST);
         String legacy = ReleaseUpdateCheckerTest.release("v3.4.0")
                 .replace("\"packageName\":\"" + ProjectInfo.RELEASE_PACKAGE + "\"",
                         "\"packageName\":\"com.tgwgroup.MiRearScreenSwitcher.personal\"");

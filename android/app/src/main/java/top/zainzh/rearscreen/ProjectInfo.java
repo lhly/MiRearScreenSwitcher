@@ -3,11 +3,13 @@ package top.zainzh.rearscreen;
 /** Maintainer and source locations for this independent fork. Modified 2026-10-15. */
 final class ProjectInfo {
     static final String MAINTAINER = "冷火凉烟";
-    static final String REPOSITORY = "https://github.com/lhly/MiRearScreenSwitcher";
+    static final String REPOSITORY_NAME = "lhly/ReMRSS";
+    static final String REPOSITORY = "https://github.com/" + REPOSITORY_NAME;
     static final String RELEASES = REPOSITORY + "/releases";
+    static final String LEGACY_RELEASES = "https://github.com/lhly/MiRearScreenSwitcher/releases";
     static final String RELEASE_PACKAGE = "top.zainzh.rearscreen";
     static final String TUTORIAL_SOURCE = "https://docs.qq.com/doc/DVWxpT3hQdHNPR3Zy?dver=";
-    static final String VERSION_MANIFEST = "https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json";
+    static final String VERSION_MANIFEST = "https://raw.githubusercontent.com/" + REPOSITORY_NAME + "/main/updates/remrss/version.json";
 
     static String urlForAction(String action) {
         switch (action) {

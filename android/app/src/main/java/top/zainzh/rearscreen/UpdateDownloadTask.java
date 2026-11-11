@@ -78,8 +78,9 @@ final class UpdateDownloadTask implements AutoCloseable {
 
     private HttpURLConnection openDownload() throws IOException {
         URI next;
-        if (!UpdatePackage.validDownloadUrl(update.url, update.tag)) throw new Failure(Error.NETWORK);
-        try { next = URI.create(update.url); } catch (IllegalArgumentException invalid) { throw new Failure(Error.NETWORK); }
+        String url = UpdatePackage.canonicalDownloadUrl(update.url, update.tag);
+        if (url == null) throw new Failure(Error.NETWORK);
+        try { next = URI.create(url); } catch (IllegalArgumentException invalid) { throw new Failure(Error.NETWORK); }
         for (int redirects = 0; redirects <= 5; redirects++) {
             checkCancelled();
             if (!UpdatePackage.allowedRedirect(next)) throw new Failure(Error.NETWORK);

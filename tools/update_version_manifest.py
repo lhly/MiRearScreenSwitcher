@@ -11,7 +11,7 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from ci_release import PACKAGE_ID, release_metadata
+from ci_release import LEGACY_REPOSITORY, PACKAGE_ID, REPOSITORY, release_metadata
 from release_notes import validate_release_notes
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +152,11 @@ def publish(api, repository, tag, metadata, artifact):
                        'versionCode': int(metadata['build_number']), 'tag': tag})
     release = api('GET', f'/repos/{repository}/releases/tags/{tag}')
     candidate = published_manifest(metadata, tag, release, repository, artifact)
+    if repository == REPOSITORY:
+        # Installed clients before the repository rename require this exact download prefix.
+        # Rewrite only the feed URL, after validating the canonical published attachment.
+        legacy_url = f'https://github.com/{LEGACY_REPOSITORY}/releases/download/{tag}/{metadata["apk_name"]}'
+        candidate = dict(candidate, apk=dict(candidate['apk'], url=legacy_url))
     endpoint = f'/repos/{repository}/contents/{FEED_PATH}'
     for attempt in range(3):
         sha = None

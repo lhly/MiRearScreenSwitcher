@@ -1,6 +1,6 @@
 # 更新日志
 
-以下记录对应各版本发布时的功能与实现，旧界面和旧技术方案仅用于历史追溯。下载成品及对应源码见 [GitHub Releases](https://github.com/lhly/MiRearScreenSwitcher/releases)。
+以下记录对应各版本发布时的功能与实现，旧界面和旧技术方案仅用于历史追溯。下载成品及对应源码见 [GitHub Releases](https://github.com/lhly/ReMRSS/releases)。
 
 ## V4.0.0-rc.4（2026-11-11，预览版）
 

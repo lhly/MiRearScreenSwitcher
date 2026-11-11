@@ -1104,7 +1104,7 @@ class MiuixSettingsUi(
                 }
                 item("project") {
                     AppCard {
-                        AppRow(s("project_repository"), "GitHub · lhly/MiRearScreenSwitcher\n" +
+                        AppRow(s("project_repository"), "GitHub · ${ProjectInfo.REPOSITORY_NAME}\n" +
                             s("project_maintainer").replace("{0}", ProjectInfo.MAINTAINER), action = { actions.action("openProject") })
                         AppDivider()
                         AppRow(s("issue_feedback"), "GitHub Issues", action = { actions.action("openFeedback") })

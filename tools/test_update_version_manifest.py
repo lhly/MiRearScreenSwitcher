@@ -12,11 +12,11 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from ci_release import release_metadata
+from ci_release import LEGACY_REPOSITORY, release_metadata
 from release_notes import format_release_notes
 from update_version_manifest import ApiError, FEED_PATH, GitHubApi, publish, validate_manifest
 
-REPO = 'lhly/MiRearScreenSwitcher'
+REPO = 'lhly/ReMRSS'
 TAG = 'v3.3.2'
 METADATA = release_metadata('versionName=3.3.2\nversionCode=2014\n', TAG)
 CURRENT = {'schemaVersion': 1, 'versionName': '3.3.0', 'versionCode': 2012, 'tag': 'v3.3.0'}
@@ -24,6 +24,8 @@ CANDIDATE = dict(CURRENT, versionName='3.3.2', versionCode=2014, tag=TAG,
                  apk={'url': f'https://github.com/{REPO}/releases/download/{TAG}/ReMRSS-{TAG}.apk',
                       'sha256': '1' * 64, 'size': 123, 'packageName': 'top.zainzh.rearscreen'},
                  releaseNotes={'added': ['Feature'], 'improved': [], 'fixed': []})
+FEED_CANDIDATE = dict(CANDIDATE, apk=dict(CANDIDATE['apk'],
+                    url=CANDIDATE['apk']['url'].replace(REPO, LEGACY_REPOSITORY, 1)))
 NEWER = dict(CANDIDATE, versionName='3.4.0', versionCode=2015, tag='v3.4.0',
              apk=dict(CANDIDATE['apk'], url=f'https://github.com/{REPO}/releases/download/v3.4.0/ReMRSS-v3.4.0.apk'))
 
@@ -83,7 +85,8 @@ class ManifestChecks(unittest.TestCase):
         self.assertTrue(all('/contents/version.json' not in call[1] for call in api.calls))
         self.assertEqual(payload['branch'], 'main')
         self.assertEqual(payload['sha'], 'original-sha')
-        self.assertEqual(json.loads(base64.b64decode(payload['content'])), CANDIDATE)
+        self.assertEqual(json.loads(base64.b64decode(payload['content'])), FEED_CANDIDATE)
+        self.assertEqual(CANDIDATE['apk']['url'], api.release['assets'][0]['browser_download_url'])
 
     def test_rerun_is_idempotent(self):
         api = FakeApi()
@@ -188,6 +191,7 @@ class ManifestChecks(unittest.TestCase):
             return  # The first successful ReMRSS release creates the feed, without a placeholder APK.
         manifest = json.loads((root / FEED_PATH).read_text())
         validate_manifest(manifest, require_apk=True)
+        self.assertTrue(manifest['apk']['url'].startswith(f'https://github.com/{LEGACY_REPOSITORY}/releases/download/'))
         properties = (root / 'version.properties').read_text()
         name = next(line.split('=', 1)[1] for line in properties.splitlines() if line.startswith('versionName='))
         working = release_metadata(properties, 'v' + name)
@@ -249,14 +253,14 @@ class ManifestChecks(unittest.TestCase):
         self.assertEqual(len(api.writes), 1)
 
     def test_same_tag_apk_cannot_change(self):
-        api = FakeApi(); old = copy.deepcopy(CANDIDATE); old['apk']['sha256'] = '2' * 64; api.file = contents(old)
+        api = FakeApi(); old = copy.deepcopy(FEED_CANDIDATE); old['apk']['sha256'] = '2' * 64; api.file = contents(old)
         with self.assertRaisesRegex(ValueError, 'cannot change its APK'):
             publish(api, REPO, TAG, METADATA, CANDIDATE)
         self.assertEqual(api.writes, [])
 
     def test_same_tag_notes_only_completion_never_changes_apk_metadata(self):
         api = FakeApi()
-        legacy_candidate = copy.deepcopy(CANDIDATE)
+        legacy_candidate = copy.deepcopy(FEED_CANDIDATE)
         legacy_candidate.pop('releaseNotes')
         api.file = contents(legacy_candidate)
         self.assertTrue(publish(api, REPO, TAG, METADATA, CANDIDATE))
@@ -266,7 +270,7 @@ class ManifestChecks(unittest.TestCase):
 
     def test_same_tag_existing_notes_cannot_be_changed(self):
         api = FakeApi()
-        existing = copy.deepcopy(CANDIDATE)
+        existing = copy.deepcopy(FEED_CANDIDATE)
         existing['releaseNotes']['added'] = ['Different feature']
         api.file = contents(existing)
         with self.assertRaisesRegex(ValueError, 'cannot change its release notes'):

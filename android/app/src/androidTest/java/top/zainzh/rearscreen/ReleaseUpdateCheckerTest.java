@@ -226,7 +226,7 @@ public class ReleaseUpdateCheckerTest {
     @Test public void transportReadsRawWithoutTokenAndRetainsNetworkBounds() throws Exception {
         FakeConnection connection = new FakeConnection(200, release("v3.4.0").getBytes(java.nio.charset.StandardCharsets.UTF_8));
         ReleaseUpdateChecker.RawManifestFetcher fetcher = new ReleaseUpdateChecker.RawManifestFetcher(url -> {
-            assertEquals("https://raw.githubusercontent.com/lhly/MiRearScreenSwitcher/main/updates/remrss/version.json", url.toString());
+            assertEquals("https://raw.githubusercontent.com/lhly/ReMRSS/main/updates/remrss/version.json", url.toString());
             return connection;
         });
         ReleaseUpdateChecker.Response response = fetcher.fetch();

@@ -31,8 +31,17 @@ final class UpdatePackage {
     }
 
     static boolean validDownloadUrl(String url, String tag) {
-        String prefix = ProjectInfo.RELEASES + "/download/" + tag + "/";
-        return url.startsWith(prefix) && url.substring(prefix.length()).matches("[A-Za-z0-9][A-Za-z0-9._-]{0,150}\\.apk");
+        return canonicalDownloadUrl(url, tag) != null;
+    }
+
+    static String canonicalDownloadUrl(String url, String tag) {
+        String path = "/download/" + tag + "/";
+        String canonicalPrefix = ProjectInfo.RELEASES + path;
+        String legacyPrefix = ProjectInfo.LEGACY_RELEASES + path;
+        String prefix = url.startsWith(canonicalPrefix) ? canonicalPrefix : legacyPrefix;
+        if (!url.startsWith(prefix)) return null;
+        String name = url.substring(prefix.length());
+        return name.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,150}\\.apk") ? canonicalPrefix + name : null;
     }
 
     static boolean allowedRedirect(URI uri) {
