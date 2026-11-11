@@ -52,3 +52,8 @@ progress.md
 
 # Local generated code-count reports
 /.VSCodeCounter/
+
+# Maintainer-only Quark release mirroring
+/tools/quark_release_job.py
+/tools/quark_release_sync.py
+/tools/test_quark_release_sync.py
